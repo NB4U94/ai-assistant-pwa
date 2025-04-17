@@ -1,6 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
-// Import the ChatView component we created
+// Import all the view components
 import ChatView from '../views/ChatView.vue'
+import ImageGenView from '../views/ImageGenView.vue' // Added
+import AssistantsView from '../views/AssistantsView.vue' // Added
+import SettingsView from '../views/SettingsView.vue' // Added
 
 const router = createRouter({
   // Use createWebHistory for standard URLs (without '#' hash)
@@ -8,15 +11,30 @@ const router = createRouter({
   // Define the application routes
   routes: [
     {
-      // When the user visits the root path ('/')
+      // Chat View (Home)
       path: '/',
-      // Give the route a unique name
-      name: 'chat', // Changed from 'home'
-      // Load the ChatView component
-      component: ChatView // Changed from HomeView
+      name: 'chat',
+      component: ChatView
     },
-    // We removed the default '/about' route for now.
-    // We can add routes for other views (Image Gen, Assistants, Settings) here later.
+    {
+      // Image Gen View
+      path: '/image-gen', // Matches link in LeftSidebar
+      name: 'image-gen',
+      component: ImageGenView // Use the imported component
+    },
+    {
+      // Assistants View
+      path: '/assistants', // Matches link in LeftSidebar
+      name: 'assistants',
+      component: AssistantsView // Use the imported component
+    },
+    {
+      // Settings View
+      path: '/settings', // Matches link in LeftSidebar
+      name: 'settings',
+      component: SettingsView // Use the imported component
+    }
+    // We can add more routes later if needed
   ]
 })
 
