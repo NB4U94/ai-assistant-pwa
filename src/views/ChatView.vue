@@ -20,8 +20,15 @@
           AI is thinking...
         </p>
       </div>
+  
+      <div v-if="selectedImagePreview" class="image-preview-area">
+          <img :src="selectedImagePreview" alt="Selected image preview" class="image-preview" />
+          <button @click="removeSelectedImage" class="remove-image-button" title="Remove image">✖</button>
+      </div>
+  
       <div class="input-area">
-         <button class="icon-button" aria-label="Attach file" title="Attach file (Not implemented)">
+         <input type="file" ref="fileInputRef" @change="handleFileSelected" accept="image/*" style="display: none;" />
+         <button @click="triggerFileInput" class="icon-button" aria-label="Attach image" title="Attach image">
            📎
          </button>
          <button class="icon-button" aria-label="Use voice input" title="Use voice input (Not implemented)">
@@ -51,31 +58,33 @@
   // --- Configuration ---
   // 🚨🚨🚨 WARNING: Replace with your NEW, PRIVATE key for LOCAL TESTING ONLY.
   // 🚨🚨🚨 DO NOT COMMIT YOUR REAL API KEY TO GIT!
-  const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
-  const MODEL_NAME = 'gemini-1.5-flash';
+  const GEMINI_API_KEY = 'YOUR API KEY HERE';
+  const MODEL_NAME = 'gemini-1.5-flash'; // Ensure this model supports multimodal input
   // ---------------------
   
   // --- Refs ---
   const messageAreaRef = ref(null);
   const inputAreaRef = ref(null);
   const sendButtonRef = ref(null);
+  const fileInputRef = ref(null);
   
   // --- Reactive State ---
   const userInput = ref('');
-  const messages = ref([]); // Now stores objects like { id, text, sender, timestamp }
+  const messages = ref([]);
   const isLoading = ref(false);
   const isTtsEnabled = ref(false);
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
+  const selectedImagePreview = ref(null); // Holds the data URL for image preview
+  const selectedFile = ref(null); // Holds the actual File object
   
   // --- Animated Placeholder ---
   const placeholders = [
     "Type your message here...",
     "Ask me anything...",
+    "Attach an image and ask about it...",
     "Write a story about a dragon...",
     "Explain quantum physics simply...",
-    "Give me a recipe for chocolate cake...",
-    "Translate 'hello' to Spanish...",
   ];
   const currentPlaceholder = ref(placeholders[0]);
   let placeholderInterval = null;
@@ -84,7 +93,11 @@
     let placeholderIndex = 0;
     placeholderInterval = setInterval(() => {
       placeholderIndex = (placeholderIndex + 1) % placeholders.length;
-      currentPlaceholder.value = placeholders[placeholderIndex];
+      if (!userInput.value && !selectedImagePreview.value) {
+           currentPlaceholder.value = placeholders[placeholderIndex];
+      } else if (!selectedImagePreview.value) {
+          currentPlaceholder.value = placeholders[0];
+      }
     }, 3000);
   });
   
@@ -95,6 +108,81 @@
     }
   });
   // ---------------------------
+  
+  // --- File Input Handling ---
+  const triggerFileInput = () => {
+      fileInputRef.value?.click();
+  };
+  
+  // Helper function to read file as base64 (returns a Promise)
+  const readFileAsBase64 = (file) => {
+      return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+              // Result includes the prefix "data:image/jpeg;base64,"
+              // The API expects only the pure base64 part
+              const base64String = reader.result.split(',')[1];
+              resolve({
+                  base64Data: base64String,
+                  mimeType: file.type // Get MIME type from the file object
+              });
+          };
+          reader.onerror = (error) => reject(error);
+          reader.readAsDataURL(file);
+      });
+  };
+  
+  
+  const handleFileSelected = async (event) => { // Make async to handle await if needed later
+      const file = event.target.files?.[0];
+      if (!file) {
+          removeSelectedImage();
+          return;
+      }
+  
+      if (!file.type.startsWith('image/')) {
+          addMessage(`Selected file (${file.name}) is not an image.`, 'System');
+          removeSelectedImage();
+          return;
+      }
+  
+      const maxSizeMB = 4; // Gemini API limit for inline data
+      const maxSizeBytes = maxSizeMB * 1024 * 1024;
+      if (file.size > maxSizeBytes) {
+          addMessage(`Image file (${file.name}) is too large (>${maxSizeMB}MB).`, 'System');
+          removeSelectedImage();
+          return;
+      }
+  
+      selectedFile.value = file; // Store the File object
+  
+      // Generate preview immediately (doesn't need await)
+      const reader = new FileReader();
+      reader.onload = (e) => {
+          selectedImagePreview.value = e.target?.result;
+          currentPlaceholder.value = "Image selected. Add a message or send.";
+      };
+      reader.onerror = (e) => {
+          console.error("FileReader error for preview:", e);
+          addMessage("Error reading image for preview.", 'System');
+          removeSelectedImage();
+      };
+      reader.readAsDataURL(file);
+  
+      event.target.value = null; // Reset input
+  };
+  
+  const removeSelectedImage = () => {
+      selectedImagePreview.value = null;
+      selectedFile.value = null;
+      if (fileInputRef.value) {
+          fileInputRef.value.value = null;
+      }
+      if (!userInput.value) {
+          currentPlaceholder.value = placeholders[0];
+      }
+  };
+  // -------------------------
   
   // --- Textarea Auto-Grow ---
   const autoGrowTextarea = (event) => {
@@ -126,7 +214,6 @@
     if (!isTtsEnabled.value) {
         synth.cancel();
     }
-    console.log("TTS Enabled:", isTtsEnabled.value);
   };
   // -----------------------------
   
@@ -134,24 +221,19 @@
   const formatTimestamp = (timestamp) => {
       if (!timestamp) return '';
       const date = new Date(timestamp);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }); // e.g., 10:30 AM
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   }
   // --------------------------
   
   // --- Copy to Clipboard ---
   const copyText = async (textToCopy) => {
       if (!navigator.clipboard) {
-          console.warn("Clipboard API not available.");
-          addMessage("Cannot copy text: Clipboard API not supported or not available in this context (e.g., non-HTTPS).", 'System');
+          addMessage("Cannot copy text: Clipboard API not supported or not available.", 'System');
           return;
       }
       try {
           await navigator.clipboard.writeText(textToCopy);
-          // Optional: Show a temporary success message or change button appearance
           console.log("Text copied to clipboard!");
-          // Example: Briefly change button text (requires making button state reactive)
-          // copyButtonText.value = 'Copied!';
-          // setTimeout(() => { copyButtonText.value = '📋'; }, 1500);
       } catch (err) {
           console.error('Failed to copy text: ', err);
           addMessage(`Failed to copy: ${err.message}`, 'System');
@@ -169,53 +251,95 @@
     });
   };
   
-  const addMessage = (text, sender = 'User') => {
-    if (sender === 'AI' && text === 'AI is thinking...' && messages.value.some(msg => msg.text === 'AI is thinking...')) return;
-    if (typeof text !== 'string' || text.trim() === '') {
-      console.warn("Attempted to add an empty message.");
-      return;
-    }
-    let messageText = text;
-    let messageSender = sender;
-    if (typeof text === 'object' && text !== null && text.error === true) {
-        messageText = text.text;
-        messageSender = 'System';
-    }
+  const addMessage = (payload, sender = 'User') => {
+      let messageText = '';
+      let messageSender = sender;
+      let isError = false;
   
-    const newMessage = {
-      id: Date.now() + Math.random(),
-      text: messageText.trim(),
-      sender: messageSender,
-      timestamp: Date.now() // Add timestamp when message is created
-    };
-    messages.value.push(newMessage);
-    scrollToBottom(); // Scroll after adding any message
+      if (typeof payload === 'string') {
+          messageText = payload;
+      } else if (typeof payload === 'object' && payload !== null && payload.error === true) {
+          messageText = payload.text;
+          messageSender = 'System';
+          isError = true;
+      } else {
+          console.warn("Attempted to add message with invalid payload:", payload);
+          return;
+      }
   
-    // Speak only actual AI responses, not system errors or thinking messages
-    if (messageSender === 'AI' && isTtsEnabled.value) {
-      speakText(newMessage.text);
-    }
+      if (messageText.trim() === '') {
+          console.warn("Attempted to add an empty message.");
+          return;
+      }
+      if (messageSender === 'AI' && messageText === 'AI is thinking...' && messages.value.some(msg => msg.text === 'AI is thinking...')) {
+          return;
+      }
+  
+      const newMessage = {
+          id: Date.now() + Math.random(),
+          text: messageText.trim(),
+          sender: messageSender,
+          timestamp: Date.now()
+      };
+      messages.value.push(newMessage);
+      scrollToBottom();
+  
+      if (messageSender === 'AI' && !isError && isTtsEnabled.value) {
+          speakText(newMessage.text);
+      }
   };
   // -----------------------
   
   // --- API Call Logic ---
   const chatHistoryForApi = computed(() => {
+    // Exclude non-API messages from history
     return messages.value
-      .filter(msg => msg.text !== 'AI is thinking...' && msg.sender !== 'System')
+      .filter(msg => msg.sender === 'User' || msg.sender === 'AI') // Only include User and AI messages
       .map(msg => ({
         role: msg.sender === 'User' ? 'user' : 'model',
         parts: [{ text: msg.text }]
+        // Note: This history currently doesn't include images sent in previous turns.
+        // Handling multi-turn multimodal history is more complex.
       }));
   });
   
-  const callGeminiApi = async (inputText) => {
+  // Function to call the Gemini API (handles both text and image)
+  const callGeminiApi = async (inputText, imageFile) => {
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
-    const history = chatHistoryForApi.value;
+    const history = chatHistoryForApi.value; // Get current text history
+  
+    let requestParts = [];
+  
+    // Add text part if present
+    if (inputText.trim() !== '') {
+        requestParts.push({ text: inputText });
+    }
+  
+    // Add image part if present
+    if (imageFile) {
+        try {
+            // Read the image file as base64 *within* the function call
+            const { base64Data, mimeType } = await readFileAsBase64(imageFile);
+            requestParts.push({
+                inlineData: {
+                    mimeType: mimeType,
+                    data: base64Data
+                }
+            });
+            console.log("Image added to request parts. MIME type:", mimeType);
+        } catch (error) {
+            console.error("Error reading image file for API:", error);
+            return { error: true, text: "Error processing image file before sending." };
+        }
+    }
+  
+    // Construct the final request body
     const requestBody = {
-      contents: [ ...history, { role: 'user', parts: [{ text: inputText }] } ]
+        // Combine history with the new user turn (which includes text and/or image)
+        contents: [ ...history, { role: 'user', parts: requestParts } ]
     };
   
-    console.log("Sending to API:", JSON.stringify(requestBody, null, 2));
+    console.log("Sending to API:", JSON.stringify(requestBody, null, 2)); // Careful: might log base64 data
   
     try {
       const response = await fetch(API_URL, {
@@ -242,7 +366,7 @@
           if (candidate.content?.parts?.length > 0) {
               const aiText = candidate.content.parts[0].text;
                if (typeof aiText === 'string') {
-                  return aiText;
+                  return aiText; // Success case
               }
           }
           console.warn("API response finished with STOP but no valid text content found.", responseData);
@@ -274,35 +398,60 @@
   // --- Send Message Action ---
   const sendMessage = async () => {
     const currentInput = userInput.value;
-    if (currentInput.trim() === '' || isLoading.value) return;
+    const currentFile = selectedFile.value; // Get the selected file
+  
+    // Require text input OR an image to send
+    if ((currentInput.trim() === '' && !currentFile) || isLoading.value) {
+        return;
+    }
   
     triggerSendFlash();
   
-    addMessage(currentInput, 'User');
-    const textToSend = currentInput;
+    // Add user message representation
+    // If image is present, maybe indicate that in the text message?
+    let userMessageText = currentInput.trim();
+    if (currentFile && userMessageText === '') {
+        userMessageText = `[Image: ${currentFile.name}]`; // Placeholder text if only image
+    } else if (currentFile) {
+        userMessageText = `${userMessageText} [Image attached]`; // Append if text also present
+    }
+    addMessage(userMessageText, 'User');
+  
+    const textToSend = currentInput; // Keep original text for API
+    const imageToSend = currentFile; // Keep file for API
+  
+    // Clear inputs *after* capturing values for the API call
     userInput.value = '';
+    // Clear the image preview and file state *before* the API call starts loading
+    // This prevents sending the same image twice if user clicks send quickly
+    removeSelectedImage();
+  
     nextTick(() => {
         if(inputAreaRef.value) {
             inputAreaRef.value.style.height = 'auto';
             autoGrowTextarea({ target: inputAreaRef.value });
         }
+        // Ensure placeholder resets correctly after clearing image
+        currentPlaceholder.value = placeholders[0];
     });
   
   
     isLoading.value = true;
     addMessage('AI is thinking...', 'AI');
   
-    const aiResponse = await callGeminiApi(textToSend);
+    // Call the API with both text and potentially an image file
+    const aiResponse = await callGeminiApi(textToSend, imageToSend);
   
     const thinkingIndex = messages.value.findIndex(msg => msg.text === 'AI is thinking...');
     if (thinkingIndex !== -1) {
       messages.value.splice(thinkingIndex, 1);
     }
   
-    addMessage(aiResponse, 'AI');
+    addMessage(aiResponse, 'AI'); // Handles string or error object
   
     isLoading.value = false;
   
+    // Refocus input after everything is done
     nextTick(() => {
       inputAreaRef.value?.focus();
     });
@@ -370,6 +519,7 @@
       font-weight: bold;
       font-size: 0.9em;
       flex-shrink: 0;
+      margin-top: 4px; /* Align avatar slightly lower */
       margin-right: 0.5rem; /* Space between avatar and bubble (AI/System) */
   }
   .user-container .avatar-placeholder {
@@ -387,15 +537,13 @@
   
   
   .message {
-    /* Remove margin-bottom as it's on container now */
-    padding: 0.6rem 1.0rem; /* Adjusted padding */
-    border-radius: 18px; /* More rounded bubbles */
-    /* max-width removed, handled by container */
-    word-wrap: break-word; /* Wrap long words */
+    padding: 0.6rem 1.0rem;
+    border-radius: 18px;
+    word-wrap: break-word;
     font-family: sans-serif;
-    line-height: 1.45; /* Slightly more line spacing */
-    position: relative; /* Needed for absolute positioning of timestamp/copy */
-    min-width: 50px; /* Ensure very short messages have some width */
+    line-height: 1.45;
+    position: relative;
+    min-width: 50px;
   }
   
   
@@ -417,38 +565,37 @@
   .system-message {
       background-color: #ffebee; /* Light red background for errors */
       color: #c62828; /* Darker red text */
-      /* align-self: center; Handled by container */
       width: 100%; /* Take full width of container */
       text-align: center;
       font-style: italic;
       font-size: 0.9em;
       border: 1px dashed #ffcdd2;
-      border-radius: 8px; /* Match other messages */
-      padding-top: 0.8rem; /* More padding for centered text */
+      border-radius: 8px;
+      padding-top: 0.8rem;
       padding-bottom: 0.8rem;
   }
   
   /* Timestamp Styling */
   .timestamp {
-      display: block; /* Put timestamp on new line */
+      display: block;
       font-size: 0.7em;
-      color: #999; /* Lighter grey for timestamp */
+      color: #999;
       margin-top: 0.3rem;
-      text-align: right; /* Align timestamp to the right within the bubble */
+      text-align: right;
   }
   .user-message .timestamp {
-      color: #c0d8ff; /* Lighter blue for user timestamp */
+      color: #c0d8ff;
   }
   .ai-message .timestamp {
-      color: #777; /* Darker grey for AI timestamp */
+      color: #777;
   }
   
   /* Copy Button Styling */
   .copy-button {
-      position: absolute; /* Position relative to message bubble */
-      bottom: -5px; /* Adjust position */
-      right: -10px; /* Adjust position */
-      background-color: #f0f0f0;
+      position: absolute;
+      bottom: -5px;
+      right: -10px;
+      background-color: rgba(240, 240, 240, 0.8); /* Slightly transparent */
       border: 1px solid #ccc;
       border-radius: 50%;
       width: 24px;
@@ -458,15 +605,16 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      opacity: 0; /* Hidden by default */
+      opacity: 0;
       transition: opacity 0.2s ease, background-color 0.2s ease;
-      z-index: 1; /* Ensure it's clickable */
+      z-index: 1;
   }
-  .message:hover .copy-button {
-      opacity: 1; /* Show on hover */
+  /* Show copy button when message container is hovered */
+  .message-container:hover .copy-button {
+      opacity: 1;
   }
   .copy-button:hover {
-      background-color: #e0e0e0;
+      background-color: rgba(224, 224, 224, 0.9); /* Less transparent on hover */
   }
   
   
@@ -475,132 +623,166 @@
     font-style: italic;
     font-family: sans-serif;
     text-align: center;
-    margin: 2rem auto; /* Center vertically and horizontally */
+    margin: 2rem auto;
   }
   
   .loading-indicator {
     color: #555;
     font-style: normal;
-     /* Simple pulsing animation */
     animation: pulse 1.5s infinite ease-in-out;
   }
   
-  /* Loading animation */
   @keyframes pulse {
     0%, 100% { opacity: 0.6; }
     50% { opacity: 1; }
   }
   
-  
-  .input-area {
-    display: flex; /* Arrange input and button side-by-side */
-    align-items: flex-end; /* Align items to bottom */
-    padding: 0.75rem;
-    border-top: 1px solid #ccc; /* Separator line */
-    background-color: #f0f0f0; /* Light grey for input area */
-    flex-shrink: 0; /* Prevent input area from shrinking */
-    gap: 0.5rem; /* Add gap between elements */
+  /* Image Preview Area Styling */
+  .image-preview-area {
+      padding: 0.5rem 0.75rem 0.5rem; /* Add padding bottom */
+      margin: 0 0.75rem; /* Match input area horizontal padding */
+      background-color: #e0e0e0; /* Slightly different background */
+      border: 1px solid #ccc;
+      border-bottom: none; /* Remove bottom border */
+      border-radius: 8px 8px 0 0; /* Round top corners */
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+  }
+  .image-preview {
+      max-height: 50px; /* Slightly smaller preview */
+      max-width: 80px;
+      border-radius: 4px;
+      border: 1px solid #b0b0b0;
+      object-fit: cover;
+  }
+  .remove-image-button {
+      background: rgba(0, 0, 0, 0.5);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-size: 0.8em;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+  }
+  .remove-image-button:hover {
+      background: rgba(0, 0, 0, 0.7);
   }
   
+  
+  .input-area {
+    display: flex;
+    align-items: flex-end;
+    padding: 0.75rem;
+    border-top: 1px solid #ccc;
+    background-color: #f0f0f0;
+    flex-shrink: 0;
+    gap: 0.5rem;
+     /* Adjust border radius if preview area is shown */
+    border-radius: 0 0 8px 8px; /* Match preview area */
+  }
+  /* Adjust border radius if preview is NOT shown */
+  .input-area:not(:has(+ .image-preview-area)) { /* Rough approximation */
+       border-radius: 8px; /* Standard radius if no preview */
+  }
+  
+  
   .input-area textarea {
-    flex-grow: 1; /* Input takes up available space */
+    flex-grow: 1;
     padding: 0.5rem 0.75rem;
     border: 1px solid #ccc;
-    border-radius: 15px; /* More rounded input */
-    resize: none; /* Prevent manual resizing */
+    border-radius: 15px;
+    resize: none;
     font-family: sans-serif;
     font-size: 1em;
-    min-height: 40px; /* Ensure minimum height matches buttons */
-    max-height: 150px; /* Limit max height before scrolling */
-    overflow-y: auto; /* Allow scrolling within textarea */
+    min-height: 40px;
+    max-height: 150px;
+    overflow-y: auto;
     line-height: 1.4;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
   .input-area textarea:focus {
       outline: none;
-      border-color: #0b57d0; /* Google blue on focus */
-      box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.2); /* Subtle glow on focus */
+      border-color: #0b57d0;
+      box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.2);
   }
-  
-  
   .input-area textarea:disabled {
     background-color: #e0e0e0;
     cursor: not-allowed;
   }
   
-  /* Base style for all buttons in input area */
   .input-area button {
-    padding: 0.5rem; /* Consistent padding */
+    padding: 0.5rem;
     border: none;
-    border-radius: 50%; /* Make icon buttons circular */
+    border-radius: 50%;
     cursor: pointer;
-    min-height: 40px; /* Match textarea min height */
-    min-width: 40px; /* Make circular */
+    min-height: 40px;
+    min-width: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.2em; /* Slightly larger icons */
-    flex-shrink: 0; /* Prevent buttons from shrinking */
-    transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.1s ease; /* Added transform */
+    font-size: 1.2em;
+    flex-shrink: 0;
+    transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.1s ease;
   }
   .input-area button:disabled {
     cursor: not-allowed;
     opacity: 0.6;
   }
   .input-area button:active:not(:disabled) {
-      transform: scale(0.95); /* Slight shrink on click */
+      transform: scale(0.95);
   }
   
-  
-  /* Specific styles for icon buttons */
   .icon-button {
-      background-color: #d1d1d1; /* Neutral grey */
+      background-color: #d1d1d1;
       color: #333;
   }
   .icon-button:hover:not(:disabled) {
-      background-color: #c0c0c0; /* Slightly darker grey */
+      background-color: #c0c0c0;
   }
   .icon-button:disabled {
       background-color: #e0e0e0;
   }
   
-  
-  /* Specific styles for Send button */
   .send-button {
-    background-color: #0b57d0; /* Google blue */
+    background-color: #0b57d0;
     color: white;
-    border-radius: 15px; /* Keep rounded rectangle */
-    padding: 0.5rem 1rem; /* Restore original padding */
+    border-radius: 15px;
+    padding: 0.5rem 1rem;
     font-size: 1em;
     font-weight: 500;
-    min-width: auto; /* Allow width to adjust */
+    min-width: auto;
   }
   .send-button:hover:not(:disabled) {
-    background-color: #0a4cb0; /* Darker Google blue */
+    background-color: #0a4cb0;
   }
   .send-button:disabled {
     background-color: #a0a0a0;
   }
-  /* Flash animation for send button */
   .send-button.flash-active {
       animation: flash-animation 0.3s ease-out;
   }
   
   @keyframes flash-animation {
       0% { transform: scale(1); background-color: #0b57d0; }
-      50% { transform: scale(1.1); background-color: #8ec5fc; } /* Flash color */
+      50% { transform: scale(1.1); background-color: #8ec5fc; }
       100% { transform: scale(1); background-color: #0b57d0; }
   }
   
-  
-  /* Specific styles for TTS button */
   .tts-button {
-    background-color: #e0e0e0; /* Default grey */
+    background-color: #e0e0e0;
     color: #333;
-    font-size: 1.1em; /* Adjust icon size if needed */
+    font-size: 1.1em;
   }
   .tts-button.tts-on {
-    background-color: #66bb6a; /* Green when ON */
+    background-color: #66bb6a;
     color: white;
   }
   .tts-button:hover:not(.tts-on):not(:disabled) {
