@@ -1,8 +1,17 @@
 <template>
     <div class="chat-view">
       <div class="message-display-area" ref="messageAreaRef">
-         <div v-for="message in messages" :key="message.id" :class="['message', message.sender === 'User' ? 'user-message' : (message.sender === 'AI' ? 'ai-message' : 'system-message')]">
-          <span class="message-text">{{ message.text }}</span>
+         <div v-for="message in messages" :key="message.id" :class="['message-container', message.sender === 'User' ? 'user-container' : 'ai-container']">
+          <div class="avatar-placeholder" :title="message.sender">
+            {{ message.sender === 'User' ? 'U' : 'AI' }}
+          </div>
+          <div :class="['message', message.sender === 'User' ? 'user-message' : (message.sender === 'AI' ? 'ai-message' : 'system-message')]">
+            <span class="message-text">{{ message.text }}</span>
+            <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
+            <button v-if="message.sender === 'AI'" @click="copyText(message.text)" class="copy-button" title="Copy response">
+              📋
+            </button>
+          </div>
         </div>
         <p v-if="messages.length === 0 && !isLoading" class="placeholder-message">
           No messages yet. Start the conversation!
@@ -21,14 +30,13 @@
         <textarea
           ref="inputAreaRef"
           v-model="userInput"
-          placeholder="Type your message here..."
-          rows="1"
+          :placeholder="currentPlaceholder" rows="1"
           @input="autoGrowTextarea"
           @keydown.enter.prevent="sendMessage"
           :disabled="isLoading"
           aria-label="Chat message input"
         ></textarea>
-        <button @click="sendMessage" :disabled="isLoading" aria-label="Send message" class="send-button">Send</button>
+        <button ref="sendButtonRef" @click="sendMessage" :disabled="isLoading" aria-label="Send message" class="send-button">Send</button>
         <button @click="toggleTts" :class="['tts-button', isTtsEnabled ? 'tts-on' : 'tts-off']" :aria-pressed="isTtsEnabled" aria-label="Toggle text to speech">
           <span v-if="isTtsEnabled" title="Speech ON">🔊</span>
           <span v-else title="Speech OFF">🔇</span>
@@ -38,34 +46,61 @@
   </template>
   
   <script setup>
-  import { ref, nextTick, computed, onUnmounted } from 'vue';
+  import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
   
   // --- Configuration ---
   // 🚨🚨🚨 WARNING: Replace with your NEW, PRIVATE key for LOCAL TESTING ONLY.
   // 🚨🚨🚨 DO NOT COMMIT YOUR REAL API KEY TO GIT!
   const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
-  // You can change the model name if needed (e.g., 'gemini-pro')
   const MODEL_NAME = 'gemini-1.5-flash';
   // ---------------------
   
-  // Template refs
+  // --- Refs ---
   const messageAreaRef = ref(null);
   const inputAreaRef = ref(null);
+  const sendButtonRef = ref(null);
   
-  // Reactive variables
+  // --- Reactive State ---
   const userInput = ref('');
-  const messages = ref([]);
+  const messages = ref([]); // Now stores objects like { id, text, sender, timestamp }
   const isLoading = ref(false);
   const isTtsEnabled = ref(false);
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
   
+  // --- Animated Placeholder ---
+  const placeholders = [
+    "Type your message here...",
+    "Ask me anything...",
+    "Write a story about a dragon...",
+    "Explain quantum physics simply...",
+    "Give me a recipe for chocolate cake...",
+    "Translate 'hello' to Spanish...",
+  ];
+  const currentPlaceholder = ref(placeholders[0]);
+  let placeholderInterval = null;
+  
+  onMounted(() => {
+    let placeholderIndex = 0;
+    placeholderInterval = setInterval(() => {
+      placeholderIndex = (placeholderIndex + 1) % placeholders.length;
+      currentPlaceholder.value = placeholders[placeholderIndex];
+    }, 3000);
+  });
+  
+  onUnmounted(() => {
+    clearInterval(placeholderInterval);
+    if (synth) {
+        synth.cancel();
+    }
+  });
+  // ---------------------------
+  
   // --- Textarea Auto-Grow ---
   const autoGrowTextarea = (event) => {
     const textarea = event.target;
-    textarea.style.height = 'auto'; // Reset height
-    // Set height based on scroll height, up to a max
-    const maxHeight = 150; // Match max-height in CSS
+    textarea.style.height = 'auto';
+    const maxHeight = 150;
     textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
   };
   // -------------------------
@@ -93,13 +128,36 @@
     }
     console.log("TTS Enabled:", isTtsEnabled.value);
   };
-  
-  onUnmounted(() => {
-      if (synth) {
-          synth.cancel();
-      }
-  });
   // -----------------------------
+  
+  // --- Timestamp Formatting ---
+  const formatTimestamp = (timestamp) => {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }); // e.g., 10:30 AM
+  }
+  // --------------------------
+  
+  // --- Copy to Clipboard ---
+  const copyText = async (textToCopy) => {
+      if (!navigator.clipboard) {
+          console.warn("Clipboard API not available.");
+          addMessage("Cannot copy text: Clipboard API not supported or not available in this context (e.g., non-HTTPS).", 'System');
+          return;
+      }
+      try {
+          await navigator.clipboard.writeText(textToCopy);
+          // Optional: Show a temporary success message or change button appearance
+          console.log("Text copied to clipboard!");
+          // Example: Briefly change button text (requires making button state reactive)
+          // copyButtonText.value = 'Copied!';
+          // setTimeout(() => { copyButtonText.value = '📋'; }, 1500);
+      } catch (err) {
+          console.error('Failed to copy text: ', err);
+          addMessage(`Failed to copy: ${err.message}`, 'System');
+      }
+  };
+  // -------------------------
   
   // --- Message Handling ---
   const scrollToBottom = () => {
@@ -117,27 +175,28 @@
       console.warn("Attempted to add an empty message.");
       return;
     }
-    // Check if the input is an error object from our API call
     let messageText = text;
     let messageSender = sender;
     if (typeof text === 'object' && text !== null && text.error === true) {
-        messageText = text.text; // Use the text from the error object
-        messageSender = 'System'; // Set sender to System for errors
+        messageText = text.text;
+        messageSender = 'System';
     }
   
     const newMessage = {
       id: Date.now() + Math.random(),
       text: messageText.trim(),
-      sender: messageSender
+      sender: messageSender,
+      timestamp: Date.now() // Add timestamp when message is created
     };
     messages.value.push(newMessage);
-    scrollToBottom();
+    scrollToBottom(); // Scroll after adding any message
   
     // Speak only actual AI responses, not system errors or thinking messages
     if (messageSender === 'AI' && isTtsEnabled.value) {
       speakText(newMessage.text);
     }
   };
+  // -----------------------
   
   // --- API Call Logic ---
   const chatHistoryForApi = computed(() => {
@@ -151,7 +210,7 @@
   
   const callGeminiApi = async (inputText) => {
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
-    const history = chatHistoryForApi.value; // Get history *before* adding current input
+    const history = chatHistoryForApi.value;
     const requestBody = {
       contents: [ ...history, { role: 'user', parts: [{ text: inputText }] } ]
     };
@@ -165,7 +224,7 @@
         body: JSON.stringify(requestBody),
       });
   
-      const responseData = await response.json(); // Always try to parse JSON
+      const responseData = await response.json();
       console.log("Received from API:", JSON.stringify(responseData, null, 2));
   
       if (!response.ok) {
@@ -178,17 +237,16 @@
           if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
                console.warn(`Response stopped due to: ${candidate.finishReason}`);
                const safetyFeedback = candidate.safetyRatings ? ` Safety ratings: ${JSON.stringify(candidate.safetyRatings)}` : '';
-               // Return error object for system message styling
                return { error: true, text: `My response was blocked due to: ${candidate.finishReason}.${safetyFeedback}`};
           }
           if (candidate.content?.parts?.length > 0) {
               const aiText = candidate.content.parts[0].text;
                if (typeof aiText === 'string') {
-                  return aiText; // Success case
+                  return aiText;
               }
           }
           console.warn("API response finished with STOP but no valid text content found.", responseData);
-          return { error: true, text: "[No text content received from AI]" }; // Return error object
+          return { error: true, text: "[No text content received from AI]" };
       }
   
       console.error('No valid candidates found in API response:', responseData);
@@ -196,24 +254,37 @@
   
     } catch (error) {
       console.error('Error calling Gemini API:', error);
-      // Return error object for system message styling
       return { error: true, text: `Error: ${error.message}` };
     }
   };
   // -----------------------
+  
+  // --- Send Button Flash Animation ---
+  const triggerSendFlash = () => {
+      const button = sendButtonRef.value;
+      if (button) {
+          button.classList.add('flash-active');
+          setTimeout(() => {
+              button.classList.remove('flash-active');
+          }, 300);
+      }
+  };
+  // -------------------------------
   
   // --- Send Message Action ---
   const sendMessage = async () => {
     const currentInput = userInput.value;
     if (currentInput.trim() === '' || isLoading.value) return;
   
+    triggerSendFlash();
+  
     addMessage(currentInput, 'User');
     const textToSend = currentInput;
     userInput.value = '';
-    // Reset textarea height after sending
     nextTick(() => {
         if(inputAreaRef.value) {
             inputAreaRef.value.style.height = 'auto';
+            autoGrowTextarea({ target: inputAreaRef.value });
         }
     });
   
@@ -221,15 +292,14 @@
     isLoading.value = true;
     addMessage('AI is thinking...', 'AI');
   
-    const aiResponse = await callGeminiApi(textToSend); // aiResponse can be string or {error: true, text: ...}
+    const aiResponse = await callGeminiApi(textToSend);
   
     const thinkingIndex = messages.value.findIndex(msg => msg.text === 'AI is thinking...');
     if (thinkingIndex !== -1) {
       messages.value.splice(thinkingIndex, 1);
     }
   
-    // Add the actual AI response or the error object
-    addMessage(aiResponse, 'AI'); // addMessage will handle if it's an error object
+    addMessage(aiResponse, 'AI');
   
     isLoading.value = false;
   
@@ -260,21 +330,27 @@
     flex-direction: column; /* Stack messages vertically */
   }
   
-  .message {
-    margin-bottom: 0.75rem;
-    padding: 0.6rem 0.9rem; /* Adjusted padding */
-    border-radius: 12px; /* Slightly more rounded */
-    max-width: 80%; /* Prevent messages from taking full width */
-    word-wrap: break-word; /* Wrap long words */
-    font-family: sans-serif;
-    line-height: 1.4;
-    /* Add transition for smoother appearance */
-    opacity: 0;
-    transform: translateY(10px);
-    animation: fadeIn 0.3s ease forwards;
+  /* Container for avatar + message bubble */
+  .message-container {
+      display: flex;
+      margin-bottom: 0.75rem;
+      max-width: 85%; /* Container max width */
+      opacity: 0; /* Start hidden for animation */
+      transform: translateY(10px);
+      animation: fadeIn 0.3s ease forwards;
+  }
+  .user-container {
+      align-self: flex-end;
+      margin-left: auto;
+      flex-direction: row-reverse; /* Avatar on the right */
+  }
+  .ai-container, .system-container { /* System messages also align left */
+      align-self: flex-start;
+      margin-right: auto;
+      flex-direction: row; /* Avatar on the left */
   }
   
-  /* Animation for message appearance */
+  /* Animation for message container appearance */
   @keyframes fadeIn {
     to {
       opacity: 1;
@@ -282,36 +358,115 @@
     }
   }
   
+  .avatar-placeholder {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background-color: #ccc;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 0.9em;
+      flex-shrink: 0;
+      margin-right: 0.5rem; /* Space between avatar and bubble (AI/System) */
+  }
+  .user-container .avatar-placeholder {
+      margin-right: 0; /* Remove right margin for user */
+      margin-left: 0.5rem; /* Add left margin for user */
+      background-color: #0b57d0; /* Match user bubble */
+  }
+  .ai-container .avatar-placeholder {
+      background-color: #757575; /* Grey for AI */
+  }
+  /* Hide avatar for system messages */
+  .system-container .avatar-placeholder {
+      display: none;
+  }
+  
+  
+  .message {
+    /* Remove margin-bottom as it's on container now */
+    padding: 0.6rem 1.0rem; /* Adjusted padding */
+    border-radius: 18px; /* More rounded bubbles */
+    /* max-width removed, handled by container */
+    word-wrap: break-word; /* Wrap long words */
+    font-family: sans-serif;
+    line-height: 1.45; /* Slightly more line spacing */
+    position: relative; /* Needed for absolute positioning of timestamp/copy */
+    min-width: 50px; /* Ensure very short messages have some width */
+  }
+  
   
   /* Style user messages */
   .user-message {
-    background-color: #d1eaff; /* Brighter blue for user */
-    color: #333;
-    align-self: flex-end; /* Align user messages to the right */
-    margin-left: auto; /* Push to right */
-    border-bottom-right-radius: 4px; /* Add a slight tail effect */
+    background-color: #0b57d0; /* Google blue for user */
+    color: white; /* White text */
+    border-bottom-right-radius: 6px; /* Different corner for tail */
   }
   
   /* Style AI messages */
   .ai-message {
     background-color: #e9e9eb; /* Lighter grey for AI */
     color: #333;
-    align-self: flex-start; /* Align other messages to the left */
-    margin-right: auto; /* Push to left */
-    border-bottom-left-radius: 4px; /* Add a slight tail effect */
+    border-bottom-left-radius: 6px; /* Different corner for tail */
   }
   
   /* Style System messages (e.g., errors) */
   .system-message {
       background-color: #ffebee; /* Light red background for errors */
       color: #c62828; /* Darker red text */
-      align-self: center; /* Center system messages */
-      max-width: 90%;
+      /* align-self: center; Handled by container */
+      width: 100%; /* Take full width of container */
       text-align: center;
       font-style: italic;
       font-size: 0.9em;
       border: 1px dashed #ffcdd2;
       border-radius: 8px; /* Match other messages */
+      padding-top: 0.8rem; /* More padding for centered text */
+      padding-bottom: 0.8rem;
+  }
+  
+  /* Timestamp Styling */
+  .timestamp {
+      display: block; /* Put timestamp on new line */
+      font-size: 0.7em;
+      color: #999; /* Lighter grey for timestamp */
+      margin-top: 0.3rem;
+      text-align: right; /* Align timestamp to the right within the bubble */
+  }
+  .user-message .timestamp {
+      color: #c0d8ff; /* Lighter blue for user timestamp */
+  }
+  .ai-message .timestamp {
+      color: #777; /* Darker grey for AI timestamp */
+  }
+  
+  /* Copy Button Styling */
+  .copy-button {
+      position: absolute; /* Position relative to message bubble */
+      bottom: -5px; /* Adjust position */
+      right: -10px; /* Adjust position */
+      background-color: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      font-size: 0.8em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0; /* Hidden by default */
+      transition: opacity 0.2s ease, background-color 0.2s ease;
+      z-index: 1; /* Ensure it's clickable */
+  }
+  .message:hover .copy-button {
+      opacity: 1; /* Show on hover */
+  }
+  .copy-button:hover {
+      background-color: #e0e0e0;
   }
   
   
@@ -355,7 +510,6 @@
     resize: none; /* Prevent manual resizing */
     font-family: sans-serif;
     font-size: 1em;
-    /* height: auto; Remove fixed rows, use auto height */
     min-height: 40px; /* Ensure minimum height matches buttons */
     max-height: 150px; /* Limit max height before scrolling */
     overflow-y: auto; /* Allow scrolling within textarea */
@@ -387,12 +541,16 @@
     justify-content: center;
     font-size: 1.2em; /* Slightly larger icons */
     flex-shrink: 0; /* Prevent buttons from shrinking */
-    transition: background-color 0.2s ease, opacity 0.2s ease;
+    transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.1s ease; /* Added transform */
   }
   .input-area button:disabled {
     cursor: not-allowed;
     opacity: 0.6;
   }
+  .input-area button:active:not(:disabled) {
+      transform: scale(0.95); /* Slight shrink on click */
+  }
+  
   
   /* Specific styles for icon buttons */
   .icon-button {
@@ -423,6 +581,17 @@
   .send-button:disabled {
     background-color: #a0a0a0;
   }
+  /* Flash animation for send button */
+  .send-button.flash-active {
+      animation: flash-animation 0.3s ease-out;
+  }
+  
+  @keyframes flash-animation {
+      0% { transform: scale(1); background-color: #0b57d0; }
+      50% { transform: scale(1.1); background-color: #8ec5fc; } /* Flash color */
+      100% { transform: scale(1); background-color: #0b57d0; }
+  }
+  
   
   /* Specific styles for TTS button */
   .tts-button {
