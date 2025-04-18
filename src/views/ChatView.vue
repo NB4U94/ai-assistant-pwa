@@ -62,10 +62,9 @@
   import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
   
   // --- Configuration ---
-  // 🚨🚨🚨 WARNING: Replace with your NEW, PRIVATE key for LOCAL TESTING ONLY.
-  // 🚨🚨🚨 DO NOT COMMIT YOUR REAL API KEY TO GIT!
-  const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
-  const MODEL_NAME = 'gemini-1.5-flash';
+  // API Key is NO LONGER stored here. It will be handled by the Netlify function.
+  // const GEMINI_API_KEY = 'YOUR_API_KEY_HERE'; // REMOVED
+  // const MODEL_NAME = 'gemini-1.5-flash'; // Model name can still be defined here or passed to function if needed
   // ---------------------
   
   // --- Refs ---
@@ -82,7 +81,7 @@
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
   const selectedImagePreview = ref(null);
-  const selectedFile = ref(null);
+  const selectedFile = ref(null); // Holds the actual File object
   
   // --- Speech Recognition State ---
   const isListening = ref(false);
@@ -179,13 +178,21 @@
   
   // --- File Input Handling ---
   const triggerFileInput = () => { fileInputRef.value?.click(); };
-  const readFileAsBase64 = (file) => { /* ... (implementation unchanged) ... */
+  const readFileAsBase64 = (file) => {
       return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
+              // Result includes the prefix "data:image/jpeg;base64,"
+              // We need to send only the pure base64 data to our backend function
               const base64String = reader.result?.toString().split(',')[1];
-              if (base64String) { resolve({ base64Data: base64String, mimeType: file.type }); }
-              else { reject(new Error("Failed to read file as base64 data URL.")); }
+              if (base64String) {
+                  resolve({
+                      base64Data: base64String,
+                      mimeType: file.type
+                  });
+              } else {
+                  reject(new Error("Failed to read file as base64 data URL."));
+              }
           };
           reader.onerror = (error) => reject(error);
           reader.readAsDataURL(file);
@@ -197,7 +204,7 @@
       if (!file.type.startsWith('image/')) { addMessage({ error: true, text: `Selected file (${file.name}) is not an image.` }, 'System'); removeSelectedImage(); return; }
       const maxSizeMB = 4; const maxSizeBytes = maxSizeMB * 1024 * 1024;
       if (file.size > maxSizeBytes) { addMessage({ error: true, text: `Image file (${file.name}) is too large (>${maxSizeMB}MB).` }, 'System'); removeSelectedImage(); return; }
-      selectedFile.value = file;
+      selectedFile.value = file; // Store the File object
       const readerPreview = new FileReader();
       readerPreview.onload = (e) => { selectedImagePreview.value = e.target?.result; currentPlaceholder.value = "Image selected. Add a message or send."; };
       readerPreview.onerror = (e) => { console.error("FileReader error for preview:", e); addMessage({ error: true, text: "Error reading image for preview." }, 'System'); removeSelectedImage(); };
@@ -262,57 +269,21 @@
   // -------------------------
   
   // --- Link Processing ---
-  const processMessageText = (text) => {
+  const processMessageText = (text) => { /* ... (implementation unchanged) ... */
     if (!text) return [{ type: 'text', text: '' }];
-  
-    // Simple URL regex (handles http, https, www, and basic domain.tld)
-    // Note: This is a basic regex and might not catch all edge cases perfectly.
     const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])|(\bwww\.[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])|(\b[A-Z0-9.-]+\.[A-Z]{2,}\b)/ig;
-  
-    const segments = [];
-    let lastIndex = 0;
-    let match;
-  
+    const segments = []; let lastIndex = 0; let match;
     while ((match = urlRegex.exec(text)) !== null) {
-      // Add text segment before the link
-      if (match.index > lastIndex) {
-        segments.push({ type: 'text', text: text.substring(lastIndex, match.index) });
-      }
-  
-      // Add the link segment
+      if (match.index > lastIndex) { segments.push({ type: 'text', text: text.substring(lastIndex, match.index) }); }
       let url = match[0];
-      // Prepend https:// if missing for links starting with www or just domain.tld
        if (!url.startsWith('http') && !url.startsWith('ftp') && !url.startsWith('file')) {
-           // Basic check if it looks like a domain before adding http://
-           if (url.startsWith('www.') || /^[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(url)) {
-              url = 'https://' + url;
-           } else {
-               // If it doesn't look like a URL we should treat, treat as text
-               segments.push({ type: 'text', text: match[0] });
-               lastIndex = urlRegex.lastIndex;
-               continue; // Skip adding as a link
-           }
+           if (url.startsWith('www.') || /^[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(url)) { url = 'https://' + url; }
+           else { segments.push({ type: 'text', text: match[0] }); lastIndex = urlRegex.lastIndex; continue; }
       }
-  
-      segments.push({
-        type: 'link',
-        text: match[0], // Display the original matched text
-        url: url       // Use the potentially modified URL with https://
-      });
-  
-      lastIndex = urlRegex.lastIndex;
+      segments.push({ type: 'link', text: match[0], url: url }); lastIndex = urlRegex.lastIndex;
     }
-  
-    // Add any remaining text segment after the last link
-    if (lastIndex < text.length) {
-      segments.push({ type: 'text', text: text.substring(lastIndex) });
-    }
-  
-    // Handle case where no links are found
-    if (segments.length === 0) {
-        segments.push({ type: 'text', text: text });
-    }
-  
+    if (lastIndex < text.length) { segments.push({ type: 'text', text: text.substring(lastIndex) }); }
+    if (segments.length === 0) { segments.push({ type: 'text', text: text }); }
     return segments;
   };
   // ---------------------
@@ -333,6 +304,7 @@
       messages.value.push(newMessage);
       nextTick(scrollToBottom);
   
+      // Speak only actual AI responses (not errors or thinking) and only if TTS toggle is enabled
       if (messageSender === 'AI' && !isError && isTtsEnabled.value) {
           speakText(newMessage.text);
       }
@@ -345,41 +317,70 @@
       .filter(msg => msg.sender === 'User' || msg.sender === 'AI')
       .map(msg => ({ role: msg.sender === 'User' ? 'user' : 'model', parts: [{ text: msg.text }] }));
   });
-  const callGeminiApi = async (inputText, imageFile) => { /* ... (implementation unchanged) ... */
-    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
-    const history = chatHistoryForApi.value; let userParts = [];
-    if (inputText.trim() !== '') { userParts.push({ text: inputText }); }
+  
+  // *** UPDATED FUNCTION TO CALL NETLIFY FUNCTION ***
+  const callBackendApi = async (inputText, imageFile) => {
+    const NETLIFY_FUNCTION_URL = '/.netlify/functions/call-gemini'; // Relative path to the function
+  
+    let imageFileData = null;
     if (imageFile) {
         try {
+            // Read the image file as base64 *before* sending to backend
             const { base64Data, mimeType } = await readFileAsBase64(imageFile);
-            userParts.push({ inlineData: { mimeType: mimeType, data: base64Data } });
-        } catch (error) { console.error("Error reading image file for API:", error); return { error: true, text: "Error processing image file." }; }
+            imageFileData = { base64Data, mimeType };
+            console.log("Image prepared for backend. MIME type:", mimeType);
+        } catch (error) {
+            console.error("Error reading image file for backend:", error);
+            return { error: true, text: "Error processing image file before sending." };
+        }
     }
-    if (userParts.length === 0) { return { error: true, text: "Nothing to send." }; }
-    const requestBody = { contents: [ ...history, { role: 'user', parts: userParts } ] };
+  
+    // Prepare payload for the Netlify function
+    const payload = {
+        history: chatHistoryForApi.value, // Send current history
+        inputText: inputText.trim(),
+        imageFile: imageFileData // Send processed image data or null
+    };
   
     try {
-      const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-      const responseData = await response.json();
-      if (!response.ok) { const specificError = responseData?.error?.message || response.statusText; throw new Error(`API ${response.status}: ${specificError}`); }
-      if (responseData.candidates?.length > 0) {
-          const candidate = responseData.candidates[0];
-          if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
-               const safetyFeedback = candidate.safetyRatings ? ` Ratings: ${JSON.stringify(candidate.safetyRatings)}` : '';
-               return { error: true, text: `Blocked: ${candidate.finishReason}.${safetyFeedback}`};
-          }
-          if (candidate.content?.parts?.length > 0) {
-              const aiText = candidate.content.parts[0].text;
-               if (typeof aiText === 'string') { return aiText; }
-          }
-          return { error: true, text: "[No text content received]" };
+      console.log("Calling Netlify function:", NETLIFY_FUNCTION_URL);
+      const response = await fetch(NETLIFY_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload), // Send history, text, and image data
+      });
+  
+      const responseData = await response.json(); // Netlify function should return JSON
+  
+      if (!response.ok) {
+        // Handle errors returned from the Netlify function itself
+        throw new Error(responseData.error || `Function returned status ${response.status}`);
       }
-      if (responseData.promptFeedback?.blockReason) {
-          const safetyFeedback = responseData.promptFeedback.safetyRatings ? ` Ratings: ${JSON.stringify(responseData.promptFeedback.safetyRatings)}` : '';
-          return { error: true, text: `Request Blocked: ${responseData.promptFeedback.blockReason}.${safetyFeedback}`};
+  
+      // Process successful response from Netlify function
+      // Expecting { aiText: "...", blockReason: "...", safetyRatings: [...] } or { error: "..." }
+      if (responseData.error) {
+          throw new Error(responseData.error);
       }
-      throw new Error('Invalid response structure');
-    } catch (error) { console.error('Error calling Gemini API:', error); return { error: true, text: `Error: ${error.message}` }; }
+  
+      if (responseData.blockReason && responseData.blockReason !== 'STOP' && responseData.blockReason !== 'MAX_TOKENS') {
+          const safetyFeedback = responseData.safetyRatings ? ` Ratings: ${JSON.stringify(responseData.safetyRatings)}` : '';
+          return { error: true, text: `Blocked: ${responseData.blockReason}.${safetyFeedback}`};
+      }
+  
+      if (typeof responseData.aiText === 'string') {
+          return responseData.aiText; // Success
+      } else {
+          // Handle case where response is ok, but aiText is missing/null (maybe blocked without reason?)
+          return { error: true, text: "[No text content received from AI]" };
+      }
+  
+    } catch (error) {
+      console.error('Error calling backend function:', error);
+      return { error: true, text: `Error communicating with backend: ${error.message}` };
+    }
   };
   // -----------------------
   
@@ -390,21 +391,36 @@
   // -------------------------------
   
   // --- Send Message Action ---
-  const sendMessage = async () => { /* ... (implementation unchanged) ... */
-    const currentInput = userInput.value; const currentFile = selectedFile.value;
+  const sendMessage = async () => {
+    const currentInput = userInput.value;
+    const currentFile = selectedFile.value; // Use the stored File object
     if ((currentInput.trim() === '' && !currentFile) || isLoading.value) return;
+  
     triggerSendFlash();
+  
     let userMessageText = currentInput.trim();
     if (currentFile && userMessageText === '') { userMessageText = `[Image: ${currentFile.name}]`; }
     addMessage(userMessageText, 'User');
-    const textToSend = currentInput; const imageToSend = currentFile;
-    userInput.value = ''; removeSelectedImage();
+  
+    const textToSend = currentInput;
+    const imageToSend = currentFile; // Pass the File object
+  
+    userInput.value = '';
+    removeSelectedImage(); // Clear preview and file state
+  
     nextTick(() => { if(inputAreaRef.value) { inputAreaRef.value.style.height = 'auto'; autoGrowTextarea({ target: inputAreaRef.value }); } currentPlaceholder.value = placeholders[0]; });
-    isLoading.value = true; addMessage('AI is thinking...', 'AI');
-    const aiResponse = await callGeminiApi(textToSend, imageToSend);
+  
+    isLoading.value = true;
+    addMessage('AI is thinking...', 'AI');
+  
+    // *** Call the backend function instead of callGeminiApi directly ***
+    const aiResponse = await callBackendApi(textToSend, imageToSend);
+  
     const thinkingIndex = messages.value.findIndex(msg => msg.text === 'AI is thinking...');
     if (thinkingIndex !== -1) { messages.value.splice(thinkingIndex, 1); }
-    addMessage(aiResponse, 'AI'); // Will trigger speakText if enabled
+  
+    addMessage(aiResponse, 'AI'); // Handles string or error object from backend
+  
     isLoading.value = false;
     nextTick(() => { inputAreaRef.value?.focus(); });
   };
@@ -518,11 +534,11 @@
     border-bottom-left-radius: 6px; /* Different corner for tail */
   }
   /* Style links within AI messages */
-  .ai-message a {
+  .message-text :deep(a) { /* Use :deep selector for slotted/generated content */
       color: #1a0dab; /* Standard link blue */
       text-decoration: underline;
   }
-  .ai-message a:hover {
+  .message-text :deep(a:hover) {
       color: #60076a; /* Standard visited link purple */
   }
   
@@ -786,15 +802,6 @@
   }
   .tts-button.tts-on:hover:not(:disabled) {
     background-color: #5a9a5d;
-  }
-  
-  /* Add styles for links within messages */
-  .message-text a {
-      color: #1a0dab; /* Standard link blue */
-      text-decoration: underline;
-  }
-  .message-text a:hover {
-      color: #60076a; /* Standard visited link purple */
   }
   
   </style>
