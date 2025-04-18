@@ -6,7 +6,14 @@
             {{ message.sender === 'User' ? 'U' : 'AI' }}
           </div>
           <div :class="['message', message.sender === 'User' ? 'user-message' : (message.sender === 'AI' ? 'ai-message' : 'system-message')]">
-            <span class="message-text">{{ message.text }}</span>
+            <span class="message-text">
+              <template v-for="(segment, index) in processMessageText(message.text)" :key="index">
+                <a v-if="segment.type === 'link'" :href="segment.url" target="_blank" rel="noopener noreferrer" @click.stop>
+                  {{ segment.text }}
+                </a>
+                <span v-else>{{ segment.text }}</span>
+              </template>
+            </span>
             <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
              <button v-if="message.sender === 'AI'" @click.stop="copyText(message.text)" class="copy-button" title="Copy response">
               📋
@@ -71,7 +78,7 @@
   const userInput = ref('');
   const messages = ref([]);
   const isLoading = ref(false);
-  const isTtsEnabled = ref(false); // For automatic speaking of new AI messages
+  const isTtsEnabled = ref(false);
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
   const selectedImagePreview = ref(null);
@@ -107,19 +114,13 @@
       }
     }, 3000);
   
-    // Setup Speech Recognition (Logs removed)
+    // Setup Speech Recognition
     setupSpeechRecognition();
   
-    // Add event listener to get voices loaded, needed for some browsers
+    // Add event listener to get voices loaded
     if (ttsSupported.value && synth) {
-      const loadVoices = () => {
-          const voices = synth.getVoices();
-          if (voices.length > 0) {
-              console.log("TTS voices loaded:", voices.length);
-          }
-      };
-      if (synth.getVoices().length > 0) { loadVoices(); }
-      else if (synth.onvoiceschanged !== undefined) { synth.onvoiceschanged = loadVoices; }
+      const loadVoices = () => { const voices = synth.getVoices(); if (voices.length > 0) { console.log("TTS voices loaded:", voices.length); } };
+      if (synth.getVoices().length > 0) { loadVoices(); } else if (synth.onvoiceschanged !== undefined) { synth.onvoiceschanged = loadVoices; }
     }
   });
   
@@ -130,8 +131,8 @@
   });
   // ---------------------------
   
-  // --- Speech Recognition Setup & Control (Logs removed) ---
-  const setupSpeechRecognition = () => {
+  // --- Speech Recognition Setup & Control ---
+  const setupSpeechRecognition = () => { /* ... (implementation unchanged, logs removed) ... */
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
           speechSupported.value = true;
@@ -160,17 +161,17 @@
           }
       } else { console.warn("Speech Recognition not supported."); speechSupported.value = false; }
   };
-  const startListening = () => {
+  const startListening = () => { /* ... (implementation unchanged, logs removed) ... */
       if (!speechSupported.value || !recognition.value || isListening.value) return;
       try { recognition.value.start(); }
       catch (error) { console.error(`Error calling recognition.start(): ${error.name} - ${error.message}`); addMessage({ error: true, text: `Could not start voice input: ${error.message}` }, 'System'); isListening.value = false; }
   };
-  const stopListening = () => {
+  const stopListening = () => { /* ... (implementation unchanged, logs removed) ... */
       if (!speechSupported.value || !recognition.value || !isListening.value) return;
       try { recognition.value.stop(); }
       catch (error) { console.error("Error stopping speech recognition:", error); isListening.value = false; }
   };
-  const toggleListening = () => {
+  const toggleListening = () => { /* ... (implementation unchanged, logs removed) ... */
       if (!speechSupported.value) { addMessage({ error: true, text: 'Sorry, your browser does not support voice input.' }, 'System'); return; }
       if (isListening.value) { stopListening(); } else { startListening(); }
   };
@@ -218,55 +219,30 @@
   // -------------------------
   
   // --- Text-to-Speech (TTS) ---
-  // Function to speak text (handles interruptions better)
-  const speakText = (text) => {
+  const speakText = (text) => { /* ... (implementation unchanged, fix applied) ... */
     if (!ttsSupported.value || !synth || !text) return;
-  
-    // Cancel *only if* synth is already speaking.
-    if (synth.speaking) {
-        console.log("TTS: Cancelling previous speech.");
-        synth.cancel();
-    }
-  
-    // Use nextTick AND a small timeout
+    if (synth.speaking) { console.log("TTS: Cancelling previous speech."); synth.cancel(); }
     nextTick(() => {
         setTimeout(() => {
-            // Double check synth isn't speaking *again* right before speaking
-            if (synth.speaking) {
-                console.log("TTS: Still speaking before new utterance, cancelling again.");
-                synth.cancel();
-                setTimeout(() => { // Extra delay after second cancel
+            if (synth.speaking) { console.log("TTS: Still speaking, cancelling again."); synth.cancel();
+                setTimeout(() => {
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.onerror = (event) => { console.error(`TTS onerror: ${event.error}`); if (event.error !== 'interrupted' && event.error !== 'canceled') { addMessage({ error: true, text: `Speech error: ${event.error}` }, 'System'); } };
-                    console.log("TTS: Attempting to speak (after second cancel)...");
                     synth.speak(utterance);
-                }, 30);
-                return;
+                }, 30); return;
             }
-  
-            // If not speaking, proceed normally
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.onerror = (event) => { console.error(`TTS onerror: ${event.error}`); if (event.error !== 'interrupted' && event.error !== 'canceled') { addMessage({ error: true, text: `Speech error: ${event.error}` }, 'System'); } };
-            console.log("TTS: Attempting to speak...");
             synth.speak(utterance);
-        }, 50); // 50ms delay
+        }, 50);
     });
   };
-  
-  // Function called by clicking an AI message bubble
-  const handleMessageClick = (textToSpeak) => {
-      speakText(textToSpeak); // Call the refined speakText function
-  };
-  
-  // Function called by the main TTS toggle button
-  const toggleTts = () => {
+  const handleMessageClick = (textToSpeak) => { speakText(textToSpeak); };
+  const toggleTts = () => { /* ... (implementation unchanged) ... */
     if (!ttsSupported.value) { addMessage({ error: true, text: 'Sorry, browser does not support TTS.' }, 'System'); return; }
     isTtsEnabled.value = !isTtsEnabled.value;
     console.log("TTS Toggle Enabled:", isTtsEnabled.value);
-    if (!isTtsEnabled.value && synth.speaking) {
-        console.log("TTS: Cancelling speech due to toggle OFF.");
-        synth.cancel();
-    }
+    if (!isTtsEnabled.value && synth.speaking) { console.log("TTS: Cancelling speech due to toggle OFF."); synth.cancel(); }
   };
   // -----------------------------
   
@@ -285,11 +261,67 @@
   };
   // -------------------------
   
+  // --- Link Processing ---
+  const processMessageText = (text) => {
+    if (!text) return [{ type: 'text', text: '' }];
+  
+    // Simple URL regex (handles http, https, www, and basic domain.tld)
+    // Note: This is a basic regex and might not catch all edge cases perfectly.
+    const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])|(\bwww\.[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])|(\b[A-Z0-9.-]+\.[A-Z]{2,}\b)/ig;
+  
+    const segments = [];
+    let lastIndex = 0;
+    let match;
+  
+    while ((match = urlRegex.exec(text)) !== null) {
+      // Add text segment before the link
+      if (match.index > lastIndex) {
+        segments.push({ type: 'text', text: text.substring(lastIndex, match.index) });
+      }
+  
+      // Add the link segment
+      let url = match[0];
+      // Prepend https:// if missing for links starting with www or just domain.tld
+       if (!url.startsWith('http') && !url.startsWith('ftp') && !url.startsWith('file')) {
+           // Basic check if it looks like a domain before adding http://
+           if (url.startsWith('www.') || /^[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(url)) {
+              url = 'https://' + url;
+           } else {
+               // If it doesn't look like a URL we should treat, treat as text
+               segments.push({ type: 'text', text: match[0] });
+               lastIndex = urlRegex.lastIndex;
+               continue; // Skip adding as a link
+           }
+      }
+  
+      segments.push({
+        type: 'link',
+        text: match[0], // Display the original matched text
+        url: url       // Use the potentially modified URL with https://
+      });
+  
+      lastIndex = urlRegex.lastIndex;
+    }
+  
+    // Add any remaining text segment after the last link
+    if (lastIndex < text.length) {
+      segments.push({ type: 'text', text: text.substring(lastIndex) });
+    }
+  
+    // Handle case where no links are found
+    if (segments.length === 0) {
+        segments.push({ type: 'text', text: text });
+    }
+  
+    return segments;
+  };
+  // ---------------------
+  
   // --- Message Handling ---
   const scrollToBottom = () => { /* ... (implementation unchanged) ... */
     nextTick(() => { const messageArea = messageAreaRef.value; if (messageArea) { messageArea.scrollTop = messageArea.scrollHeight; } });
   };
-  const addMessage = (payload, sender = 'User') => {
+  const addMessage = (payload, sender = 'User') => { /* ... (implementation unchanged, calls speakText) ... */
       let messageText = ''; let messageSender = sender; let isError = false;
       if (typeof payload === 'string') { messageText = payload; }
       else if (typeof payload === 'object' && payload !== null && payload.error === true) { messageText = payload.text; messageSender = 'System'; isError = true; }
@@ -301,8 +333,6 @@
       messages.value.push(newMessage);
       nextTick(scrollToBottom);
   
-      // *** CHANGE HERE: Removed the check for !synth.speaking ***
-      // Let speakText handle interruptions if needed
       if (messageSender === 'AI' && !isError && isTtsEnabled.value) {
           speakText(newMessage.text);
       }
@@ -486,6 +516,14 @@
     background-color: #e9e9eb; /* Lighter grey for AI */
     color: #333;
     border-bottom-left-radius: 6px; /* Different corner for tail */
+  }
+  /* Style links within AI messages */
+  .ai-message a {
+      color: #1a0dab; /* Standard link blue */
+      text-decoration: underline;
+  }
+  .ai-message a:hover {
+      color: #60076a; /* Standard visited link purple */
   }
   
   /* Style System messages (e.g., errors) */
@@ -748,6 +786,15 @@
   }
   .tts-button.tts-on:hover:not(:disabled) {
     background-color: #5a9a5d;
+  }
+  
+  /* Add styles for links within messages */
+  .message-text a {
+      color: #1a0dab; /* Standard link blue */
+      text-decoration: underline;
+  }
+  .message-text a:hover {
+      color: #60076a; /* Standard visited link purple */
   }
   
   </style>
