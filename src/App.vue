@@ -16,6 +16,14 @@ import { RouterView } from 'vue-router'
 import LeftSidebar from './components/LeftSidebar.vue'
 import RightSidebar from './components/RightSidebar.vue'
 
+// --- Pinia Store Integration ---
+import { useSettingsStore } from '@/stores/settingsStore' // <-- NEW: Import the store
+
+const settingsStore = useSettingsStore() // <-- NEW: Create an instance of the store
+
+// Optional: Log the theme to console to verify access
+console.log('Theme from Pinia store:', settingsStore.theme) // <-- NEW: Example access
+
 // We might add more JavaScript logic here later
 </script>
 
@@ -58,7 +66,8 @@ import RightSidebar from './components/RightSidebar.vue'
 
 /* Ensure root elements take full size and remove margin/padding */
 /* This is better placed in a global CSS file like src/assets/main.css */
-:global(html), :global(body) {
+:global(html),
+:global(body) {
   margin: 0;
   padding: 0;
   height: 100%;
