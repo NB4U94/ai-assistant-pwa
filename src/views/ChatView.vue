@@ -1,14 +1,14 @@
 <template>
     <div class="chat-view">
       <div class="message-display-area" ref="messageAreaRef">
-         <div v-for="message in messages" :key="message.id" :class="['message-container', message.sender === 'User' ? 'user-container' : 'ai-container']">
+         <div v-for="message in messages" :key="message.id" :class="['message-container', message.sender === 'User' ? 'user-container' : (message.sender === 'AI' ? 'ai-container' : 'system-container')]" @click="message.sender === 'AI' ? handleMessageClick(message.text) : null" :title="message.sender === 'AI' ? 'Click to read aloud' : ''">
           <div class="avatar-placeholder" :title="message.sender">
             {{ message.sender === 'User' ? 'U' : 'AI' }}
           </div>
           <div :class="['message', message.sender === 'User' ? 'user-message' : (message.sender === 'AI' ? 'ai-message' : 'system-message')]">
             <span class="message-text">{{ message.text }}</span>
             <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
-            <button v-if="message.sender === 'AI'" @click="copyText(message.text)" class="copy-button" title="Copy response">
+             <button v-if="message.sender === 'AI'" @click.stop="copyText(message.text)" class="copy-button" title="Copy response">
               📋
             </button>
           </div>
@@ -33,7 +33,7 @@
          </button>
          <button @click="toggleListening" :class="['icon-button', isListening ? 'listening' : '']" aria-label="Use voice input" title="Use voice input">
            <span v-if="!isListening">🎤</span>
-           <span v-else> MUTE </span> </button>
+           <span v-else>⏹️</span> </button>
         <textarea
           ref="inputAreaRef"
           v-model="userInput"
@@ -71,7 +71,7 @@
   const userInput = ref('');
   const messages = ref([]);
   const isLoading = ref(false);
-  const isTtsEnabled = ref(false);
+  const isTtsEnabled = ref(false); // For automatic speaking of new AI messages
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
   const selectedImagePreview = ref(null);
@@ -79,13 +79,13 @@
   
   // --- Speech Recognition State ---
   const isListening = ref(false);
-  const recognition = ref(null); // Holds the SpeechRecognition instance
+  const recognition = ref(null);
   const speechSupported = ref(false);
   // -----------------------------
   
   // --- Animated Placeholder ---
   const placeholders = [
-    "Type your message or use the mic...", // Updated placeholder
+    "Type your message or use the mic...",
     "Ask me anything...",
     "Attach an image and ask about it...",
     "Write a story about a dragon...",
@@ -107,341 +107,275 @@
       }
     }, 3000);
   
-    // Setup Speech Recognition
+    // Setup Speech Recognition (Logs removed)
     setupSpeechRecognition();
+  
+    // Add event listener to get voices loaded, needed for some browsers
+    if (ttsSupported.value && synth) {
+      const loadVoices = () => {
+          const voices = synth.getVoices();
+          if (voices.length > 0) {
+              console.log("TTS voices loaded:", voices.length);
+          }
+      };
+      if (synth.getVoices().length > 0) { loadVoices(); }
+      else if (synth.onvoiceschanged !== undefined) { synth.onvoiceschanged = loadVoices; }
+    }
   });
   
   onUnmounted(() => {
     clearInterval(placeholderInterval);
-    if (synth) {
-        synth.cancel();
-    }
-    // Stop recognition if component is destroyed
-    if (recognition.value) {
-        recognition.value.stop();
-    }
+    if (synth) { synth.cancel(); }
+    if (recognition.value) { recognition.value.abort(); }
   });
   // ---------------------------
   
-  // --- Speech Recognition Setup & Control ---
+  // --- Speech Recognition Setup & Control (Logs removed) ---
   const setupSpeechRecognition = () => {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
           speechSupported.value = true;
-          recognition.value = new SpeechRecognition();
-          recognition.value.continuous = false; // Stop after first pause
-          recognition.value.lang = 'en-US'; // Set language
-          recognition.value.interimResults = false; // We only want final results
-          recognition.value.maxAlternatives = 1;
-  
-          // Event Handlers
-          recognition.value.onresult = (event) => {
-              const transcript = event.results[0][0].transcript;
-              console.log('Speech recognized:', transcript);
-              userInput.value += (userInput.value ? ' ' : '') + transcript; // Append to existing input
-              autoGrowTextarea({ target: inputAreaRef.value }); // Adjust height after adding text
-          };
-  
-          recognition.value.onerror = (event) => {
-              console.error('Speech recognition error:', event.error);
-              let errorMsg = `Speech recognition error: ${event.error}`;
-              if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                  errorMsg = "Microphone access denied. Please allow microphone access in browser settings.";
-              } else if (event.error === 'no-speech') {
-                  errorMsg = "No speech detected. Please try again.";
-              }
-              addMessage({ error: true, text: errorMsg }, 'System');
-              isListening.value = false; // Ensure listening state is reset on error
-          };
-  
-          recognition.value.onstart = () => {
-              console.log('Speech recognition started');
-              isListening.value = true;
-          };
-  
-          recognition.value.onend = () => {
-              console.log('Speech recognition ended');
-              isListening.value = false;
-              // Refocus input after listening stops
-               nextTick(() => {
-                  inputAreaRef.value?.focus();
-               });
-          };
-  
-      } else {
-          console.warn("Speech Recognition not supported by this browser.");
-          speechSupported.value = false;
-      }
+          try {
+              recognition.value = new SpeechRecognition();
+              recognition.value.continuous = false; recognition.value.lang = 'en-US';
+              recognition.value.interimResults = false; recognition.value.maxAlternatives = 1;
+              recognition.value.onresult = (event) => {
+                  const transcript = event.results?.[0]?.[0]?.transcript;
+                  if (transcript) { userInput.value += (userInput.value ? ' ' : '') + transcript; autoGrowTextarea({ target: inputAreaRef.value }); }
+                  else { console.warn("No transcript found in result event."); }
+              };
+              recognition.value.onerror = (event) => {
+                  console.error('Speech recognition error:', event.error, event.message);
+                  let errorMsg = `Speech recognition error: ${event.error}`;
+                  if (event.error === 'not-allowed' || event.error === 'service-not-allowed') { errorMsg = "Microphone access denied."; }
+                  else if (event.error === 'no-speech') { errorMsg = "No speech detected."; }
+                  else { errorMsg = `Speech error: ${event.error} - ${event.message || '(no details)'}`; }
+                  addMessage({ error: true, text: errorMsg }, 'System'); isListening.value = false;
+              };
+              recognition.value.onstart = () => { isListening.value = true; };
+              recognition.value.onend = () => { isListening.value = false; nextTick(() => { inputAreaRef.value?.focus(); }); };
+          } catch (e) {
+              console.error("Error creating SpeechRecognition object:", e); speechSupported.value = false;
+              addMessage({ error: true, text: "Failed to initialize speech recognition." }, 'System');
+          }
+      } else { console.warn("Speech Recognition not supported."); speechSupported.value = false; }
   };
-  
   const startListening = () => {
       if (!speechSupported.value || !recognition.value || isListening.value) return;
-      try {
-          recognition.value.start();
-      } catch (error) {
-          console.error("Error starting speech recognition:", error);
-          addMessage({ error: true, text: "Could not start voice input." }, 'System');
-      }
+      try { recognition.value.start(); }
+      catch (error) { console.error(`Error calling recognition.start(): ${error.name} - ${error.message}`); addMessage({ error: true, text: `Could not start voice input: ${error.message}` }, 'System'); isListening.value = false; }
   };
-  
   const stopListening = () => {
       if (!speechSupported.value || !recognition.value || !isListening.value) return;
-      recognition.value.stop();
+      try { recognition.value.stop(); }
+      catch (error) { console.error("Error stopping speech recognition:", error); isListening.value = false; }
   };
-  
   const toggleListening = () => {
-      if (!speechSupported.value) {
-           addMessage({ error: true, text: 'Sorry, your browser does not support voice input.' }, 'System');
-          return;
-      }
-      if (isListening.value) {
-          stopListening();
-      } else {
-          startListening();
-      }
+      if (!speechSupported.value) { addMessage({ error: true, text: 'Sorry, your browser does not support voice input.' }, 'System'); return; }
+      if (isListening.value) { stopListening(); } else { startListening(); }
   };
   // ------------------------------------
   
   // --- File Input Handling ---
-  const triggerFileInput = () => {
-      fileInputRef.value?.click();
-  };
-  
-  const readFileAsBase64 = (file) => {
+  const triggerFileInput = () => { fileInputRef.value?.click(); };
+  const readFileAsBase64 = (file) => { /* ... (implementation unchanged) ... */
       return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
               const base64String = reader.result?.toString().split(',')[1];
-              if (base64String) {
-                  resolve({ base64Data: base64String, mimeType: file.type });
-              } else {
-                  reject(new Error("Failed to read file as base64 data URL."));
-              }
+              if (base64String) { resolve({ base64Data: base64String, mimeType: file.type }); }
+              else { reject(new Error("Failed to read file as base64 data URL.")); }
           };
           reader.onerror = (error) => reject(error);
           reader.readAsDataURL(file);
       });
   };
-  
-  const handleFileSelected = async (event) => {
+  const handleFileSelected = async (event) => { /* ... (implementation unchanged) ... */
       const file = event.target.files?.[0];
       if (!file) { removeSelectedImage(); return; }
-      if (!file.type.startsWith('image/')) {
-          addMessage({ error: true, text: `Selected file (${file.name}) is not an image.` }, 'System');
-          removeSelectedImage(); return;
-      }
-      const maxSizeMB = 4;
-      const maxSizeBytes = maxSizeMB * 1024 * 1024;
-      if (file.size > maxSizeBytes) {
-          addMessage({ error: true, text: `Image file (${file.name}) is too large (>${maxSizeMB}MB).` }, 'System');
-          removeSelectedImage(); return;
-      }
+      if (!file.type.startsWith('image/')) { addMessage({ error: true, text: `Selected file (${file.name}) is not an image.` }, 'System'); removeSelectedImage(); return; }
+      const maxSizeMB = 4; const maxSizeBytes = maxSizeMB * 1024 * 1024;
+      if (file.size > maxSizeBytes) { addMessage({ error: true, text: `Image file (${file.name}) is too large (>${maxSizeMB}MB).` }, 'System'); removeSelectedImage(); return; }
       selectedFile.value = file;
       const readerPreview = new FileReader();
-      readerPreview.onload = (e) => {
-          selectedImagePreview.value = e.target?.result;
-          currentPlaceholder.value = "Image selected. Add a message or send.";
-      };
-      readerPreview.onerror = (e) => {
-          console.error("FileReader error for preview:", e);
-          addMessage({ error: true, text: "Error reading image for preview." }, 'System');
-          removeSelectedImage();
-      };
+      readerPreview.onload = (e) => { selectedImagePreview.value = e.target?.result; currentPlaceholder.value = "Image selected. Add a message or send."; };
+      readerPreview.onerror = (e) => { console.error("FileReader error for preview:", e); addMessage({ error: true, text: "Error reading image for preview." }, 'System'); removeSelectedImage(); };
       readerPreview.readAsDataURL(file);
       event.target.value = null;
   };
-  
-  const removeSelectedImage = () => {
-      selectedImagePreview.value = null;
-      selectedFile.value = null;
+  const removeSelectedImage = () => { /* ... (implementation unchanged) ... */
+      selectedImagePreview.value = null; selectedFile.value = null;
       if (fileInputRef.value) { fileInputRef.value.value = null; }
       if (!userInput.value) { currentPlaceholder.value = placeholders[0]; }
   };
   // -------------------------
   
   // --- Textarea Auto-Grow ---
-  const autoGrowTextarea = (event) => {
-    const textarea = event.target;
-    textarea.style.height = 'auto';
-    const maxHeight = 150;
-    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+  const autoGrowTextarea = (event) => { /* ... (implementation unchanged) ... */
+    const textarea = event.target; textarea.style.height = 'auto';
+    const maxHeight = 150; textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
   };
   // -------------------------
   
   // --- Text-to-Speech (TTS) ---
+  // Function to speak text (handles interruptions better)
   const speakText = (text) => {
     if (!ttsSupported.value || !synth || !text) return;
-    synth.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.onerror = (event) => {
-      console.error('SpeechSynthesisUtterance.onerror', event);
-      addMessage({ error: true, text: `Speech error: ${event.error}` }, 'System');
-    };
-    synth.speak(utterance);
+  
+    // Cancel *only if* synth is already speaking.
+    if (synth.speaking) {
+        console.log("TTS: Cancelling previous speech.");
+        synth.cancel();
+    }
+  
+    // Use nextTick AND a small timeout
+    nextTick(() => {
+        setTimeout(() => {
+            // Double check synth isn't speaking *again* right before speaking
+            if (synth.speaking) {
+                console.log("TTS: Still speaking before new utterance, cancelling again.");
+                synth.cancel();
+                setTimeout(() => { // Extra delay after second cancel
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.onerror = (event) => { console.error(`TTS onerror: ${event.error}`); if (event.error !== 'interrupted' && event.error !== 'canceled') { addMessage({ error: true, text: `Speech error: ${event.error}` }, 'System'); } };
+                    console.log("TTS: Attempting to speak (after second cancel)...");
+                    synth.speak(utterance);
+                }, 30);
+                return;
+            }
+  
+            // If not speaking, proceed normally
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.onerror = (event) => { console.error(`TTS onerror: ${event.error}`); if (event.error !== 'interrupted' && event.error !== 'canceled') { addMessage({ error: true, text: `Speech error: ${event.error}` }, 'System'); } };
+            console.log("TTS: Attempting to speak...");
+            synth.speak(utterance);
+        }, 50); // 50ms delay
+    });
   };
   
+  // Function called by clicking an AI message bubble
+  const handleMessageClick = (textToSpeak) => {
+      speakText(textToSpeak); // Call the refined speakText function
+  };
+  
+  // Function called by the main TTS toggle button
   const toggleTts = () => {
-    if (!ttsSupported.value) {
-        addMessage({ error: true, text: 'Sorry, your browser does not support text-to-speech.' }, 'System');
-        return;
-    }
+    if (!ttsSupported.value) { addMessage({ error: true, text: 'Sorry, browser does not support TTS.' }, 'System'); return; }
     isTtsEnabled.value = !isTtsEnabled.value;
-    if (!isTtsEnabled.value) { synth.cancel(); }
+    console.log("TTS Toggle Enabled:", isTtsEnabled.value);
+    if (!isTtsEnabled.value && synth.speaking) {
+        console.log("TTS: Cancelling speech due to toggle OFF.");
+        synth.cancel();
+    }
   };
   // -----------------------------
   
   // --- Timestamp Formatting ---
-  const formatTimestamp = (timestamp) => {
-      if (!timestamp) return '';
-      const date = new Date(timestamp);
+  const formatTimestamp = (timestamp) => { /* ... (implementation unchanged) ... */
+      if (!timestamp) return ''; const date = new Date(timestamp);
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   }
   // --------------------------
   
   // --- Copy to Clipboard ---
-  const copyText = async (textToCopy) => {
-      if (!navigator.clipboard) {
-          addMessage({ error: true, text: "Cannot copy text: Clipboard API not supported or not available." }, 'System');
-          return;
-      }
-      try {
-          await navigator.clipboard.writeText(textToCopy);
-          console.log("Text copied to clipboard!");
-      } catch (err) {
-          console.error('Failed to copy text: ', err);
-          addMessage({ error: true, text: `Failed to copy: ${err.message}` }, 'System');
-      }
+  const copyText = async (textToCopy) => { /* ... (implementation unchanged) ... */
+      if (!navigator.clipboard) { addMessage({ error: true, text: "Cannot copy: Clipboard API not available." }, 'System'); return; }
+      try { await navigator.clipboard.writeText(textToCopy); console.log("Text copied!"); }
+      catch (err) { console.error('Failed to copy: ', err); addMessage({ error: true, text: `Failed to copy: ${err.message}` }, 'System'); }
   };
   // -------------------------
   
   // --- Message Handling ---
-  const scrollToBottom = () => {
-    nextTick(() => {
-      const messageArea = messageAreaRef.value;
-      if (messageArea) { messageArea.scrollTop = messageArea.scrollHeight; }
-    });
+  const scrollToBottom = () => { /* ... (implementation unchanged) ... */
+    nextTick(() => { const messageArea = messageAreaRef.value; if (messageArea) { messageArea.scrollTop = messageArea.scrollHeight; } });
   };
-  
   const addMessage = (payload, sender = 'User') => {
-      let messageText = '';
-      let messageSender = sender;
-      let isError = false;
+      let messageText = ''; let messageSender = sender; let isError = false;
       if (typeof payload === 'string') { messageText = payload; }
-      else if (typeof payload === 'object' && payload !== null && payload.error === true) {
-          messageText = payload.text; messageSender = 'System'; isError = true;
-      } else { console.warn("Invalid payload:", payload); return; }
+      else if (typeof payload === 'object' && payload !== null && payload.error === true) { messageText = payload.text; messageSender = 'System'; isError = true; }
+      else { console.warn("Invalid payload:", payload); return; }
       if (messageText.trim() === '') { console.warn("Empty message."); return; }
       if (messageSender === 'AI' && messageText === 'AI is thinking...' && messages.value.some(msg => msg.text === 'AI is thinking...')) return;
   
       const newMessage = { id: Date.now() + Math.random(), text: messageText.trim(), sender: messageSender, timestamp: Date.now() };
       messages.value.push(newMessage);
       nextTick(scrollToBottom);
-      if (messageSender === 'AI' && !isError && isTtsEnabled.value) { speakText(newMessage.text); }
+  
+      // *** CHANGE HERE: Removed the check for !synth.speaking ***
+      // Let speakText handle interruptions if needed
+      if (messageSender === 'AI' && !isError && isTtsEnabled.value) {
+          speakText(newMessage.text);
+      }
   };
   // -----------------------
   
   // --- API Call Logic ---
-  const chatHistoryForApi = computed(() => {
+  const chatHistoryForApi = computed(() => { /* ... (implementation unchanged) ... */
     return messages.value
       .filter(msg => msg.sender === 'User' || msg.sender === 'AI')
       .map(msg => ({ role: msg.sender === 'User' ? 'user' : 'model', parts: [{ text: msg.text }] }));
   });
-  
-  const callGeminiApi = async (inputText, imageFile) => {
+  const callGeminiApi = async (inputText, imageFile) => { /* ... (implementation unchanged) ... */
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
-    const history = chatHistoryForApi.value;
-    let userParts = [];
+    const history = chatHistoryForApi.value; let userParts = [];
     if (inputText.trim() !== '') { userParts.push({ text: inputText }); }
     if (imageFile) {
         try {
             const { base64Data, mimeType } = await readFileAsBase64(imageFile);
             userParts.push({ inlineData: { mimeType: mimeType, data: base64Data } });
-            console.log("Image added to request parts. MIME type:", mimeType);
-        } catch (error) {
-            console.error("Error reading image file for API:", error);
-            return { error: true, text: "Error processing image file before sending." };
-        }
+        } catch (error) { console.error("Error reading image file for API:", error); return { error: true, text: "Error processing image file." }; }
     }
-    if (userParts.length === 0) {
-        console.warn("Attempted to call API with no content parts.");
-        return { error: true, text: "Nothing to send." }; // Avoid empty API call
-    }
+    if (userParts.length === 0) { return { error: true, text: "Nothing to send." }; }
     const requestBody = { contents: [ ...history, { role: 'user', parts: userParts } ] };
   
     try {
       const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
       const responseData = await response.json();
-      if (!response.ok) { const specificError = responseData?.error?.message || response.statusText; throw new Error(`API request failed with status ${response.status}: ${specificError}`); }
+      if (!response.ok) { const specificError = responseData?.error?.message || response.statusText; throw new Error(`API ${response.status}: ${specificError}`); }
       if (responseData.candidates?.length > 0) {
           const candidate = responseData.candidates[0];
           if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
-               const safetyFeedback = candidate.safetyRatings ? ` Safety ratings: ${JSON.stringify(candidate.safetyRatings)}` : '';
-               return { error: true, text: `My response was blocked due to: ${candidate.finishReason}.${safetyFeedback}`};
+               const safetyFeedback = candidate.safetyRatings ? ` Ratings: ${JSON.stringify(candidate.safetyRatings)}` : '';
+               return { error: true, text: `Blocked: ${candidate.finishReason}.${safetyFeedback}`};
           }
           if (candidate.content?.parts?.length > 0) {
               const aiText = candidate.content.parts[0].text;
                if (typeof aiText === 'string') { return aiText; }
           }
-          console.warn("API response finished but no valid text content.", responseData);
-          return { error: true, text: "[No text content received from AI]" };
+          return { error: true, text: "[No text content received]" };
       }
       if (responseData.promptFeedback?.blockReason) {
-          const safetyFeedback = responseData.promptFeedback.safetyRatings ? ` Safety ratings: ${JSON.stringify(responseData.promptFeedback.safetyRatings)}` : '';
-          return { error: true, text: `My request was blocked due to: ${responseData.promptFeedback.blockReason}.${safetyFeedback}`};
+          const safetyFeedback = responseData.promptFeedback.safetyRatings ? ` Ratings: ${JSON.stringify(responseData.promptFeedback.safetyRatings)}` : '';
+          return { error: true, text: `Request Blocked: ${responseData.promptFeedback.blockReason}.${safetyFeedback}`};
       }
-      console.error('No valid candidates in API response:', responseData);
-      throw new Error('Invalid response structure: No candidates found.');
-    } catch (error) {
-      console.error('Error calling Gemini API:', error);
-      return { error: true, text: `Error: ${error.message}` };
-    }
+      throw new Error('Invalid response structure');
+    } catch (error) { console.error('Error calling Gemini API:', error); return { error: true, text: `Error: ${error.message}` }; }
   };
   // -----------------------
   
   // --- Send Button Flash Animation ---
-  const triggerSendFlash = () => {
-      const button = sendButtonRef.value;
-      if (button) { button.classList.add('flash-active'); setTimeout(() => { button.classList.remove('flash-active'); }, 300); }
+  const triggerSendFlash = () => { /* ... (implementation unchanged) ... */
+      const button = sendButtonRef.value; if (button) { button.classList.add('flash-active'); setTimeout(() => { button.classList.remove('flash-active'); }, 300); }
   };
   // -------------------------------
   
   // --- Send Message Action ---
-  const sendMessage = async () => {
-    const currentInput = userInput.value;
-    const currentFile = selectedFile.value;
+  const sendMessage = async () => { /* ... (implementation unchanged) ... */
+    const currentInput = userInput.value; const currentFile = selectedFile.value;
     if ((currentInput.trim() === '' && !currentFile) || isLoading.value) return;
-  
     triggerSendFlash();
-  
     let userMessageText = currentInput.trim();
     if (currentFile && userMessageText === '') { userMessageText = `[Image: ${currentFile.name}]`; }
-    // Decide whether to append [Image attached] - keeping it simple for now
-    // else if (currentFile) { userMessageText = `${userMessageText} [Image attached]`; }
     addMessage(userMessageText, 'User');
-  
-    const textToSend = currentInput;
-    const imageToSend = currentFile;
-  
-    userInput.value = '';
-    removeSelectedImage(); // Clear preview and file state *before* API call
-  
-    nextTick(() => {
-        if(inputAreaRef.value) { inputAreaRef.value.style.height = 'auto'; autoGrowTextarea({ target: inputAreaRef.value }); }
-        currentPlaceholder.value = placeholders[0];
-    });
-  
-    isLoading.value = true;
-    addMessage('AI is thinking...', 'AI');
-  
+    const textToSend = currentInput; const imageToSend = currentFile;
+    userInput.value = ''; removeSelectedImage();
+    nextTick(() => { if(inputAreaRef.value) { inputAreaRef.value.style.height = 'auto'; autoGrowTextarea({ target: inputAreaRef.value }); } currentPlaceholder.value = placeholders[0]; });
+    isLoading.value = true; addMessage('AI is thinking...', 'AI');
     const aiResponse = await callGeminiApi(textToSend, imageToSend);
-  
     const thinkingIndex = messages.value.findIndex(msg => msg.text === 'AI is thinking...');
     if (thinkingIndex !== -1) { messages.value.splice(thinkingIndex, 1); }
-  
-    addMessage(aiResponse, 'AI'); // Handles string or error object
-  
+    addMessage(aiResponse, 'AI'); // Will trigger speakText if enabled
     isLoading.value = false;
-  
     nextTick(() => { inputAreaRef.value?.focus(); });
   };
   // -------------------------
@@ -475,6 +409,11 @@
       opacity: 0; /* Start hidden for animation */
       transform: translateY(10px);
       animation: fadeIn 0.3s ease forwards;
+      position: relative; /* Needed for copy button positioning */
+  }
+  /* Add cursor pointer for AI messages to indicate click-to-speak */
+  .ai-container {
+      cursor: pointer;
   }
   .user-container {
       align-self: flex-end;
@@ -530,7 +469,7 @@
     word-wrap: break-word;
     font-family: sans-serif;
     line-height: 1.45;
-    position: relative;
+    position: relative; /* Keep relative for timestamp/copy button */
     min-width: 50px;
   }
   
@@ -561,7 +500,18 @@
       border-radius: 8px;
       padding-top: 0.8rem;
       padding-bottom: 0.8rem;
+      /* Ensure system message container takes full width available */
+      margin-left: auto;
+      margin-right: auto;
+      max-width: 90%; /* Limit width slightly */
   }
+  /* Ensure system container itself aligns center */
+  .system-container {
+      width: 100%;
+      justify-content: center;
+      align-self: center; /* Override default align-self */
+  }
+  
   
   /* Timestamp Styling */
   .timestamp {
@@ -570,6 +520,11 @@
       color: #999;
       margin-top: 0.3rem;
       text-align: right;
+      /* Prevent timestamp from being copied */
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
   }
   .user-message .timestamp {
       color: #c0d8ff;
@@ -581,28 +536,31 @@
   /* Copy Button Styling */
   .copy-button {
       position: absolute;
-      bottom: -5px;
-      right: -10px;
-      background-color: rgba(240, 240, 240, 0.8); /* Slightly transparent */
-      border: 1px solid #ccc;
+      bottom: 2px; /* Adjust position slightly */
+      right: -30px; /* Position outside the bubble */
+      background-color: transparent;
+      border: none;
+      color: #888;
       border-radius: 50%;
       width: 24px;
       height: 24px;
-      font-size: 0.8em;
+      font-size: 1em; /* Make icon slightly larger */
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       opacity: 0;
-      transition: opacity 0.2s ease, background-color 0.2s ease;
+      transition: opacity 0.2s ease, color 0.2s ease;
       z-index: 1;
+      padding: 0; /* Remove default padding */
   }
   /* Show copy button when message container is hovered */
-  .message-container:hover .copy-button {
-      opacity: 1;
+  .ai-container:hover .copy-button { /* Target container hover */
+      opacity: 0.6; /* Slightly visible */
   }
   .copy-button:hover {
-      background-color: rgba(224, 224, 224, 0.9); /* Less transparent on hover */
+      opacity: 1; /* Fully visible on hover */
+      color: #333; /* Darker on hover */
   }
   
   
