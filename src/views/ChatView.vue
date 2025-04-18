@@ -6,6 +6,7 @@
             {{ message.sender === 'User' ? 'U' : 'AI' }}
           </div>
           <div :class="['message', message.sender === 'User' ? 'user-message' : (message.sender === 'AI' ? 'ai-message' : 'system-message')]">
+            <img v-if="message.imagePreviewUrl" :src="message.imagePreviewUrl" alt="Sent image thumbnail" class="message-image-thumbnail" />
             <span class="message-text">
               <template v-for="(segment, index) in processMessageText(message.text)" :key="index">
                 <a v-if="segment.type === 'link'" :href="segment.url" target="_blank" rel="noopener noreferrer" @click.stop>
@@ -15,7 +16,7 @@
               </template>
             </span>
             <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
-             <button v-if="message.sender === 'AI'" @click.stop="copyText(message.text)" class="copy-button" title="Copy response">
+             <button v-if="message.sender === 'AI'" @click.stop="copyText(message.text, $event)" class="copy-button" title="Copy response">
               📋
             </button>
           </div>
@@ -62,9 +63,7 @@
   import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
   
   // --- Configuration ---
-  // API Key is NO LONGER stored here. It will be handled by the Netlify function.
-  // const GEMINI_API_KEY = 'YOUR_API_KEY_HERE'; // REMOVED
-  // const MODEL_NAME = 'gemini-1.5-flash'; // Model name can still be defined here or passed to function if needed
+  // API Key is handled by the Netlify function
   // ---------------------
   
   // --- Refs ---
@@ -75,12 +74,12 @@
   
   // --- Reactive State ---
   const userInput = ref('');
-  const messages = ref([]);
+  const messages = ref([]); // Now stores objects like { id, text, sender, timestamp, imagePreviewUrl? }
   const isLoading = ref(false);
   const isTtsEnabled = ref(false);
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
-  const selectedImagePreview = ref(null);
+  const selectedImagePreview = ref(null); // Holds the data URL for image preview
   const selectedFile = ref(null); // Holds the actual File object
   
   // --- Speech Recognition State ---
@@ -178,21 +177,13 @@
   
   // --- File Input Handling ---
   const triggerFileInput = () => { fileInputRef.value?.click(); };
-  const readFileAsBase64 = (file) => {
+  const readFileAsBase64 = (file) => { /* ... (implementation unchanged) ... */
       return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
-              // Result includes the prefix "data:image/jpeg;base64,"
-              // We need to send only the pure base64 data to our backend function
               const base64String = reader.result?.toString().split(',')[1];
-              if (base64String) {
-                  resolve({
-                      base64Data: base64String,
-                      mimeType: file.type
-                  });
-              } else {
-                  reject(new Error("Failed to read file as base64 data URL."));
-              }
+              if (base64String) { resolve({ base64Data: base64String, mimeType: file.type }); }
+              else { reject(new Error("Failed to read file as base64 data URL.")); }
           };
           reader.onerror = (error) => reject(error);
           reader.readAsDataURL(file);
@@ -206,7 +197,7 @@
       if (file.size > maxSizeBytes) { addMessage({ error: true, text: `Image file (${file.name}) is too large (>${maxSizeMB}MB).` }, 'System'); removeSelectedImage(); return; }
       selectedFile.value = file; // Store the File object
       const readerPreview = new FileReader();
-      readerPreview.onload = (e) => { selectedImagePreview.value = e.target?.result; currentPlaceholder.value = "Image selected. Add a message or send."; };
+      readerPreview.onload = (e) => { selectedImagePreview.value = e.target?.result; currentPlaceholder.value = "Image selected. Add a message or send."; }; // Store the Data URL for preview
       readerPreview.onerror = (e) => { console.error("FileReader error for preview:", e); addMessage({ error: true, text: "Error reading image for preview." }, 'System'); removeSelectedImage(); };
       readerPreview.readAsDataURL(file);
       event.target.value = null;
@@ -261,10 +252,25 @@
   // --------------------------
   
   // --- Copy to Clipboard ---
-  const copyText = async (textToCopy) => { /* ... (implementation unchanged) ... */
+  // Accepts the event object to modify the button
+  const copyText = async (textToCopy, event) => {
       if (!navigator.clipboard) { addMessage({ error: true, text: "Cannot copy: Clipboard API not available." }, 'System'); return; }
-      try { await navigator.clipboard.writeText(textToCopy); console.log("Text copied!"); }
-      catch (err) { console.error('Failed to copy: ', err); addMessage({ error: true, text: `Failed to copy: ${err.message}` }, 'System'); }
+      try {
+          await navigator.clipboard.writeText(textToCopy);
+          console.log("Text copied!");
+          // Provide visual feedback on the button clicked
+          const buttonElement = event?.target;
+          if (buttonElement) {
+              const originalContent = buttonElement.innerHTML;
+              buttonElement.innerHTML = '✅'; // Checkmark for success
+              setTimeout(() => {
+                  buttonElement.innerHTML = originalContent; // Revert after delay
+              }, 1500); // Revert after 1.5 seconds
+          }
+      } catch (err) {
+          console.error('Failed to copy: ', err);
+          addMessage({ error: true, text: `Failed to copy: ${err.message}` }, 'System');
+      }
   };
   // -------------------------
   
@@ -292,15 +298,22 @@
   const scrollToBottom = () => { /* ... (implementation unchanged) ... */
     nextTick(() => { const messageArea = messageAreaRef.value; if (messageArea) { messageArea.scrollTop = messageArea.scrollHeight; } });
   };
-  const addMessage = (payload, sender = 'User') => { /* ... (implementation unchanged, calls speakText) ... */
+  // Updated addMessage to include imagePreviewUrl
+  const addMessage = (payload, sender = 'User', imagePreviewUrl = null) => {
       let messageText = ''; let messageSender = sender; let isError = false;
       if (typeof payload === 'string') { messageText = payload; }
       else if (typeof payload === 'object' && payload !== null && payload.error === true) { messageText = payload.text; messageSender = 'System'; isError = true; }
       else { console.warn("Invalid payload:", payload); return; }
-      if (messageText.trim() === '') { console.warn("Empty message."); return; }
+      if (messageText.trim() === '' && !imagePreviewUrl) { console.warn("Empty message and no image."); return; } // Allow image-only messages if needed
       if (messageSender === 'AI' && messageText === 'AI is thinking...' && messages.value.some(msg => msg.text === 'AI is thinking...')) return;
   
-      const newMessage = { id: Date.now() + Math.random(), text: messageText.trim(), sender: messageSender, timestamp: Date.now() };
+      const newMessage = {
+          id: Date.now() + Math.random(),
+          text: messageText.trim(),
+          sender: messageSender,
+          timestamp: Date.now(),
+          imagePreviewUrl: imagePreviewUrl // Add the image preview URL
+      };
       messages.value.push(newMessage);
       nextTick(scrollToBottom);
   
@@ -317,70 +330,30 @@
       .filter(msg => msg.sender === 'User' || msg.sender === 'AI')
       .map(msg => ({ role: msg.sender === 'User' ? 'user' : 'model', parts: [{ text: msg.text }] }));
   });
-  
-  // *** UPDATED FUNCTION TO CALL NETLIFY FUNCTION ***
-  const callBackendApi = async (inputText, imageFile) => {
-    const NETLIFY_FUNCTION_URL = '/.netlify/functions/call-gemini'; // Relative path to the function
-  
+  const callBackendApi = async (inputText, imageFile) => { /* ... (implementation unchanged) ... */
+    const NETLIFY_FUNCTION_URL = '/.netlify/functions/call-gemini';
     let imageFileData = null;
     if (imageFile) {
         try {
-            // Read the image file as base64 *before* sending to backend
             const { base64Data, mimeType } = await readFileAsBase64(imageFile);
             imageFileData = { base64Data, mimeType };
-            console.log("Image prepared for backend. MIME type:", mimeType);
-        } catch (error) {
-            console.error("Error reading image file for backend:", error);
-            return { error: true, text: "Error processing image file before sending." };
-        }
+        } catch (error) { console.error("Error reading image file for backend:", error); return { error: true, text: "Error processing image file." }; }
     }
-  
-    // Prepare payload for the Netlify function
-    const payload = {
-        history: chatHistoryForApi.value, // Send current history
-        inputText: inputText.trim(),
-        imageFile: imageFileData // Send processed image data or null
-    };
+    const payload = { history: chatHistoryForApi.value, inputText: inputText.trim(), imageFile: imageFileData };
   
     try {
       console.log("Calling Netlify function:", NETLIFY_FUNCTION_URL);
-      const response = await fetch(NETLIFY_FUNCTION_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload), // Send history, text, and image data
-      });
-  
-      const responseData = await response.json(); // Netlify function should return JSON
-  
-      if (!response.ok) {
-        // Handle errors returned from the Netlify function itself
-        throw new Error(responseData.error || `Function returned status ${response.status}`);
-      }
-  
-      // Process successful response from Netlify function
-      // Expecting { aiText: "...", blockReason: "...", safetyRatings: [...] } or { error: "..." }
-      if (responseData.error) {
-          throw new Error(responseData.error);
-      }
-  
+      const response = await fetch(NETLIFY_FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const responseData = await response.json();
+      if (!response.ok) { throw new Error(responseData.error || `Function returned status ${response.status}`); }
+      if (responseData.error) { throw new Error(responseData.error); }
       if (responseData.blockReason && responseData.blockReason !== 'STOP' && responseData.blockReason !== 'MAX_TOKENS') {
           const safetyFeedback = responseData.safetyRatings ? ` Ratings: ${JSON.stringify(responseData.safetyRatings)}` : '';
           return { error: true, text: `Blocked: ${responseData.blockReason}.${safetyFeedback}`};
       }
-  
-      if (typeof responseData.aiText === 'string') {
-          return responseData.aiText; // Success
-      } else {
-          // Handle case where response is ok, but aiText is missing/null (maybe blocked without reason?)
-          return { error: true, text: "[No text content received from AI]" };
-      }
-  
-    } catch (error) {
-      console.error('Error calling backend function:', error);
-      return { error: true, text: `Error communicating with backend: ${error.message}` };
-    }
+      if (typeof responseData.aiText === 'string') { return responseData.aiText; }
+      else { return { error: true, text: "[No text content received from AI]" }; }
+    } catch (error) { console.error('Error calling backend function:', error); return { error: true, text: `Backend Error: ${error.message}` }; }
   };
   // -----------------------
   
@@ -393,33 +366,41 @@
   // --- Send Message Action ---
   const sendMessage = async () => {
     const currentInput = userInput.value;
-    const currentFile = selectedFile.value; // Use the stored File object
+    const currentFile = selectedFile.value;
+    const currentPreview = selectedImagePreview.value; // Capture preview URL before clearing
+  
     if ((currentInput.trim() === '' && !currentFile) || isLoading.value) return;
   
     triggerSendFlash();
   
+    // Construct user message text
     let userMessageText = currentInput.trim();
-    if (currentFile && userMessageText === '') { userMessageText = `[Image: ${currentFile.name}]`; }
-    addMessage(userMessageText, 'User');
+    // Add placeholder text ONLY if there's an image but NO text
+    if (currentFile && userMessageText === '') {
+        userMessageText = `[Image: ${currentFile.name}]`; // Or just "" if you prefer no text for image-only prompts
+    }
+  
+    // Add user message to display, passing the preview URL
+    addMessage(userMessageText, 'User', currentPreview);
   
     const textToSend = currentInput;
-    const imageToSend = currentFile; // Pass the File object
+    const imageToSend = currentFile; // Pass the File object to backend call
   
+    // Clear inputs *after* capturing values
     userInput.value = '';
-    removeSelectedImage(); // Clear preview and file state
+    removeSelectedImage(); // Clears both selectedFile and selectedImagePreview
   
     nextTick(() => { if(inputAreaRef.value) { inputAreaRef.value.style.height = 'auto'; autoGrowTextarea({ target: inputAreaRef.value }); } currentPlaceholder.value = placeholders[0]; });
   
     isLoading.value = true;
     addMessage('AI is thinking...', 'AI');
   
-    // *** Call the backend function instead of callGeminiApi directly ***
-    const aiResponse = await callBackendApi(textToSend, imageToSend);
+    const aiResponse = await callBackendApi(textToSend, imageToSend); // Call backend
   
     const thinkingIndex = messages.value.findIndex(msg => msg.text === 'AI is thinking...');
     if (thinkingIndex !== -1) { messages.value.splice(thinkingIndex, 1); }
   
-    addMessage(aiResponse, 'AI'); // Handles string or error object from backend
+    addMessage(aiResponse, 'AI'); // Add AI response (or error object)
   
     isLoading.value = false;
     nextTick(() => { inputAreaRef.value?.focus(); });
@@ -517,6 +498,8 @@
     line-height: 1.45;
     position: relative; /* Keep relative for timestamp/copy button */
     min-width: 50px;
+    display: flex; /* Use flex for inner content */
+    flex-direction: column; /* Stack text/image/timestamp vertically */
   }
   
   
@@ -533,7 +516,7 @@
     color: #333;
     border-bottom-left-radius: 6px; /* Different corner for tail */
   }
-  /* Style links within AI messages */
+  /* Style links within messages */
   .message-text :deep(a) { /* Use :deep selector for slotted/generated content */
       color: #1a0dab; /* Standard link blue */
       text-decoration: underline;
@@ -541,6 +524,14 @@
   .message-text :deep(a:hover) {
       color: #60076a; /* Standard visited link purple */
   }
+  /* Style links within user messages */
+  .user-message .message-text :deep(a) {
+      color: #c0d8ff; /* Lighter blue for links on dark background */
+  }
+  .user-message .message-text :deep(a:hover) {
+      color: #e0eaff;
+  }
+  
   
   /* Style System messages (e.g., errors) */
   .system-message {
@@ -566,10 +557,24 @@
       align-self: center; /* Override default align-self */
   }
   
+  /* Style for image thumbnail inside message */
+  .message-image-thumbnail {
+      max-width: 150px; /* Max width for thumbnail */
+      max-height: 100px; /* Max height */
+      border-radius: 8px; /* Rounded corners */
+      margin-bottom: 0.5rem; /* Space between image and text/timestamp */
+      object-fit: contain; /* Scale nicely */
+      border: 1px solid rgba(0,0,0,0.1); /* Subtle border */
+      align-self: flex-start; /* Align to start within the flex column */
+  }
+  .user-message .message-image-thumbnail {
+       border: 1px solid rgba(255,255,255,0.3); /* Lighter border for dark background */
+  }
+  
   
   /* Timestamp Styling */
   .timestamp {
-      display: block;
+      /* display: block; Already block due to flex column */
       font-size: 0.7em;
       color: #999;
       margin-top: 0.3rem;
@@ -579,6 +584,7 @@
       -webkit-user-select: none;
       -moz-user-select: none;
       -ms-user-select: none;
+      width: 100%; /* Ensure it takes width for text-align */
   }
   .user-message .timestamp {
       color: #c0d8ff;
