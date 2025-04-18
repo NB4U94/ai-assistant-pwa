@@ -31,9 +31,9 @@
          <button @click="triggerFileInput" class="icon-button" aria-label="Attach image" title="Attach image">
            📎
          </button>
-         <button class="icon-button" aria-label="Use voice input" title="Use voice input (Not implemented)">
-           🎤
-         </button>
+         <button @click="toggleListening" :class="['icon-button', isListening ? 'listening' : '']" aria-label="Use voice input" title="Use voice input">
+           <span v-if="!isListening">🎤</span>
+           <span v-else> MUTE </span> </button>
         <textarea
           ref="inputAreaRef"
           v-model="userInput"
@@ -43,8 +43,7 @@
           :disabled="isLoading"
           aria-label="Chat message input"
         ></textarea>
-        <button ref="sendButtonRef" @click="sendMessage" :disabled="isLoading" aria-label="Send message" class="send-button">Send</button>
-        <button @click="toggleTts" :class="['tts-button', isTtsEnabled ? 'tts-on' : 'tts-off']" :aria-pressed="isTtsEnabled" aria-label="Toggle text to speech">
+        <button ref="sendButtonRef" @click="sendMessage" :disabled="isLoading || (!userInput.trim() && !selectedFile)" aria-label="Send message" class="send-button">Send</button> <button @click="toggleTts" :class="['tts-button', isTtsEnabled ? 'tts-on' : 'tts-off']" :aria-pressed="isTtsEnabled" aria-label="Toggle text to speech">
           <span v-if="isTtsEnabled" title="Speech ON">🔊</span>
           <span v-else title="Speech OFF">🔇</span>
         </button>
@@ -58,8 +57,8 @@
   // --- Configuration ---
   // 🚨🚨🚨 WARNING: Replace with your NEW, PRIVATE key for LOCAL TESTING ONLY.
   // 🚨🚨🚨 DO NOT COMMIT YOUR REAL API KEY TO GIT!
-  const GEMINI_API_KEY = 'YOUR API KEY HERE';
-  const MODEL_NAME = 'gemini-1.5-flash'; // Ensure this model supports multimodal input
+  const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
+  const MODEL_NAME = 'gemini-1.5-flash';
   // ---------------------
   
   // --- Refs ---
@@ -75,12 +74,18 @@
   const isTtsEnabled = ref(false);
   const synth = window.speechSynthesis;
   const ttsSupported = ref(!!synth);
-  const selectedImagePreview = ref(null); // Holds the data URL for image preview
-  const selectedFile = ref(null); // Holds the actual File object
+  const selectedImagePreview = ref(null);
+  const selectedFile = ref(null);
+  
+  // --- Speech Recognition State ---
+  const isListening = ref(false);
+  const recognition = ref(null); // Holds the SpeechRecognition instance
+  const speechSupported = ref(false);
+  // -----------------------------
   
   // --- Animated Placeholder ---
   const placeholders = [
-    "Type your message here...",
+    "Type your message or use the mic...", // Updated placeholder
     "Ask me anything...",
     "Attach an image and ask about it...",
     "Write a story about a dragon...",
@@ -89,7 +94,9 @@
   const currentPlaceholder = ref(placeholders[0]);
   let placeholderInterval = null;
   
+  // --- Lifecycle Hooks ---
   onMounted(() => {
+    // Setup animated placeholder
     let placeholderIndex = 0;
     placeholderInterval = setInterval(() => {
       placeholderIndex = (placeholderIndex + 1) % placeholders.length;
@@ -99,6 +106,9 @@
           currentPlaceholder.value = placeholders[0];
       }
     }, 3000);
+  
+    // Setup Speech Recognition
+    setupSpeechRecognition();
   });
   
   onUnmounted(() => {
@@ -106,81 +116,146 @@
     if (synth) {
         synth.cancel();
     }
+    // Stop recognition if component is destroyed
+    if (recognition.value) {
+        recognition.value.stop();
+    }
   });
   // ---------------------------
+  
+  // --- Speech Recognition Setup & Control ---
+  const setupSpeechRecognition = () => {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+          speechSupported.value = true;
+          recognition.value = new SpeechRecognition();
+          recognition.value.continuous = false; // Stop after first pause
+          recognition.value.lang = 'en-US'; // Set language
+          recognition.value.interimResults = false; // We only want final results
+          recognition.value.maxAlternatives = 1;
+  
+          // Event Handlers
+          recognition.value.onresult = (event) => {
+              const transcript = event.results[0][0].transcript;
+              console.log('Speech recognized:', transcript);
+              userInput.value += (userInput.value ? ' ' : '') + transcript; // Append to existing input
+              autoGrowTextarea({ target: inputAreaRef.value }); // Adjust height after adding text
+          };
+  
+          recognition.value.onerror = (event) => {
+              console.error('Speech recognition error:', event.error);
+              let errorMsg = `Speech recognition error: ${event.error}`;
+              if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                  errorMsg = "Microphone access denied. Please allow microphone access in browser settings.";
+              } else if (event.error === 'no-speech') {
+                  errorMsg = "No speech detected. Please try again.";
+              }
+              addMessage({ error: true, text: errorMsg }, 'System');
+              isListening.value = false; // Ensure listening state is reset on error
+          };
+  
+          recognition.value.onstart = () => {
+              console.log('Speech recognition started');
+              isListening.value = true;
+          };
+  
+          recognition.value.onend = () => {
+              console.log('Speech recognition ended');
+              isListening.value = false;
+              // Refocus input after listening stops
+               nextTick(() => {
+                  inputAreaRef.value?.focus();
+               });
+          };
+  
+      } else {
+          console.warn("Speech Recognition not supported by this browser.");
+          speechSupported.value = false;
+      }
+  };
+  
+  const startListening = () => {
+      if (!speechSupported.value || !recognition.value || isListening.value) return;
+      try {
+          recognition.value.start();
+      } catch (error) {
+          console.error("Error starting speech recognition:", error);
+          addMessage({ error: true, text: "Could not start voice input." }, 'System');
+      }
+  };
+  
+  const stopListening = () => {
+      if (!speechSupported.value || !recognition.value || !isListening.value) return;
+      recognition.value.stop();
+  };
+  
+  const toggleListening = () => {
+      if (!speechSupported.value) {
+           addMessage({ error: true, text: 'Sorry, your browser does not support voice input.' }, 'System');
+          return;
+      }
+      if (isListening.value) {
+          stopListening();
+      } else {
+          startListening();
+      }
+  };
+  // ------------------------------------
   
   // --- File Input Handling ---
   const triggerFileInput = () => {
       fileInputRef.value?.click();
   };
   
-  // Helper function to read file as base64 (returns a Promise)
   const readFileAsBase64 = (file) => {
       return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
-              // Result includes the prefix "data:image/jpeg;base64,"
-              // The API expects only the pure base64 part
-              const base64String = reader.result.split(',')[1];
-              resolve({
-                  base64Data: base64String,
-                  mimeType: file.type // Get MIME type from the file object
-              });
+              const base64String = reader.result?.toString().split(',')[1];
+              if (base64String) {
+                  resolve({ base64Data: base64String, mimeType: file.type });
+              } else {
+                  reject(new Error("Failed to read file as base64 data URL."));
+              }
           };
           reader.onerror = (error) => reject(error);
           reader.readAsDataURL(file);
       });
   };
   
-  
-  const handleFileSelected = async (event) => { // Make async to handle await if needed later
+  const handleFileSelected = async (event) => {
       const file = event.target.files?.[0];
-      if (!file) {
-          removeSelectedImage();
-          return;
-      }
-  
+      if (!file) { removeSelectedImage(); return; }
       if (!file.type.startsWith('image/')) {
-          addMessage(`Selected file (${file.name}) is not an image.`, 'System');
-          removeSelectedImage();
-          return;
+          addMessage({ error: true, text: `Selected file (${file.name}) is not an image.` }, 'System');
+          removeSelectedImage(); return;
       }
-  
-      const maxSizeMB = 4; // Gemini API limit for inline data
+      const maxSizeMB = 4;
       const maxSizeBytes = maxSizeMB * 1024 * 1024;
       if (file.size > maxSizeBytes) {
-          addMessage(`Image file (${file.name}) is too large (>${maxSizeMB}MB).`, 'System');
-          removeSelectedImage();
-          return;
+          addMessage({ error: true, text: `Image file (${file.name}) is too large (>${maxSizeMB}MB).` }, 'System');
+          removeSelectedImage(); return;
       }
-  
-      selectedFile.value = file; // Store the File object
-  
-      // Generate preview immediately (doesn't need await)
-      const reader = new FileReader();
-      reader.onload = (e) => {
+      selectedFile.value = file;
+      const readerPreview = new FileReader();
+      readerPreview.onload = (e) => {
           selectedImagePreview.value = e.target?.result;
           currentPlaceholder.value = "Image selected. Add a message or send.";
       };
-      reader.onerror = (e) => {
+      readerPreview.onerror = (e) => {
           console.error("FileReader error for preview:", e);
-          addMessage("Error reading image for preview.", 'System');
+          addMessage({ error: true, text: "Error reading image for preview." }, 'System');
           removeSelectedImage();
       };
-      reader.readAsDataURL(file);
-  
-      event.target.value = null; // Reset input
+      readerPreview.readAsDataURL(file);
+      event.target.value = null;
   };
   
   const removeSelectedImage = () => {
       selectedImagePreview.value = null;
       selectedFile.value = null;
-      if (fileInputRef.value) {
-          fileInputRef.value.value = null;
-      }
-      if (!userInput.value) {
-          currentPlaceholder.value = placeholders[0];
-      }
+      if (fileInputRef.value) { fileInputRef.value.value = null; }
+      if (!userInput.value) { currentPlaceholder.value = placeholders[0]; }
   };
   // -------------------------
   
@@ -200,20 +275,18 @@
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.onerror = (event) => {
       console.error('SpeechSynthesisUtterance.onerror', event);
-      addMessage(`Speech error: ${event.error}`, 'System');
+      addMessage({ error: true, text: `Speech error: ${event.error}` }, 'System');
     };
     synth.speak(utterance);
   };
   
   const toggleTts = () => {
     if (!ttsSupported.value) {
-        addMessage('Sorry, your browser does not support text-to-speech.', 'System');
+        addMessage({ error: true, text: 'Sorry, your browser does not support text-to-speech.' }, 'System');
         return;
     }
     isTtsEnabled.value = !isTtsEnabled.value;
-    if (!isTtsEnabled.value) {
-        synth.cancel();
-    }
+    if (!isTtsEnabled.value) { synth.cancel(); }
   };
   // -----------------------------
   
@@ -228,7 +301,7 @@
   // --- Copy to Clipboard ---
   const copyText = async (textToCopy) => {
       if (!navigator.clipboard) {
-          addMessage("Cannot copy text: Clipboard API not supported or not available.", 'System');
+          addMessage({ error: true, text: "Cannot copy text: Clipboard API not supported or not available." }, 'System');
           return;
       }
       try {
@@ -236,7 +309,7 @@
           console.log("Text copied to clipboard!");
       } catch (err) {
           console.error('Failed to copy text: ', err);
-          addMessage(`Failed to copy: ${err.message}`, 'System');
+          addMessage({ error: true, text: `Failed to copy: ${err.message}` }, 'System');
       }
   };
   // -------------------------
@@ -245,9 +318,7 @@
   const scrollToBottom = () => {
     nextTick(() => {
       const messageArea = messageAreaRef.value;
-      if (messageArea) {
-        messageArea.scrollTop = messageArea.scrollHeight;
-      }
+      if (messageArea) { messageArea.scrollTop = messageArea.scrollHeight; }
     });
   };
   
@@ -255,127 +326,71 @@
       let messageText = '';
       let messageSender = sender;
       let isError = false;
+      if (typeof payload === 'string') { messageText = payload; }
+      else if (typeof payload === 'object' && payload !== null && payload.error === true) {
+          messageText = payload.text; messageSender = 'System'; isError = true;
+      } else { console.warn("Invalid payload:", payload); return; }
+      if (messageText.trim() === '') { console.warn("Empty message."); return; }
+      if (messageSender === 'AI' && messageText === 'AI is thinking...' && messages.value.some(msg => msg.text === 'AI is thinking...')) return;
   
-      if (typeof payload === 'string') {
-          messageText = payload;
-      } else if (typeof payload === 'object' && payload !== null && payload.error === true) {
-          messageText = payload.text;
-          messageSender = 'System';
-          isError = true;
-      } else {
-          console.warn("Attempted to add message with invalid payload:", payload);
-          return;
-      }
-  
-      if (messageText.trim() === '') {
-          console.warn("Attempted to add an empty message.");
-          return;
-      }
-      if (messageSender === 'AI' && messageText === 'AI is thinking...' && messages.value.some(msg => msg.text === 'AI is thinking...')) {
-          return;
-      }
-  
-      const newMessage = {
-          id: Date.now() + Math.random(),
-          text: messageText.trim(),
-          sender: messageSender,
-          timestamp: Date.now()
-      };
+      const newMessage = { id: Date.now() + Math.random(), text: messageText.trim(), sender: messageSender, timestamp: Date.now() };
       messages.value.push(newMessage);
-      scrollToBottom();
-  
-      if (messageSender === 'AI' && !isError && isTtsEnabled.value) {
-          speakText(newMessage.text);
-      }
+      nextTick(scrollToBottom);
+      if (messageSender === 'AI' && !isError && isTtsEnabled.value) { speakText(newMessage.text); }
   };
   // -----------------------
   
   // --- API Call Logic ---
   const chatHistoryForApi = computed(() => {
-    // Exclude non-API messages from history
     return messages.value
-      .filter(msg => msg.sender === 'User' || msg.sender === 'AI') // Only include User and AI messages
-      .map(msg => ({
-        role: msg.sender === 'User' ? 'user' : 'model',
-        parts: [{ text: msg.text }]
-        // Note: This history currently doesn't include images sent in previous turns.
-        // Handling multi-turn multimodal history is more complex.
-      }));
+      .filter(msg => msg.sender === 'User' || msg.sender === 'AI')
+      .map(msg => ({ role: msg.sender === 'User' ? 'user' : 'model', parts: [{ text: msg.text }] }));
   });
   
-  // Function to call the Gemini API (handles both text and image)
   const callGeminiApi = async (inputText, imageFile) => {
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
-    const history = chatHistoryForApi.value; // Get current text history
-  
-    let requestParts = [];
-  
-    // Add text part if present
-    if (inputText.trim() !== '') {
-        requestParts.push({ text: inputText });
-    }
-  
-    // Add image part if present
+    const history = chatHistoryForApi.value;
+    let userParts = [];
+    if (inputText.trim() !== '') { userParts.push({ text: inputText }); }
     if (imageFile) {
         try {
-            // Read the image file as base64 *within* the function call
             const { base64Data, mimeType } = await readFileAsBase64(imageFile);
-            requestParts.push({
-                inlineData: {
-                    mimeType: mimeType,
-                    data: base64Data
-                }
-            });
+            userParts.push({ inlineData: { mimeType: mimeType, data: base64Data } });
             console.log("Image added to request parts. MIME type:", mimeType);
         } catch (error) {
             console.error("Error reading image file for API:", error);
             return { error: true, text: "Error processing image file before sending." };
         }
     }
-  
-    // Construct the final request body
-    const requestBody = {
-        // Combine history with the new user turn (which includes text and/or image)
-        contents: [ ...history, { role: 'user', parts: requestParts } ]
-    };
-  
-    console.log("Sending to API:", JSON.stringify(requestBody, null, 2)); // Careful: might log base64 data
+    if (userParts.length === 0) {
+        console.warn("Attempted to call API with no content parts.");
+        return { error: true, text: "Nothing to send." }; // Avoid empty API call
+    }
+    const requestBody = { contents: [ ...history, { role: 'user', parts: userParts } ] };
   
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-  
+      const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
       const responseData = await response.json();
-      console.log("Received from API:", JSON.stringify(responseData, null, 2));
-  
-      if (!response.ok) {
-        const specificError = responseData?.error?.message || response.statusText;
-        throw new Error(`API request failed with status ${response.status}: ${specificError}`);
-      }
-  
-       if (responseData.candidates && responseData.candidates.length > 0) {
+      if (!response.ok) { const specificError = responseData?.error?.message || response.statusText; throw new Error(`API request failed with status ${response.status}: ${specificError}`); }
+      if (responseData.candidates?.length > 0) {
           const candidate = responseData.candidates[0];
           if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
-               console.warn(`Response stopped due to: ${candidate.finishReason}`);
                const safetyFeedback = candidate.safetyRatings ? ` Safety ratings: ${JSON.stringify(candidate.safetyRatings)}` : '';
                return { error: true, text: `My response was blocked due to: ${candidate.finishReason}.${safetyFeedback}`};
           }
           if (candidate.content?.parts?.length > 0) {
               const aiText = candidate.content.parts[0].text;
-               if (typeof aiText === 'string') {
-                  return aiText; // Success case
-              }
+               if (typeof aiText === 'string') { return aiText; }
           }
-          console.warn("API response finished with STOP but no valid text content found.", responseData);
+          console.warn("API response finished but no valid text content.", responseData);
           return { error: true, text: "[No text content received from AI]" };
       }
-  
-      console.error('No valid candidates found in API response:', responseData);
+      if (responseData.promptFeedback?.blockReason) {
+          const safetyFeedback = responseData.promptFeedback.safetyRatings ? ` Safety ratings: ${JSON.stringify(responseData.promptFeedback.safetyRatings)}` : '';
+          return { error: true, text: `My request was blocked due to: ${responseData.promptFeedback.blockReason}.${safetyFeedback}`};
+      }
+      console.error('No valid candidates in API response:', responseData);
       throw new Error('Invalid response structure: No candidates found.');
-  
     } catch (error) {
       console.error('Error calling Gemini API:', error);
       return { error: true, text: `Error: ${error.message}` };
@@ -386,75 +401,48 @@
   // --- Send Button Flash Animation ---
   const triggerSendFlash = () => {
       const button = sendButtonRef.value;
-      if (button) {
-          button.classList.add('flash-active');
-          setTimeout(() => {
-              button.classList.remove('flash-active');
-          }, 300);
-      }
+      if (button) { button.classList.add('flash-active'); setTimeout(() => { button.classList.remove('flash-active'); }, 300); }
   };
   // -------------------------------
   
   // --- Send Message Action ---
   const sendMessage = async () => {
     const currentInput = userInput.value;
-    const currentFile = selectedFile.value; // Get the selected file
-  
-    // Require text input OR an image to send
-    if ((currentInput.trim() === '' && !currentFile) || isLoading.value) {
-        return;
-    }
+    const currentFile = selectedFile.value;
+    if ((currentInput.trim() === '' && !currentFile) || isLoading.value) return;
   
     triggerSendFlash();
   
-    // Add user message representation
-    // If image is present, maybe indicate that in the text message?
     let userMessageText = currentInput.trim();
-    if (currentFile && userMessageText === '') {
-        userMessageText = `[Image: ${currentFile.name}]`; // Placeholder text if only image
-    } else if (currentFile) {
-        userMessageText = `${userMessageText} [Image attached]`; // Append if text also present
-    }
+    if (currentFile && userMessageText === '') { userMessageText = `[Image: ${currentFile.name}]`; }
+    // Decide whether to append [Image attached] - keeping it simple for now
+    // else if (currentFile) { userMessageText = `${userMessageText} [Image attached]`; }
     addMessage(userMessageText, 'User');
   
-    const textToSend = currentInput; // Keep original text for API
-    const imageToSend = currentFile; // Keep file for API
+    const textToSend = currentInput;
+    const imageToSend = currentFile;
   
-    // Clear inputs *after* capturing values for the API call
     userInput.value = '';
-    // Clear the image preview and file state *before* the API call starts loading
-    // This prevents sending the same image twice if user clicks send quickly
-    removeSelectedImage();
+    removeSelectedImage(); // Clear preview and file state *before* API call
   
     nextTick(() => {
-        if(inputAreaRef.value) {
-            inputAreaRef.value.style.height = 'auto';
-            autoGrowTextarea({ target: inputAreaRef.value });
-        }
-        // Ensure placeholder resets correctly after clearing image
+        if(inputAreaRef.value) { inputAreaRef.value.style.height = 'auto'; autoGrowTextarea({ target: inputAreaRef.value }); }
         currentPlaceholder.value = placeholders[0];
     });
-  
   
     isLoading.value = true;
     addMessage('AI is thinking...', 'AI');
   
-    // Call the API with both text and potentially an image file
     const aiResponse = await callGeminiApi(textToSend, imageToSend);
   
     const thinkingIndex = messages.value.findIndex(msg => msg.text === 'AI is thinking...');
-    if (thinkingIndex !== -1) {
-      messages.value.splice(thinkingIndex, 1);
-    }
+    if (thinkingIndex !== -1) { messages.value.splice(thinkingIndex, 1); }
   
     addMessage(aiResponse, 'AI'); // Handles string or error object
   
     isLoading.value = false;
   
-    // Refocus input after everything is done
-    nextTick(() => {
-      inputAreaRef.value?.focus();
-    });
+    nextTick(() => { inputAreaRef.value?.focus(); });
   };
   // -------------------------
   
@@ -681,16 +669,17 @@
     display: flex;
     align-items: flex-end;
     padding: 0.75rem;
-    border-top: 1px solid #ccc;
+    /* border-top: 1px solid #ccc; // Removed, handled by preview area potentially */
     background-color: #f0f0f0;
     flex-shrink: 0;
     gap: 0.5rem;
      /* Adjust border radius if preview area is shown */
-    border-radius: 0 0 8px 8px; /* Match preview area */
+    border-radius: 0 0 8px 8px; /* Round bottom corners */
   }
-  /* Adjust border radius if preview is NOT shown */
-  .input-area:not(:has(+ .image-preview-area)) { /* Rough approximation */
-       border-radius: 8px; /* Standard radius if no preview */
+  /* Style input area differently if preview IS NOT shown */
+  .chat-view:not(:has(.image-preview-area)) .input-area {
+       border-top: 1px solid #ccc; /* Add top border back */
+       border-radius: 0; /* Reset border radius if no preview */
   }
   
   
@@ -750,6 +739,17 @@
   .icon-button:disabled {
       background-color: #e0e0e0;
   }
+  /* Style for listening state */
+  .icon-button.listening {
+      background-color: #ff4d4d; /* Red when listening */
+      color: white;
+      animation: pulse-red 1.5s infinite ease-in-out;
+  }
+  @keyframes pulse-red {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.7); }
+    50% { box-shadow: 0 0 0 5px rgba(255, 77, 77, 0); }
+  }
+  
   
   .send-button {
     background-color: #0b57d0;
