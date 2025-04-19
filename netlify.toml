@@ -1,0 +1,13 @@
+# This is the configuration file for Netlify
+
+# Build settings: Tells Netlify how to build your Vue app
+[build]
+  command = "npm run build" # The command to run to build the site
+  publish = "dist"          # The directory containing the built site files
+  
+# Functions settings: Tells Netlify where your serverless functions are
+[functions]
+  directory = "netlify/functions" # The directory containing your Netlify functions
+  node_bundler = "esbuild"        # Use the esbuild bundler for Node.js functions
+
+# Note: The [edge_functions] section has been completely removed.

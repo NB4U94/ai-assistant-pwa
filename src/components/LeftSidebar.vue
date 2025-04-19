@@ -1,79 +1,97 @@
 <template>
-    <div class="left-sidebar-content">
-      <h2>Main Menu</h2>
-      <nav class="main-menu">
-        <ul>
-          <li>
-            <RouterLink to="/">Chat</RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/image-gen">Image Gen</RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/assistants">Assistants</RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/settings">Settings</RouterLink>
-          </li>
-          </ul>
-      </nav>
-    </div>
-  </template>
-  
-  <script setup>
-  // Import RouterLink if needed (often globally available, but good practice)
-  import { RouterLink } from 'vue-router';
-  
-  // Component-specific JavaScript logic will go here later
-  </script>
-  
-  <style scoped>
-  /* Styles specific to the left sidebar */
-  .left-sidebar-content {
-    padding: 1rem;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
+  <div class="left-sidebar-content">
+    <h2>Main Menu</h2>
+    <nav class="main-menu">
+      <ul>
+        <li>
+          <RouterLink to="/">Chat</RouterLink>
+        </li>
+        <li>
+          <RouterLink to="/image-gen">Image Gen</RouterLink>
+        </li>
+        <li>
+          <RouterLink to="/assistants">Assistants</RouterLink>
+        </li>
+        <li>
+          <RouterLink to="/settings">Settings</RouterLink>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</template>
+
+<script setup>
+import { RouterLink } from 'vue-router'
+
+// Component-specific JavaScript logic will go here later
+</script>
+
+<style scoped>
+/* Define the pulsing halo animation */
+@keyframes pulse-halo {
+  0% {
+    box-shadow: 0 0 0 0px color-mix(in srgb, var(--accent-color-primary) 40%, transparent);
   }
-  
-  h2 {
-    margin-top: 0;
-    margin-bottom: 1.5rem; /* Add space below title */
-    color: #1a237e; /* Darker blue for title */
-    font-family: sans-serif;
-    text-align: center;
+  50% {
+    /* Increase shadow size slightly */
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-color-primary) 25%, transparent);
   }
-  
-  .main-menu ul {
-    list-style: none; /* Remove default bullet points */
-    padding: 0;
-    margin: 0;
+  100% {
+    box-shadow: 0 0 0 0px color-mix(in srgb, var(--accent-color-primary) 40%, transparent);
   }
-  
-  .main-menu li {
-    margin-bottom: 0.8rem; /* Space between menu items */
-  }
-  
-  .main-menu a { /* Style the RouterLink */
-    display: block; /* Make the link take full width */
-    padding: 0.6rem 1rem;
-    text-decoration: none;
-    color: #333; /* Dark grey text */
-    font-family: sans-serif;
-    border-radius: 6px;
-    transition: background-color 0.2s ease, color 0.2s ease;
-  }
-  
-  .main-menu a:hover {
-    background-color: #d1eaff; /* Light blue background on hover */
-    color: #0b57d0; /* Darker blue text on hover */
-  }
-  
-  /* Style for the currently active link (uses router-link-active class) */
-  .main-menu a.router-link-active {
-    background-color: #0b57d0; /* Google blue background for active link */
-    color: white; /* White text for active link */
-    font-weight: bold;
-  }
-  </style>
-  
+}
+
+/* Styles specific to the left sidebar - using CSS Variables directly */
+.left-sidebar-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: var(--text-primary);
+  font-family: sans-serif;
+  text-align: center;
+  font-weight: 600;
+}
+
+.main-menu ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.main-menu li {
+  margin-bottom: 0.8rem;
+}
+
+.main-menu a {
+  /* Style the RouterLink */
+  display: block;
+  padding: 0.6rem 1rem;
+  text-decoration: none;
+  color: var(--accent-color-primary); /* Use green accent */
+  font-family: sans-serif;
+  border-radius: 6px;
+  background-color: transparent; /* Ensure background is transparent */
+  transition: color 0.2s ease; /* Only transition color if needed, removed background transition */
+  position: relative; /* Needed for potential future pseudo-elements if required */
+  outline: none; /* Remove default browser outline */
+  /* Reset box-shadow to ensure animation starts clean */
+  box-shadow: none;
+}
+
+/* Apply pulsing halo animation on hover */
+.main-menu a:hover {
+  /* Text color remains green from the base 'a' style */
+  animation: pulse-halo 1.5s infinite ease-in-out;
+}
+
+/* Apply pulsing halo animation for the active link */
+.main-menu a.router-link-active {
+  /* Text color remains green from the base 'a' style */
+  animation: pulse-halo 1.5s infinite ease-in-out;
+}
+</style>
