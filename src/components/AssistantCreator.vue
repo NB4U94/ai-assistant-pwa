@@ -1,6 +1,6 @@
 <template>
   <div class="assistant-creator">
-    <div v-if="currentStep === 1">
+    <div v-if="currentStep === 1 && !isEditMode" class="creator-step">
       <h3>Create New Assistant</h3>
       <p class="intro-text">
         Hello! I'm the Assistant Creator. I'm here to help you craft a powerful custom AI assistant.
@@ -34,7 +34,7 @@
           </label>
         </div>
       </div>
-      <div class="creator-actions">
+      <div class="creator-actions footer-actions">
         <button @click="cancelCreation" class="button-secondary">Cancel</button>
         <button @click="confirmLevelAndProceed" class="button-primary" :disabled="!selectedLevel">
           Next: Define Assistant
@@ -42,9 +42,12 @@
       </div>
     </div>
 
-    <div v-if="currentStep === 2">
-      <h3>Define Assistant (Level {{ selectedLevel }}: {{ currentLevelName }})</h3>
-      <div v-if="currentQuestions.length > 0" class="question-area">
+    <div v-if="currentStep === 2" class="creator-step">
+      <h3>
+        {{ isEditMode ? 'Edit Assistant Definition' : 'Define Assistant' }} (Level
+        {{ selectedLevel }}: {{ currentLevelName }})
+      </h3>
+      <div v-if="currentQuestions.length > 0" class="question-area scrollable-content">
         <div class="question-header">
           <label :for="'question-' + currentQuestionIndex" class="question-label">
             {{ currentQuestionIndex + 1 }}. {{ currentQuestions[currentQuestionIndex].text }}
@@ -79,7 +82,7 @@
           ref="answerTextareaRef"
         ></textarea>
       </div>
-      <div class="creator-actions question-nav">
+      <div class="creator-actions footer-actions question-nav">
         <button
           @click="previousQuestion"
           class="button-secondary"
@@ -94,63 +97,157 @@
           {{ isLastQuestion ? 'Finish & Review Instructions' : 'Next Question' }}
         </button>
       </div>
-      <button @click="goBackToLevelSelection" class="button-tertiary back-button">
+      <button
+        @click="goBackToLevelSelection"
+        v-if="!isEditMode"
+        class="button-tertiary back-button footer-back-button"
+      >
         Back to Level Selection
+      </button>
+      <button @click="cancelCreation" v-else class="button-tertiary back-button footer-back-button">
+        Cancel Edit
       </button>
     </div>
 
-    <div v-if="currentStep === 3">
-      <h3>Review & Save Assistant</h3>
-      <div class="name-input-area">
-        <label for="assistant-name">Assistant Name:</label>
-        <input
-          type="text"
-          id="assistant-name"
-          v-model="assistantName"
-          placeholder="Enter a name (or suggest one)"
-        />
-        <button
-          @click="suggestName"
-          class="button-tertiary suggest-button"
-          title="Suggest name based on Role/Task"
-          :disabled="isSuggestingName"
-        >
-          {{ isSuggestingName ? 'Suggesting...' : 'Suggest' }}
-        </button>
-      </div>
-      <div v-if="suggestNameError" class="error-text suggest-error">{{ suggestNameError }}</div>
-      <div v-if="saveError" class="error-text save-error">{{ saveError }}</div>
+    <div v-if="currentStep === 3" class="creator-step">
+      <h3>{{ isEditMode ? 'Review & Update Assistant' : 'Review & Save Assistant' }}</h3>
 
-      <label class="review-label">Generated Instructions:</label>
-      <pre class="generated-instructions">{{ finalInstructions }}</pre>
-      <div class="additional-instructions">
-        <strong>Quick Guide:</strong>
-        <p>{{ boilerplateInstructions }}</p>
+      <div class="review-area scrollable-content">
+        <div class="review-input-group">
+          <label for="assistant-name">Assistant Name:</label>
+          <div class="name-input-area">
+            <input
+              type="text"
+              id="assistant-name"
+              v-model="assistantName"
+              placeholder="Enter a name (or suggest one)"
+            />
+            <button
+              @click="suggestName"
+              class="button-tertiary suggest-button"
+              title="Suggest name based on Role/Task"
+              :disabled="isSuggestingName"
+            >
+              {{ isSuggestingName ? 'Suggesting...' : 'Suggest' }}
+            </button>
+          </div>
+          <div v-if="suggestNameError" class="error-text suggest-error">{{ suggestNameError }}</div>
+        </div>
+
+        <div class="review-input-group">
+          <label for="assistant-image-upload">Assistant Image (Optional):</label>
+          <div class="image-upload-controls">
+            <input
+              type="file"
+              id="assistant-image-upload"
+              ref="imageFileInputRef"
+              @change="handleImageFileSelected"
+              accept="image/png, image/jpeg, image/gif, image/webp"
+              style="display: none"
+            />
+            <button
+              type="button"
+              @click="triggerImageUpload"
+              class="button-secondary upload-button"
+            >
+              {{ assistantImageUrl ? 'Change Image' : 'Upload Image' }}
+            </button>
+            <div class="image-preview-container">
+              <img
+                v-if="assistantImageUrl"
+                :src="assistantImageUrl"
+                alt="Image Preview"
+                class="image-url-preview"
+                @error="onImagePreviewError"
+              />
+              <div v-if="!assistantImageUrl" class="image-url-preview placeholder">?</div>
+              <button
+                v-if="assistantImageUrl"
+                @click="removeSelectedImage"
+                class="remove-image-button"
+                title="Remove image"
+              >
+                ✖
+              </button>
+            </div>
+          </div>
+          <div v-if="imageError" class="error-text image-error">{{ imageError }}</div>
+        </div>
+        <div v-if="saveError" class="error-text save-error">{{ saveError }}</div>
+
+        <label class="review-label">Generated Instructions:</label>
+        <pre class="generated-instructions">{{ finalInstructions }}</pre>
+        <div class="additional-instructions">
+          <strong>Quick Guide:</strong>
+          <p>{{ boilerplateInstructions }}</p>
+        </div>
       </div>
-      <div class="creator-actions review-actions">
+      <div class="creator-actions footer-actions review-actions">
         <button @click="goBackToQuestions" class="button-secondary">Edit Answers</button>
-        <button @click="testAssistant" class="button-secondary">Test (Not Saved)</button>
+        <button @click="testAssistant" class="button-secondary">
+          Test {{ isEditMode ? '(Current Settings)' : '(Not Saved)' }}
+        </button>
         <button
-          @click="saveAssistant"
+          @click="saveOrUpdateAssistant"
           class="button-primary"
           :disabled="!assistantName.trim() || isSaving"
         >
-          {{ isSaving ? 'Saving...' : 'Save Assistant' }}
+          {{
+            isSaving
+              ? isEditMode
+                ? 'Updating...'
+                : 'Saving...'
+              : isEditMode
+                ? 'Update Assistant'
+                : 'Save Assistant'
+          }}
         </button>
       </div>
-      <button @click="cancelCreation" class="button-tertiary back-button">Cancel</button>
+      <button @click="cancelCreation" class="button-tertiary back-button footer-back-button">
+        Cancel
+      </button>
+
+      <div class="modal-overlay test-modal" v-if="isTestModalVisible" @click.self="closeTestModal">
+        <div class="test-modal-content">
+          <div class="test-modal-header">
+            <h3>Testing Assistant: "{{ assistantBeingTested?.name }}"</h3>
+            <button @click="closeTestModal" class="close-modal-button" title="Close Test Chat">
+              ✖
+            </button>
+          </div>
+          <div class="test-modal-chat-area">
+            <ChatView v-if="assistantBeingTested" :assistant-config="assistantBeingTested" />
+          </div>
+          <div class="test-modal-footer">
+            <button @click="closeTestModal" title="Close Test Chat Window">Close Test</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
-import { useAssistantsStore } from '@/stores/assistantsStore' // Import the assistants store
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAssistantsStore } from '@/stores/assistantsStore'
+import ChatView from '@/views/ChatView.vue' // Check path
 
-const emit = defineEmits(['level-confirmed', 'cancel', 'assistant-created', 'test-assistant'])
+// --- Props (from router) ---
+const props = defineProps({
+  id: { type: String, required: false, default: null },
+})
+
+// --- Emits ---
+// *** Added 'assistant-created' back for signaling modal closure ***
+const emit = defineEmits(['cancel', 'assistant-created'])
+
+// --- Router and Route ---
+const router = useRouter()
+const route = useRoute()
 
 // --- Pinia Store Instance ---
-const assistantsStore = useAssistantsStore() // Get instance of the store
+const assistantsStore = useAssistantsStore()
 
 // --- State Management ---
 const currentStep = ref(1)
@@ -161,13 +258,20 @@ const finalInstructions = ref('')
 const boilerplateInstructions = ref('')
 const visibleHelpIndex = ref(null)
 const assistantName = ref('')
+const assistantImageUrl = ref('') // Will hold Base64 Data URL or existing URL
+const imageFileInputRef = ref(null) // Ref for the file input element
+const imageError = ref(null) // Error message for image upload
 const isSuggestingName = ref(false)
 const suggestNameError = ref(null)
 const isSaving = ref(false)
 const saveError = ref(null)
 const answerTextareaRef = ref(null)
+const isTestModalVisible = ref(false)
+const assistantBeingTested = ref(null)
+const isEditMode = ref(false)
+const assistantIdToEdit = ref(null)
 
-// --- Intricacy Levels --- (Same as previous version)
+// --- Intricacy Levels & Questions Data --- (Keep full data)
 const intricacyLevels = ref([
   {
     value: 1,
@@ -188,8 +292,6 @@ const intricacyLevels = ref([
       'Most comprehensive set covering all aspects for precise behavior and handling various scenarios.',
   },
 ])
-
-// --- Questions Data --- (Same as previous version)
 const questionsByLevel = {
   1: [
     {
@@ -219,6 +321,7 @@ const questionsByLevel = {
     },
   ],
   2: [
+    /* Level 2 Questions */
     {
       text: 'What is the precise role or persona?',
       promptKey: 'Precise Role/Persona',
@@ -280,7 +383,7 @@ const questionsByLevel = {
     },
   ],
   3: [
-    // Simplified examples for brevity - expand as needed
+    /* Level 3 Questions */
     {
       text: 'What is the precise role or persona?',
       promptKey: 'Precise Role/Persona',
@@ -404,9 +507,11 @@ const questionsByLevel = {
   ],
 }
 
-// --- Computed Properties --- (Same as previous version)
+// --- Computed Properties ---
 const currentQuestions = computed(() => {
-  return selectedLevel.value ? questionsByLevel[selectedLevel.value] : []
+  return selectedLevel.value && questionsByLevel[selectedLevel.value]
+    ? questionsByLevel[selectedLevel.value]
+    : []
 })
 const isLastQuestion = computed(() => {
   return (
@@ -415,10 +520,58 @@ const isLastQuestion = computed(() => {
   )
 })
 const currentLevelName = computed(() => {
-  return intricacyLevels.value.find((level) => level.value === selectedLevel.value)?.name || ''
+  const level = intricacyLevels.value.find((level) => level.value === selectedLevel.value)
+  return level ? level.name : ''
 })
 
-// --- Methods --- (Mostly same as previous version, except saveAssistant)
+// --- Methods ---
+
+/**
+ * Load assistant data for editing.
+ */
+const loadAssistantForEdit = (id) => {
+  console.log(`[AssistantCreator] Attempting to load assistant with ID: ${id}`)
+  const assistantToEdit = assistantsStore.getAssistantById(id)
+
+  if (assistantToEdit) {
+    console.log('[AssistantCreator] Found assistant:', assistantToEdit)
+    assistantIdToEdit.value = assistantToEdit.id
+    assistantName.value = assistantToEdit.name
+    selectedLevel.value = assistantToEdit.level
+    finalInstructions.value = assistantToEdit.instructions
+    assistantImageUrl.value = assistantToEdit.imageUrl || '' // Load imageUrl
+    imageError.value = null // Clear previous image errors
+
+    nextTick(() => {
+      // Repopulate answers array
+      const instructionLines = assistantToEdit.instructions.split('\n\n')
+      const loadedAnswers = new Array(currentQuestions.value.length).fill('')
+      const keyToAnswerMap = new Map()
+      instructionLines.forEach((line) => {
+        const match = line.match(/^\*\*(.*?):\*\*\s*\n([\s\S]*)/)
+        if (match && match[1] && match[2]) {
+          keyToAnswerMap.set(match[1].trim(), match[2].trim())
+        }
+      })
+      currentQuestions.value.forEach((question, index) => {
+        const answer = keyToAnswerMap.get(question.promptKey)
+        loadedAnswers[index] = answer && answer !== '(Not specified)' ? answer : ''
+      })
+      answers.value = loadedAnswers
+
+      isEditMode.value = true
+      currentStep.value = 2 // Start editing at questions
+      console.log('[AssistantCreator] Edit mode activated. State populated.')
+    })
+  } else {
+    console.error(`[AssistantCreator] Assistant with ID ${id} not found in store.`)
+    saveError.value = `Error: Assistant with ID ${id} not found. Cannot edit.`
+    setTimeout(() => {
+      router.push({ name: 'assistants' })
+    }, 3000)
+  }
+}
+
 const selectLevel = (levelValue) => {
   selectedLevel.value = levelValue
 }
@@ -429,8 +582,13 @@ const confirmLevelAndProceed = () => {
   answers.value = new Array(currentQuestions.value.length).fill('')
   visibleHelpIndex.value = null
   assistantName.value = ''
+  assistantImageUrl.value = '' // Reset image URL
+  imageError.value = null // Reset image error
   saveError.value = null
   suggestNameError.value = null
+  finalInstructions.value = ''
+  isEditMode.value = false
+  assistantIdToEdit.value = null
   currentStep.value = 2
   nextTick(() => {
     answerTextareaRef.value?.focus()
@@ -464,21 +622,25 @@ const nextQuestion = () => {
 
 const generateFinalInstructions = () => {
   let markdown = ''
-  currentQuestions.value.forEach((question, index) => {
-    markdown += `**${question.promptKey}:**\n`
-    markdown += `${answers.value[index]?.trim() || '(Not specified)'}\n\n`
-  })
-  finalInstructions.value = markdown.trim()
-
-  if (selectedLevel.value === 1) {
-    boilerplateInstructions.value =
-      'Remember that this is a foundational instruction set. You can further refine it by adding more specific details, examples, or by using built-in rewriting tools for instructions. Always preview and test your assistant before finalizing.'
-  } else if (selectedLevel.value === 2) {
-    boilerplateInstructions.value =
-      'This instruction set provides a good level of detail for creating effective custom assistants. Consider adding more specific examples or constraints as needed. Remember to preview and test your assistant.'
+  if (currentQuestions.value && currentQuestions.value.length === answers.value.length) {
+    currentQuestions.value.forEach((question, index) => {
+      markdown += `**${question.promptKey}:**\n`
+      markdown += `${answers.value[index]?.trim() || '(Not specified)'}\n\n`
+    })
+    finalInstructions.value = markdown.trim()
   } else {
-    boilerplateInstructions.value =
-      'This is a comprehensive instruction set. Review carefully and test thoroughly before finalizing your assistant.'
+    console.error(
+      '[AssistantCreator] Mismatch between questions and answers length or questions not loaded.',
+    )
+    finalInstructions.value = 'Error generating instructions.'
+  }
+  // Set boilerplate...
+  if (selectedLevel.value === 1) {
+    boilerplateInstructions.value = 'Remember that this is a foundational instruction set...'
+  } else if (selectedLevel.value === 2) {
+    boilerplateInstructions.value = 'This instruction set provides a good level of detail...'
+  } else {
+    boilerplateInstructions.value = 'This is a comprehensive instruction set...'
   }
 }
 
@@ -492,9 +654,13 @@ const goBackToQuestions = () => {
 }
 
 const goBackToLevelSelection = () => {
-  selectedLevel.value = null
-  visibleHelpIndex.value = null
-  currentStep.value = 1
+  if (!isEditMode.value) {
+    selectedLevel.value = null
+    visibleHelpIndex.value = null
+    currentStep.value = 1
+  } else {
+    cancelCreation()
+  }
 }
 
 const toggleHelp = (index) => {
@@ -504,8 +670,89 @@ const isHelpVisible = (index) => {
   return visibleHelpIndex.value === index
 }
 
+// *** NEW: Trigger hidden file input ***
+const triggerImageUpload = () => {
+  imageFileInputRef.value?.click()
+}
+
+// *** NEW: Handle selected image file ***
+const handleImageFileSelected = (event) => {
+  const file = event.target.files?.[0]
+  imageError.value = null // Clear previous error
+
+  if (!file) {
+    return // No file selected
+  }
+
+  // Basic Validation (Type and Size)
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+  if (!allowedTypes.includes(file.type)) {
+    imageError.value = 'Invalid file type. Please select PNG, JPG, GIF, or WEBP.'
+    resetFileInput()
+    return
+  }
+
+  const maxSizeMB = 2 // Set max size in MB
+  if (file.size > maxSizeMB * 1024 * 1024) {
+    imageError.value = `File is too large. Maximum size is ${maxSizeMB}MB.`
+    resetFileInput()
+    return
+  }
+
+  // Read file as Base64 Data URL
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    assistantImageUrl.value = e.target?.result // Set the Data URL for preview and saving
+    console.log(
+      '[AssistantCreator] Image loaded as Data URL (length):',
+      assistantImageUrl.value?.length,
+    )
+  }
+  reader.onerror = (e) => {
+    console.error('[AssistantCreator] FileReader error:', e)
+    imageError.value = 'Error reading image file.'
+    resetFileInput() // Clear selection on error
+  }
+  reader.readAsDataURL(file)
+}
+
+// *** NEW: Remove selected image ***
+const removeSelectedImage = () => {
+  assistantImageUrl.value = ''
+  imageError.value = null
+  resetFileInput()
+}
+
+// *** NEW: Helper to reset file input ***
+const resetFileInput = () => {
+  if (imageFileInputRef.value) {
+    imageFileInputRef.value.value = null // Clear the selected file
+  }
+}
+
+// *** NEW: Handle preview image error ***
+const onImagePreviewError = (event) => {
+  console.warn(
+    'Preview image failed to load (might be invalid Data URL or temporary issue):',
+    event.target.src.substring(0, 100) + '...',
+  )
+  imageError.value = 'Could not display image preview.'
+  // Don't clear assistantImageUrl here, as it might still be a valid URL saved previously
+  // Just hide the broken img tag
+  event.target.style.display = 'none'
+  // Ensure placeholder is shown
+  const placeholder = event.target.nextElementSibling
+  if (placeholder && placeholder.classList.contains('placeholder')) {
+    placeholder.style.display = 'flex'
+  }
+}
+
+// suggestName remains the same
 const suggestName = async () => {
-  // ... (AI name suggestion logic - same as previous version) ...
+  if (answers.value.length < 2) {
+    suggestNameError.value = 'Please answer the first two questions first.'
+    return
+  }
   const role = answers.value[0]?.trim()
   const task = answers.value[1]?.trim()
   if (!role || !task) {
@@ -514,29 +761,16 @@ const suggestName = async () => {
   }
   isSuggestingName.value = true
   suggestNameError.value = null
-  const suggestionPrompt = `Based on the following details for a custom AI assistant:\nRole/Persona: ${role}\nPrimary Task/Objective: ${task}\n\nSuggest exactly 3 creative, concise, and relevant names for this assistant. Present the names ONLY as a comma-separated list with no extra text, explanation, or numbering. Example: Name One, Name Two, Name Three`
+  const suggestionPrompt = `Based on the following details...\n\nSuggest exactly 3 names... Example: Name One, Name Two, Name Three`
   try {
     const response = await fetch('/.netlify/functions/call-gemini', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inputText: suggestionPrompt, history: [] }),
     })
-    let responseData
-    try {
-      responseData = await response.json()
-    } catch (e) {
-      let rawText = `Response status: ${response.status}. Could not parse response body.`
-      try {
-        rawText = await response.text()
-      } catch (e2) {
-        /* ignore */
-      }
-      throw new Error(
-        `Received non-JSON response from name suggestion. ${rawText.substring(0, 100)}`,
-      )
-    }
+    let responseData = await response.json()
     if (!response.ok || responseData.error) {
-      throw new Error(responseData.error || `Name suggestion failed with status ${response.status}`)
+      throw new Error(responseData.error || `Name suggestion failed`)
     }
     if (responseData.aiText) {
       const suggestedNames = responseData.aiText
@@ -559,72 +793,194 @@ const suggestName = async () => {
   }
 }
 
-// Placeholder test function
+// testAssistant remains the same
 const testAssistant = () => {
   if (!assistantName.value.trim()) {
     saveError.value = 'Please enter a name for the assistant before testing.'
+    const nameInput = document.getElementById('assistant-name')
+    if (nameInput) {
+      nameInput.classList.add('input-error-shake')
+      setTimeout(() => nameInput.classList.remove('input-error-shake'), 600)
+      nameInput.focus()
+    }
     return
   }
   saveError.value = null
-  console.log(`Placeholder: Testing assistant "${assistantName.value}"...`)
-  alert(`Placeholder: Testing "${assistantName.value}". Functionality not yet implemented.`)
+  console.log(`Opening test modal for assistant "${assistantName.value}"...`)
+  openTestModal()
 }
 
-// --- Updated Save Function ---
-const saveAssistant = () => {
-  if (!assistantName.value.trim()) {
-    saveError.value = 'Please enter a name before saving.'
-    return
-  }
-  isSaving.value = true
-  saveError.value = null // Clear previous errors
-
-  const assistantConfig = {
-    // ID and createdAt will be generated by the store action
+// openTestModal remains the same (includes imageUrl)
+const openTestModal = () => {
+  generateFinalInstructions()
+  assistantBeingTested.value = {
+    id: assistantIdToEdit.value || `temp_${Date.now()}`,
     name: assistantName.value.trim(),
     level: selectedLevel.value,
     instructions: finalInstructions.value,
+    imageUrl: assistantImageUrl.value || null,
+    createdAt: Date.now(), // Or load original createdAt if editing? Decide later.
   }
-
-  console.log('Attempting to add assistant via store:', assistantConfig)
-
-  // Call the Pinia store action
-  const success = assistantsStore.addAssistant(assistantConfig)
-
-  if (success) {
-    console.log('Assistant saved successfully via store.')
-    emit('cancel') // Close modal on successful save
-  } else {
-    // Error message potentially set by store (e.g., duplicate name warning handled there)
-    // Or set a generic error here if addAssistant returns false
-    saveError.value = 'Failed to save assistant. Check console for store logs.'
-    console.error('Failed to add assistant via store action. Store returned false.')
-  }
-  isSaving.value = false // Reset saving state
+  isTestModalVisible.value = true
 }
-// --- End Updated Save Function ---
 
+// closeTestModal remains the same
+const closeTestModal = () => {
+  console.log('Closing test modal from creator.')
+  isTestModalVisible.value = false
+  assistantBeingTested.value = null
+}
+
+/**
+ * Save or Update Assistant. Includes imageUrl.
+ * *** NOW EMITS 'assistant-created' when creating, NAVIGATES when updating. ***
+ */
+const saveOrUpdateAssistant = () => {
+  if (!assistantName.value.trim()) {
+    saveError.value = `Please enter a name before ${isEditMode.value ? 'updating' : 'saving'}.`
+    const nameInput = document.getElementById('assistant-name')
+    if (nameInput) {
+      nameInput.classList.add('input-error-shake')
+      setTimeout(() => nameInput.classList.remove('input-error-shake'), 600)
+      nameInput.focus()
+    }
+    return
+  }
+  isSaving.value = true
+  saveError.value = null
+  imageError.value = null // Clear image error on save attempt
+  generateFinalInstructions() // Ensure instructions are up-to-date
+
+  const assistantConfig = {
+    id: assistantIdToEdit.value, // Null if creating
+    name: assistantName.value.trim(),
+    level: selectedLevel.value,
+    instructions: finalInstructions.value,
+    imageUrl: assistantImageUrl.value || null, // Use current value (Data URL or existing URL)
+  }
+
+  let success = false
+  try {
+    if (isEditMode.value) {
+      // --- UPDATE ---
+      console.log('[AssistantCreator] Attempting to update assistant via store:', assistantConfig)
+      success = assistantsStore.updateAssistant(assistantConfig)
+      if (success) {
+        console.log(`[AssistantCreator] Assistant updated successfully.`)
+        router.push({ name: 'assistants' }) // Navigate back to list on successful update
+      } else {
+        saveError.value = `Failed to update assistant. Name might already exist or store error occurred.`
+        console.error(`Failed to update assistant via store action.`)
+      }
+    } else {
+      // --- CREATE ---
+      console.log('[AssistantCreator] Attempting to add assistant via store:', assistantConfig)
+      const { id, ...configToAdd } = assistantConfig // Don't pass null ID for add
+      success = assistantsStore.addAssistant(configToAdd)
+      if (success) {
+        console.log(`[AssistantCreator] Assistant saved successfully.`)
+        emit('assistant-created') // *** Emit event on successful creation ***
+      } else {
+        saveError.value = `Failed to save assistant. Name might already exist or store error occurred.`
+        console.error(`Failed to add assistant via store action.`)
+      }
+    }
+  } catch (e) {
+    console.error(
+      `[AssistantCreator] Error during ${isEditMode.value ? 'update' : 'save'} operation:`,
+      e,
+    )
+    saveError.value = `An unexpected error occurred: ${e.message}`
+    success = false
+  } finally {
+    isSaving.value = false // Reset saving state regardless of outcome
+  }
+}
+
+// cancelCreation remains the same
 const cancelCreation = () => {
-  console.log('Creation cancelled by user.')
-  emit('cancel')
+  if (isEditMode.value) {
+    console.log('Edit cancelled by user. Navigating back.')
+    router.push({ name: 'assistants' })
+  } else {
+    console.log('Creation cancelled by user.')
+    emit('cancel') // Close the creation modal
+  }
 }
+
+// --- Lifecycle Hooks ---
+onMounted(() => {
+  if (props.id) {
+    loadAssistantForEdit(props.id)
+  } else {
+    // Ensure create mode starts fresh
+    isEditMode.value = false
+    assistantIdToEdit.value = null
+    currentStep.value = 1
+    console.log('[AssistantCreator] Mounted in CREATE mode.')
+    selectedLevel.value = null
+    answers.value = []
+    assistantName.value = ''
+    assistantImageUrl.value = ''
+    imageError.value = null
+    finalInstructions.value = ''
+    saveError.value = null
+    suggestNameError.value = null
+  }
+})
+
+watch(
+  () => route.params.id,
+  (newId, oldId) => {
+    // Handle navigation between edit routes or from edit to create/other
+    if (newId && newId !== assistantIdToEdit.value) {
+      console.log(`[AssistantCreator] Route ID changed to: ${newId}. Reloading data.`)
+      loadAssistantForEdit(newId)
+    } else if (!newId && isEditMode.value) {
+      // Navigated away from edit mode, reset to create state
+      console.log('[AssistantCreator] Navigated away from edit mode. Resetting state.')
+      isEditMode.value = false
+      assistantIdToEdit.value = null
+      currentStep.value = 1
+      selectedLevel.value = null
+      answers.value = []
+      assistantName.value = ''
+      assistantImageUrl.value = ''
+      imageError.value = null
+      finalInstructions.value = ''
+      saveError.value = null
+      suggestNameError.value = null
+    }
+  },
+  { immediate: false },
+)
 </script>
 
 <style scoped>
-/* Styles are getting long, consider splitting complex parts later if needed */
 .assistant-creator {
   padding: 1.5rem 2rem;
-  background-color: var(--bg-input-field);
+  background-color: var(--bg-input-field); /* Or appropriate background */
   border: 1px solid var(--border-color-medium);
   border-radius: 12px;
   color: var(--text-primary);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
-  width: 100%; /* Takes width from modal parent */
-  height: 100%; /* Takes height from modal parent */
+  width: 100%;
+  /* Let parent modal control height */
+  /* height: 100%; */
+  max-height: 100%; /* Ensure it doesn't overflow parent */
   box-sizing: border-box;
-  overflow: hidden; /* Parent handles overflow */
+  overflow: hidden; /* Prevent creator itself from scrolling */
+  position: relative;
+}
+
+/* Class for each step's container */
+.creator-step {
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* Allow step content to fill */
+  overflow: hidden; /* Prevent step itself from scrolling */
 }
 
 h3 {
@@ -634,7 +990,7 @@ h3 {
   color: var(--text-primary);
   font-weight: 600;
   font-size: 1.25em;
-  flex-shrink: 0;
+  flex-shrink: 0; /* Keep header fixed */
 }
 
 .intro-text {
@@ -651,10 +1007,12 @@ h3 {
   flex-direction: column;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
-  flex-shrink: 0;
-  overflow-y: auto; /* Allow level selection scroll if needed */
+  flex-shrink: 0; /* Keep fixed unless step needs scroll */
+  /* Add overflow if levels might exceed space */
+  /* overflow-y: auto; */
 }
 
+/* Level Option Styles */
 .level-option {
   padding: 1rem 1.25rem;
   border: 1px solid var(--border-color-light);
@@ -710,25 +1068,19 @@ h3 {
   white-space: nowrap;
 }
 
-/* Step 2 & 3 Container */
-div[v-if='currentStep === 2'],
-div[v-if='currentStep === 3'] {
-  display: flex;
-  flex-direction: column;
-  flex-grow: 1;
-  overflow: hidden; /* Parent handles overflow, inner parts scroll */
+/* Step 2 & 3 Structure for Scrolling */
+div[v-if='currentStep === 2'] > .scrollable-content,
+div[v-if='currentStep === 3'] > .scrollable-content {
+  flex-grow: 1; /* Allow content to take available space */
+  overflow-y: auto; /* Enable vertical scrolling ONLY for this area */
+  padding: 0.5rem; /* Add some padding inside scroll area */
+  margin-bottom: 1rem; /* Space before footer actions */
 }
 
-/* Step 2: Question Area */
+/* Question Area (Step 2) */
 .question-area {
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background-color: var(--bg-sidebar);
-  border-radius: 8px;
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto; /* Scroll question area if needed */
+  /* Removed margin-bottom, padding, background, border-radius as they are handled by scrollable-content */
+  /* Removed flex-grow, display, flex-direction, overflow-y */
 }
 
 .question-header {
@@ -739,7 +1091,6 @@ div[v-if='currentStep === 3'] {
   gap: 0.5rem;
   flex-shrink: 0;
 }
-
 .question-label {
   display: block;
   font-weight: 600;
@@ -769,7 +1120,6 @@ div[v-if='currentStep === 3'] {
 .help-icon:hover {
   background-color: var(--bg-button-secondary-hover);
 }
-
 .help-box {
   background-color: color-mix(in srgb, var(--bg-sidebar) 85%, black);
   border: 1px solid var(--border-color-light);
@@ -792,7 +1142,6 @@ div[v-if='currentStep === 3'] {
   color: var(--text-primary);
   font-style: normal;
 }
-
 @keyframes fadeInHelp {
   from {
     opacity: 0;
@@ -803,7 +1152,6 @@ div[v-if='currentStep === 3'] {
     transform: translateY(0);
   }
 }
-
 .answer-input {
   width: 100%;
   padding: 0.75rem 1rem;
@@ -817,7 +1165,7 @@ div[v-if='currentStep === 3'] {
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
-  flex-grow: 1;
+  flex-grow: 1; /* Allow textarea to grow vertically */
   min-height: 100px;
   box-sizing: border-box;
 }
@@ -832,43 +1180,30 @@ div[v-if='currentStep === 3'] {
   font-size: 0.9em;
 }
 
-.question-nav {
-  justify-content: space-between;
+/* Review Area (Step 3) */
+.review-area {
+  /* Removed flex-grow, overflow-y */
+}
+.review-input-group {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
   flex-shrink: 0;
 }
-.question-counter {
+.review-input-group label {
+  font-weight: 600;
   font-size: 0.9em;
   color: var(--text-secondary);
-  align-self: center;
 }
-
-/* Step 3: Review Area */
 .name-input-area {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
-  flex-shrink: 0;
-}
-.name-input-area label {
-  font-weight: 600;
-  flex-shrink: 0;
-  font-size: 0.95em;
 }
 .name-input-area input[type='text'] {
   flex-grow: 1;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border-color-medium);
-  border-radius: 6px;
-  background-color: var(--bg-input-field);
-  color: var(--text-primary);
-  font-size: 1em;
-}
-.name-input-area input[type='text']:focus {
-  outline: none;
-  border-color: var(--accent-color-primary);
-  box-shadow: var(--input-focus-shadow);
-}
+} /* Input takes space */
 .suggest-button {
   padding: 0.5rem 0.8rem;
   font-size: 0.85em;
@@ -879,18 +1214,78 @@ div[v-if='currentStep === 3'] {
   opacity: 0.6;
 }
 
+/* Image Upload Styles */
+.image-upload-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.upload-button {
+  padding: 0.5rem 1rem !important; /* Override general button padding if needed */
+  font-size: 0.85em !important;
+}
+.image-preview-container {
+  position: relative;
+} /* For positioning remove button */
+.image-url-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--border-color-light);
+  background-color: var(--bg-sidebar);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-placeholder);
+  font-size: 1.5em;
+  font-weight: bold;
+}
+.image-url-preview.placeholder {
+  border-style: dashed;
+}
+.remove-image-button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  font-size: 0.7em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+.remove-image-button:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+.image-error {
+  margin-top: 0.3rem; /* Space below controls */
+}
+
 .error-text {
   font-size: 0.8em;
   color: var(--text-error);
-  height: 1.2em; /* Reserve space */
+  min-height: 1.2em; /* Reserve space */
 }
 .suggest-error {
-  margin: -0.25rem 0 0.5rem 0; /* Adjust spacing */
+  margin: 0.2rem 0 0.5rem 0;
+  padding-left: 105px;
 }
 .save-error {
-  margin-bottom: 0.5rem;
+  margin-top: 0.5rem;
   text-align: right;
-} /* Position near save */
+}
+.image-error {
+  margin-top: 0.3rem;
+}
 
 .review-label {
   font-weight: 600;
@@ -898,6 +1293,7 @@ div[v-if='currentStep === 3'] {
   display: block;
   font-size: 0.9em;
   flex-shrink: 0;
+  margin-top: 1rem;
 }
 .generated-instructions {
   background-color: var(--bg-sidebar);
@@ -906,13 +1302,11 @@ div[v-if='currentStep === 3'] {
   padding: 1rem;
   font-family: monospace;
   white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-y: auto;
+  word-wrap: break-word; /* Removed overflow-y, handled by parent */
   font-size: 0.85em;
   margin-bottom: 1rem;
-  color: var(--text-primary);
-  flex-grow: 1;
-  min-height: 100px;
+  color: var(--text-primary); /* Removed flex-grow, min-height */
+  flex-shrink: 0; /* Prevent shrinking, let parent scroll */
 }
 .additional-instructions {
   font-size: 0.85em;
@@ -933,21 +1327,37 @@ div[v-if='currentStep === 3'] {
 .additional-instructions p {
   margin: 0;
 }
-.review-actions {
-  justify-content: space-between;
-}
 
-/* Action Buttons */
-.creator-actions {
+/* Footer Actions (Common) */
+.creator-actions.footer-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.75rem;
-  margin-top: 1.5rem;
+  margin-top: auto; /* Push to bottom */
   padding-top: 1rem;
   border-top: 1px solid var(--border-color-light);
-  flex-shrink: 0;
+  flex-shrink: 0; /* Keep footer fixed */
+  background-color: var(--bg-input-field); /* Match creator background */
+  /* Add padding to match parent if needed, or remove parent padding */
+  margin-left: -2rem; /* Counteract parent padding */
+  margin-right: -2rem;
+  margin-bottom: -1.5rem;
+  padding: 1rem 2rem; /* Match parent padding */
 }
+.footer-actions.question-nav {
+  justify-content: space-between;
+}
+.footer-actions.review-actions {
+  justify-content: space-between;
+}
+
+/* Back button in footer */
+.footer-back-button {
+  margin-right: auto; /* Push other buttons right */
+}
+
+/* Buttons (Copied from previous) */
 .button-primary,
 .button-secondary,
 .button-tertiary {
@@ -998,8 +1408,120 @@ div[v-if='currentStep === 3'] {
   border-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
 }
-.back-button {
-  margin-right: auto;
-  justify-self: flex-start;
+/* .back-button { margin-right: auto; justify-self: flex-start; } */ /* Handled by footer-back-button */
+
+/* Shake animation */
+@keyframes shake {
+  10%,
+  90% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  20%,
+  80% {
+    transform: translate3d(2px, 0, 0);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translate3d(-3px, 0, 0);
+  }
+  40%,
+  60% {
+    transform: translate3d(3px, 0, 0);
+  }
+}
+.input-error-shake {
+  animation: shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  border-color: var(--text-error) !important;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  padding: 1rem;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.test-modal .test-modal-content {
+  max-width: 90vw;
+  width: 800px;
+  max-height: 90vh;
+  background-color: var(--bg-modal, var(--bg-main-content));
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: default;
+}
+.test-modal .test-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background-color: var(--bg-header, #2a2a2a);
+  color: var(--text-light, #fff);
+  border-bottom: 1px solid var(--border-color-heavy, #444);
+  flex-shrink: 0;
+}
+.test-modal .test-modal-header h3 {
+  margin: 0;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+.test-modal .close-modal-button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5em;
+  line-height: 1;
+  padding: 0.2rem;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.test-modal .close-modal-button:hover {
+  color: var(--text-primary);
+}
+.test-modal .test-modal-chat-area {
+  flex-grow: 1;
+  overflow-y: hidden;
+  display: flex;
+}
+.test-modal .test-modal-chat-area > :deep(.chat-view) {
+  height: 100%;
+  width: 100%;
+  border-radius: 0;
+}
+.test-modal .test-modal-footer {
+  padding: 0.75rem 1.5rem;
+  background-color: var(--bg-input-area, #1a1a1a);
+  border-top: 1px solid var(--border-color-medium, #333);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.test-modal .test-modal-footer button {
+  padding: 0.5rem 1rem;
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+.test-modal .test-modal-footer button:hover {
+  background-color: var(--bg-button-secondary-hover);
 }
 </style>

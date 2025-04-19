@@ -1,5 +1,9 @@
 <template>
   <div class="chat-view">
+    <div v-if="assistantConfig" class="testing-assistant-header">
+      Testing: {{ activeAssistantName }}
+    </div>
+
     <div class="message-display-area" ref="messageAreaRef">
       <div
         v-for="message in messages"
@@ -60,7 +64,9 @@
         </div>
       </div>
       <p v-if="messages.length === 0 && !isLoading" class="placeholder-message">
-        No messages yet. Start the conversation!
+        No messages yet. Start the conversation{{
+          activeAssistantName ? ` with ${activeAssistantName}` : ''
+        }}!
       </p>
       <p v-if="isLoading" class="placeholder-message loading-indicator">AI is thinking...</p>
     </div>
@@ -130,7 +136,17 @@
 </template>
 
 <script setup>
-import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, computed, onMounted, onUnmounted, watch } from 'vue'
+
+// --- Props (NEW) ---
+const props = defineProps({
+  assistantConfig: {
+    type: Object,
+    required: false, // Make it optional
+    default: null,
+  },
+})
+// ------------------
 
 // --- Configuration ---
 // API Key is handled by the Netlify function
@@ -144,7 +160,7 @@ const fileInputRef = ref(null)
 
 // --- Reactive State ---
 const userInput = ref('')
-const messages = ref([]) // Now stores objects like { id, text, sender, timestamp, imagePreviewUrl? }
+const messages = ref([]) // Stores { id, text, sender, timestamp, imagePreviewUrl? }
 const isLoading = ref(false)
 const isTtsEnabled = ref(false)
 const synth = window.speechSynthesis
@@ -157,6 +173,26 @@ const isListening = ref(false)
 const recognition = ref(null)
 const speechSupported = ref(false)
 // -----------------------------
+
+// --- Computed Properties (NEW/MODIFIED) ---
+const activeAssistantName = computed(() => {
+  return props.assistantConfig?.name || null
+})
+
+const chatHistoryForApi = computed(() => {
+  // Convert messages array to the format Gemini API expects
+  // Only include relevant messages (User/AI, not system/thinking)
+  return messages.value
+    .filter(
+      (msg) => (msg.sender === 'User' || msg.sender === 'AI') && msg.text !== 'AI is thinking...',
+    )
+    .map((msg) => ({
+      role: msg.sender === 'User' ? 'user' : 'model',
+      // For now, just include text part. Image part is handled separately in payload.
+      parts: [{ text: msg.text }],
+    }))
+})
+// --------------------------------------
 
 // --- Animated Placeholder ---
 const placeholders = [
@@ -176,9 +212,16 @@ onMounted(() => {
   placeholderInterval = setInterval(() => {
     placeholderIndex = (placeholderIndex + 1) % placeholders.length
     if (!userInput.value && !selectedImagePreview.value) {
-      currentPlaceholder.value = placeholders[placeholderIndex]
+      // Update placeholder based on whether testing an assistant
+      const basePlaceholder = activeAssistantName.value
+        ? `Ask ${activeAssistantName.value} something...`
+        : placeholders[placeholderIndex]
+      currentPlaceholder.value = basePlaceholder
     } else if (!selectedImagePreview.value) {
-      currentPlaceholder.value = placeholders[0] // Default if image deselected but text exists
+      const defaultText = activeAssistantName.value
+        ? `Continue chatting with ${activeAssistantName.value}...`
+        : placeholders[0]
+      currentPlaceholder.value = defaultText // Default if image deselected but text exists
     }
   }, 3000)
 
@@ -191,7 +234,6 @@ onMounted(() => {
       const voices = synth.getVoices()
       if (voices.length > 0) {
         console.log('TTS voices loaded:', voices.length)
-        // Stop trying once loaded
         if (synth.onvoiceschanged !== undefined) {
           synth.onvoiceschanged = null
         }
@@ -202,9 +244,15 @@ onMounted(() => {
     } else if (synth.onvoiceschanged !== undefined) {
       synth.onvoiceschanged = loadVoices
     } else {
-      // Fallback if onvoiceschanged isn't supported reliably
       setTimeout(loadVoices, 500)
     }
+  }
+
+  // Clear chat when component mounts IF testing an assistant (NEW)
+  if (props.assistantConfig) {
+    console.log('ChatView mounted with assistantConfig. Clearing messages for test.')
+    messages.value = []
+    addMessage({ text: `You are now chatting with ${props.assistantConfig.name}.` }, 'System')
   }
 })
 
@@ -217,7 +265,29 @@ onUnmounted(() => {
     recognition.value.abort()
   }
 })
-// ---------------------------
+
+// --- Watcher (NEW) ---
+// Watch for changes in the assistantConfig prop. If it changes (e.g., user closes
+// modal and reopens for another assistant), clear the chat.
+watch(
+  () => props.assistantConfig,
+  (newConfig, oldConfig) => {
+    if (newConfig !== oldConfig) {
+      console.log('Assistant config changed. Clearing chat.')
+      messages.value = []
+      if (newConfig) {
+        addMessage({ text: `You are now chatting with ${newConfig.name}.` }, 'System')
+      }
+      // Reset input field as well
+      userInput.value = ''
+      removeSelectedImage()
+      // Force scroll to top after clearing
+      scrollToBottom('auto') // Use auto for instant jump
+    }
+  },
+  { immediate: false },
+) // Don't run immediately on mount, onMounted handles initial state
+// -----------------------
 
 // --- Speech Recognition Setup & Control ---
 const setupSpeechRecognition = () => {
@@ -235,7 +305,6 @@ const setupSpeechRecognition = () => {
         const transcript = event.results?.[0]?.[0]?.transcript
         if (transcript) {
           userInput.value += (userInput.value ? ' ' : '') + transcript
-          // Ensure textarea grows after speech input
           nextTick(() => {
             if (inputAreaRef.value) {
               autoGrowTextarea({ target: inputAreaRef.value })
@@ -259,7 +328,7 @@ const setupSpeechRecognition = () => {
           errorMsg = `Speech error: ${event.error} - ${event.message || '(no details)'}`
         }
         addMessage({ error: true, text: errorMsg }, 'System')
-        isListening.value = false // Ensure listening state is reset
+        isListening.value = false
       }
 
       recognition.value.onstart = () => {
@@ -268,7 +337,6 @@ const setupSpeechRecognition = () => {
 
       recognition.value.onend = () => {
         isListening.value = false
-        // Refocus input after speech ends, useful on desktop
         nextTick(() => {
           inputAreaRef.value?.focus()
         })
@@ -292,14 +360,11 @@ const startListening = () => {
   try {
     recognition.value.start()
   } catch (error) {
-    // Catch errors like "recognition already started"
     console.error(`Error calling recognition.start(): ${error.name} - ${error.message}`)
-    // Provide user feedback if start fails unexpectedly
     if (error.name !== 'InvalidStateError') {
-      // Don't show error if it's just already started
       addMessage({ error: true, text: `Could not start voice input: ${error.message}` }, 'System')
     }
-    isListening.value = false // Ensure state is correct if start fails
+    isListening.value = false
   }
 }
 
@@ -308,9 +373,7 @@ const stopListening = () => {
   try {
     recognition.value.stop()
   } catch (error) {
-    // Catch errors like "recognition not started"
     console.error('Error stopping speech recognition:', error)
-    // Force listening state off if stop fails or was called inappropriately
     isListening.value = false
   }
 }
@@ -334,11 +397,9 @@ const triggerFileInput = () => {
 }
 
 const readFileAsBase64 = (file) => {
-  // Reads file and returns promise with { base64Data, mimeType }
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
-      // result includes the data URL prefix (e.g., "data:image/jpeg;base64,"), remove it.
       const base64String = reader.result?.toString().split(',')[1]
       if (base64String) {
         resolve({ base64Data: base64String, mimeType: file.type })
@@ -347,18 +408,17 @@ const readFileAsBase64 = (file) => {
       }
     }
     reader.onerror = (error) => reject(error)
-    reader.readAsDataURL(file) // Reads the file content as a data URL
+    reader.readAsDataURL(file)
   })
 }
 
 const handleFileSelected = async (event) => {
   const file = event.target.files?.[0]
   if (!file) {
-    removeSelectedImage() // Clear if no file selected
+    removeSelectedImage()
     return
   }
 
-  // Validate Type
   if (!file.type.startsWith('image/')) {
     addMessage(
       { error: true, text: `Selected file (${file.name}) is not a supported image type.` },
@@ -368,7 +428,6 @@ const handleFileSelected = async (event) => {
     return
   }
 
-  // Validate Size (e.g., 4MB limit for Gemini API)
   const maxSizeMB = 4
   const maxSizeBytes = maxSizeMB * 1024 * 1024
   if (file.size > maxSizeBytes) {
@@ -380,12 +439,11 @@ const handleFileSelected = async (event) => {
     return
   }
 
-  selectedFile.value = file // Store the actual File object
+  selectedFile.value = file
 
-  // Generate preview URL (using FileReader again for simplicity)
   const readerPreview = new FileReader()
   readerPreview.onload = (e) => {
-    selectedImagePreview.value = e.target?.result // This is the Data URL for the <img> src
+    selectedImagePreview.value = e.target?.result
     currentPlaceholder.value = 'Image selected. Add a message or send.'
   }
   readerPreview.onerror = (e) => {
@@ -395,20 +453,20 @@ const handleFileSelected = async (event) => {
   }
   readerPreview.readAsDataURL(file)
 
-  // Reset the file input visually so the same file can be selected again if needed
   event.target.value = null
 }
 
 const removeSelectedImage = () => {
   selectedImagePreview.value = null
   selectedFile.value = null
-  // Also clear the file input element itself
   if (fileInputRef.value) {
     fileInputRef.value.value = null
   }
-  // Reset placeholder if input is also empty
   if (!userInput.value) {
-    currentPlaceholder.value = placeholders[0]
+    const basePlaceholder = activeAssistantName.value
+      ? `Ask ${activeAssistantName.value} something...`
+      : placeholders[0] // Use index 0 or update based on interval logic if needed
+    currentPlaceholder.value = basePlaceholder
   }
 }
 // -------------------------
@@ -416,9 +474,8 @@ const removeSelectedImage = () => {
 // --- Textarea Auto-Grow ---
 const autoGrowTextarea = (event) => {
   const textarea = event.target
-  textarea.style.height = 'auto' // Temporarily shrink to calculate correct scrollHeight
-  const maxHeight = 150 // Max height in pixels
-  // Set height to scroll height but not exceeding max height
+  textarea.style.height = 'auto'
+  const maxHeight = 150
   textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`
 }
 // -------------------------
@@ -427,31 +484,26 @@ const autoGrowTextarea = (event) => {
 const speakText = (text) => {
   if (!ttsSupported.value || !synth || !text) return
 
-  // Cancel any ongoing speech immediately
   if (synth.speaking) {
     console.log('TTS: Cancelling previous speech.')
     synth.cancel()
   }
 
-  // Use nextTick and a small timeout to ensure cancel finishes before starting new speech
   nextTick(() => {
     setTimeout(() => {
-      // Double check if something else started speaking in the meantime
       if (synth.speaking) {
         console.log('TTS: Still speaking after delay, cancelling again.')
         synth.cancel()
-        // Add another tiny delay before speaking
         setTimeout(() => {
           const utterance = new SpeechSynthesisUtterance(text)
           utterance.onerror = (event) => {
             console.error(`TTS onerror event: ${event.error}`)
-            // Avoid showing errors for interruptions/cancellations
             if (event.error !== 'interrupted' && event.error !== 'canceled') {
               addMessage({ error: true, text: `Speech synthesis error: ${event.error}` }, 'System')
             }
           }
           synth.speak(utterance)
-        }, 50) // Short delay after second cancel
+        }, 50)
       } else {
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.onerror = (event) => {
@@ -462,12 +514,11 @@ const speakText = (text) => {
         }
         synth.speak(utterance)
       }
-    }, 50) // Initial delay after first cancel
+    }, 50)
   })
 }
 
 const handleMessageClick = (textToSpeak) => {
-  // Only speak if TTS is currently enabled
   if (isTtsEnabled.value) {
     speakText(textToSpeak)
   }
@@ -483,7 +534,6 @@ const toggleTts = () => {
   }
   isTtsEnabled.value = !isTtsEnabled.value
   console.log('TTS Enabled Toggled:', isTtsEnabled.value)
-  // If TTS is turned off while speaking, stop the speech.
   if (!isTtsEnabled.value && synth.speaking) {
     console.log('TTS: Cancelling speech due to toggle OFF.')
     synth.cancel()
@@ -495,7 +545,6 @@ const toggleTts = () => {
 const formatTimestamp = (timestamp) => {
   if (!timestamp) return ''
   const date = new Date(timestamp)
-  // Use browser's default locale for formatting
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 // --------------------------
@@ -513,19 +562,17 @@ const copyText = async (textToCopy, event) => {
     await navigator.clipboard.writeText(textToCopy)
     console.log('AI response copied to clipboard!')
 
-    // Provide visual feedback on the button
-    const buttonElement = event?.currentTarget // Use currentTarget
+    const buttonElement = event?.currentTarget
     if (buttonElement) {
       const originalContent = buttonElement.innerHTML
-      buttonElement.innerHTML = '✅' // Checkmark feedback
-      buttonElement.disabled = true // Briefly disable
+      buttonElement.innerHTML = '✅'
+      buttonElement.disabled = true
       setTimeout(() => {
         if (buttonElement) {
-          // Check if button still exists
           buttonElement.innerHTML = originalContent
-          buttonElement.disabled = false // Re-enable
+          buttonElement.disabled = false
         }
-      }, 1500) // Duration of feedback
+      }, 1500)
     }
   } catch (err) {
     console.error('Failed to copy text: ', err)
@@ -539,9 +586,6 @@ const copyText = async (textToCopy, event) => {
 const processMessageText = (text) => {
   if (!text) return [{ type: 'text', text: '' }]
 
-  // Regex to find URLs (starting with http/https/ftp/file or www.) and potential domain names
-  // This regex is simplified and might capture some false positives (like file.txt)
-  // Updated to be slightly less aggressive on domain-like matches without slashes
   const urlRegex =
     /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_|])|(\bwww\.[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_|])|(\b[a-zA-Z0-9.-]{2,}\.[a-zA-Z]{2,6}\b(?:\/[-A-Z0-9+&@#%?=~_|!:,.;]*)?(?![^<]*?>|[^<>]*?<\/[^<>]*?>))/gi
 
@@ -550,7 +594,6 @@ const processMessageText = (text) => {
   let match
 
   while ((match = urlRegex.exec(text)) !== null) {
-    // Add text segment before the link
     if (match.index > lastIndex) {
       segments.push({ type: 'text', text: text.substring(lastIndex, match.index) })
     }
@@ -558,7 +601,6 @@ const processMessageText = (text) => {
     let matchedString = match[0]
     let url = matchedString
 
-    // Prepend https:// if scheme is missing (for www. or domain-like matches)
     if (!url.match(/^(https?|ftp|file):\/\//i)) {
       url = 'https://' + url
     }
@@ -567,12 +609,10 @@ const processMessageText = (text) => {
     lastIndex = urlRegex.lastIndex
   }
 
-  // Add any remaining text after the last link
   if (lastIndex < text.length) {
     segments.push({ type: 'text', text: text.substring(lastIndex) })
   }
 
-  // Handle case where no links were found at all
   if (segments.length === 0 && text) {
     segments.push({ type: 'text', text: text })
   }
@@ -597,7 +637,6 @@ const addMessage = (payload, sender = 'User', imagePreviewUrl = null) => {
   let messageSender = sender
   let isError = false
 
-  // Handle different payload types
   if (typeof payload === 'string') {
     messageText = payload
   } else if (typeof payload === 'object' && payload !== null) {
@@ -606,24 +645,26 @@ const addMessage = (payload, sender = 'User', imagePreviewUrl = null) => {
       messageSender = 'System'
       isError = true
     } else if (typeof payload.aiText === 'string') {
-      // Assuming payload is { aiText: "..." }
       messageText = payload.aiText
-      messageSender = 'AI' // Ensure sender is AI if using aiText structure
+      messageSender = 'AI'
+    } else if (typeof payload.text === 'string' && sender === 'System') {
+      // Allow passing {text: '...'} for system messages directly
+      messageText = payload.text
+      messageSender = 'System'
     } else {
       console.warn('Invalid object payload for addMessage:', payload)
-      // Assign a default error message if structure is unknown but seems like an error object
       messageText = payload.text || JSON.stringify(payload)
       messageSender = 'System'
       isError = true
     }
   } else {
     console.error('Invalid payload type passed to addMessage:', payload)
-    return // Don't add message if payload is totally wrong
+    return
   }
 
-  // Avoid adding empty messages unless they contain an image
-  if (messageText.trim() === '' && !imagePreviewUrl) {
-    console.warn('Attempted to add an empty message.')
+  // Allow empty system messages if needed, but prevent empty user/AI unless image
+  if (messageText.trim() === '' && !imagePreviewUrl && messageSender !== 'System') {
+    console.warn('Attempted to add an empty user/AI message.')
     return
   }
 
@@ -637,43 +678,30 @@ const addMessage = (payload, sender = 'User', imagePreviewUrl = null) => {
   }
 
   const newMessage = {
-    id: Date.now() + Math.random(), // Simple unique ID
-    text: messageText.trim(),
+    id: Date.now() + Math.random(),
+    text: messageText.trim(), // Trim here
     sender: messageSender,
     timestamp: Date.now(),
-    imagePreviewUrl: imagePreviewUrl, // Include the preview URL if provided
+    imagePreviewUrl: imagePreviewUrl,
   }
 
   messages.value.push(newMessage)
 
-  // Scroll smoothly for new messages
   scrollToBottom('smooth')
 
-  // Trigger TTS only for valid, non-error AI messages if enabled
   if (
     messageSender === 'AI' &&
     !isError &&
     isTtsEnabled.value &&
-    newMessage.text !== 'AI is thinking...'
+    newMessage.text !== 'AI is thinking...' &&
+    newMessage.text // Ensure text is not empty before speaking
   ) {
     speakText(newMessage.text)
   }
 }
 // -----------------------
 
-// --- API Call Logic --- CORRECTED ---
-const chatHistoryForApi = computed(() => {
-  // Convert messages array to the format Gemini API expects
-  return messages.value
-    .filter(
-      (msg) => (msg.sender === 'User' || msg.sender === 'AI') && msg.text !== 'AI is thinking...',
-    )
-    .map((msg) => ({
-      role: msg.sender === 'User' ? 'user' : 'model',
-      parts: [{ text: msg.text }], // Assumes only text for now
-    }))
-})
-
+// --- API Call Logic --- MODIFIED ---
 const callBackendApi = async (inputText, imageFile) => {
   const NETLIFY_FUNCTION_URL = '/.netlify/functions/call-gemini'
   let imageFileData = null
@@ -687,11 +715,15 @@ const callBackendApi = async (inputText, imageFile) => {
     }
   }
 
+  // Prepare payload, including assistant instructions if available (NEW)
   const payload = {
     history: chatHistoryForApi.value,
     inputText: inputText.trim(),
     imageFile: imageFileData,
+    assistantInstructions: props.assistantConfig?.instructions || null, // Pass instructions
   }
+
+  console.log('Sending payload to backend:', payload) // Log the payload
 
   try {
     console.log('Calling Netlify function:', NETLIFY_FUNCTION_URL)
@@ -701,12 +733,9 @@ const callBackendApi = async (inputText, imageFile) => {
       body: JSON.stringify(payload),
     })
 
-    // Read the response body as text FIRST
     const rawText = await response.text()
 
-    // Check if the HTTP response status indicates failure AFTER reading text
     if (!response.ok) {
-      // Try to parse the raw text as JSON to get error details from the function if possible
       let errorPayload = { error: `Function returned HTTP status ${response.status}` }
       try {
         const parsedError = JSON.parse(rawText)
@@ -714,16 +743,12 @@ const callBackendApi = async (inputText, imageFile) => {
           errorPayload.error = parsedError.error
         }
       } catch (e) {
-        // Ignore parsing error if the error response wasn't JSON
         console.warn('Non-JSON error response from function:', rawText.substring(0, 100) + '...')
-        // Keep the original HTTP status error message
         errorPayload.error += `: ${rawText.substring(0, 100)}...`
       }
-      // Throw using the potentially extracted error message
       throw new Error(errorPayload.error)
     }
 
-    // If response.ok is true, attempt to parse the raw text as JSON
     let responseData
     try {
       responseData = JSON.parse(rawText)
@@ -735,15 +760,10 @@ const callBackendApi = async (inputText, imageFile) => {
       )
     }
 
-    // --- Process the successful JSON data ---
-
-    // Check for application-level errors within the successful response data
     if (responseData.error) {
-      // This shouldn't happen if response.ok was true, but check just in case
       throw new Error(responseData.error)
     }
 
-    // Check for block reasons (e.g., safety filters)
     if (
       responseData.blockReason &&
       responseData.blockReason !== 'STOP' &&
@@ -759,33 +779,28 @@ const callBackendApi = async (inputText, imageFile) => {
       }
     }
 
-    // Check if aiText is actually present and a string
     if (typeof responseData.aiText === 'string') {
-      return responseData // Return successful data object { aiText: "..." }
+      return responseData
     } else {
       console.warn('Received successful response but aiText is missing or invalid:', responseData)
       return { error: true, text: '[AI response received, but content is missing or invalid]' }
     }
   } catch (error) {
-    // Catch fetch errors, errors thrown above, etc.
     console.error('Error during callBackendApi:', error)
     return { error: true, text: `Failed to get response: ${error.message}` }
   }
 }
-// --- END API Call Logic --- CORRECTED ---
+// --- END API Call Logic --- MODIFIED ---
 
 // --- Send Button Flash Animation ---
 const triggerSendFlash = () => {
   const button = sendButtonRef.value
   if (button) {
-    button.classList.remove('flash-active') // Ensure animation restarts if triggered quickly
-    // Force reflow to restart animation if needed - slight delay can achieve this
+    button.classList.remove('flash-active')
     void button.offsetWidth
     button.classList.add('flash-active')
-    // Remove class after animation duration (300ms in CSS)
     setTimeout(() => {
       if (button) {
-        // Check button still exists
         button.classList.remove('flash-active')
       }
     }, 300)
@@ -797,65 +812,57 @@ const triggerSendFlash = () => {
 const sendMessage = async () => {
   const currentInput = userInput.value
   const currentFile = selectedFile.value
-  const currentPreview = selectedImagePreview.value // Get preview URL for user message
+  const currentPreview = selectedImagePreview.value
 
-  // Prevent sending if already loading or if both input and file are empty
   if (isLoading.value || (currentInput.trim() === '' && !currentFile)) {
     return
   }
 
-  // Trigger visual feedback on send button
   triggerSendFlash()
 
-  // Determine text for the user's message bubble
   let userMessageText = currentInput.trim()
-  // If there's an image but no text, create placeholder text for the bubble
   if (currentFile && userMessageText === '') {
-    userMessageText = `[Sent Image: ${currentFile.name}]` // More descriptive placeholder
+    userMessageText = `[Sent Image: ${currentFile.name}]`
   }
 
-  // Add the user's message to the display (including image preview if present)
+  // Don't add user message if it's truly empty (even after image placeholder check)
+  if (userMessageText === '' && !currentPreview) return
+
   addMessage(userMessageText, 'User', currentPreview)
 
-  // Prepare data to send to the API
-  const textToSend = currentInput // Send original text (even if only spaces, API might handle it)
-  const imageToSend = currentFile // Send the File object
+  const textToSend = currentInput
+  const imageToSend = currentFile
 
-  // Clear the input field and remove the selected image preview *after* adding the user message
   userInput.value = ''
-  removeSelectedImage() // This also resets selectedFile
+  removeSelectedImage()
 
-  // Reset textarea height and placeholder after clearing
   nextTick(() => {
     if (inputAreaRef.value) {
-      inputAreaRef.value.style.height = 'auto' // Reset height before recalculating
-      autoGrowTextarea({ target: inputAreaRef.value }) // Recalculate
+      inputAreaRef.value.style.height = 'auto'
+      autoGrowTextarea({ target: inputAreaRef.value })
     }
-    currentPlaceholder.value = placeholders[0] // Reset placeholder
+    const basePlaceholder = activeAssistantName.value
+      ? `Ask ${activeAssistantName.value} something...`
+      : placeholders[0]
+    currentPlaceholder.value = basePlaceholder
   })
 
-  // Set loading state and add "thinking" message
   isLoading.value = true
-  addMessage('AI is thinking...', 'AI') // Add placeholder AI message
-  scrollToBottom('smooth') // Ensure "thinking" message is visible
+  addMessage('AI is thinking...', 'AI')
+  scrollToBottom('smooth')
 
-  // Call the backend API function
   const apiResponse = await callBackendApi(textToSend, imageToSend)
 
-  // --- Process Response ---
-  // Find and remove the "AI is thinking..." message regardless of API outcome
   const thinkingIndex = messages.value.findIndex((msg) => msg.text === 'AI is thinking...')
   if (thinkingIndex !== -1) {
     messages.value.splice(thinkingIndex, 1)
   }
 
-  // Add the actual AI response or error message from the API
-  addMessage(apiResponse, 'AI') // addMessage handles {error: true} or {aiText: "..."} objects
+  // Handle response (which might be an error object or success object)
+  addMessage(apiResponse, 'AI') // addMessage now handles object structure
 
-  // Clear loading state
   isLoading.value = false
 
-  // Refocus the input area for convenience
   nextTick(() => {
     inputAreaRef.value?.focus()
   })
@@ -873,6 +880,26 @@ const sendMessage = async () => {
   background-color: var(--bg-main-content); /* Use variable */
   color: var(--text-primary); /* Use variable */
 }
+
+/* --- Testing Assistant Header (NEW) --- */
+.testing-assistant-header {
+  padding: 0.4rem 1rem;
+  background-color: color-mix(
+    in srgb,
+    var(--accent-color-primary) 15%,
+    var(--bg-header)
+  ); /* Subtle green tint */
+  color: var(--text-light);
+  text-align: center;
+  font-size: 0.9em;
+  font-weight: 500;
+  flex-shrink: 0; /* Prevent shrinking */
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--accent-color-primary) 50%, var(--border-color-heavy));
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* --- End Testing Assistant Header --- */
 
 .message-display-area {
   flex-grow: 1; /* Take up most of the vertical space */
@@ -979,13 +1006,13 @@ const sendMessage = async () => {
 
 /* System messages (errors, info) styling */
 .system-message {
-  background-color: var(--bg-message-error); /* Use variable */
-  color: var(--text-message-error); /* Use variable */
+  background-color: var(--bg-message-info); /* Use neutral info background */
+  color: var(--text-secondary); /* Use secondary text color */
   width: 100%;
   text-align: center;
   font-style: italic;
   font-size: 0.9em;
-  border: 1px dashed var(--border-color-error); /* Use variable */
+  border: 1px dashed var(--border-color-medium); /* Use medium border */
   border-radius: 8px;
   padding-top: 0.8rem;
   padding-bottom: 0.8rem;
@@ -993,6 +1020,13 @@ const sendMessage = async () => {
   margin-right: auto;
   max-width: 90%; /* Limit width */
   box-shadow: none; /* Remove shadow from system messages */
+}
+/* Specific styling for error system messages */
+.system-message[data-error='true'] {
+  /* You might need JS to add this attribute */
+  background-color: var(--bg-message-error); /* Use variable */
+  color: var(--text-message-error); /* Use variable */
+  border-color: var(--border-color-error); /* Use variable */
 }
 .system-container {
   width: 100%;
@@ -1130,7 +1164,6 @@ const sendMessage = async () => {
   background-color: var(--bg-input-area); /* Use variable */
   flex-shrink: 0; /* Prevent shrinking */
   gap: 0.5rem; /* Space between buttons/input */
-  /* Conditional border/radius handled below */
   border-radius: 0 0 8px 8px; /* Default: round bottom corners */
   border-top: 1px solid var(--border-color-medium); /* Use variable */
 }
@@ -1162,7 +1195,7 @@ const sendMessage = async () => {
   color: var(--text-placeholder); /* Use variable */
 }
 
-/* --- TEXTAREA HOVER STATE (Added) --- */
+/* --- TEXTAREA HOVER STATE --- */
 .input-area textarea:hover:not(:focus):not(:disabled) {
   border-color: var(--accent-color-primary); /* Use green accent on hover */
 }
@@ -1172,7 +1205,6 @@ const sendMessage = async () => {
 .input-area textarea:focus {
   outline: none; /* Remove default browser outline */
   border-color: var(--accent-color-primary); /* Use NEON GREEN for border */
-  /* Use the dedicated variable for green focus shadow */
   box-shadow: var(
     --input-focus-shadow,
     0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent)
@@ -1181,7 +1213,6 @@ const sendMessage = async () => {
 /* --- END TEXTAREA FOCUS STATE --- */
 
 .input-area textarea:disabled {
-  /* Using color-mix for disabled state, requires modern browser */
   background-color: color-mix(in srgb, var(--bg-input-field) 50%, var(--bg-input-area));
   cursor: not-allowed;
   opacity: 0.7;
@@ -1209,7 +1240,6 @@ const sendMessage = async () => {
   cursor: not-allowed;
   opacity: 0.6;
 }
-/* Add slight scale effect on button press */
 .input-area button:active:not(:disabled) {
   transform: scale(0.95);
 }
@@ -1253,7 +1283,6 @@ const sendMessage = async () => {
   background-color: var(--bg-button-primary-hover); /* Use variable */
 }
 .send-button:disabled {
-  /* Using color-mix for disabled state, requires modern browser */
   background-color: color-mix(in srgb, var(--bg-button-primary) 50%, var(--bg-input-area));
 }
 /* Flash animation for send button */
@@ -1266,7 +1295,7 @@ const sendMessage = async () => {
     background-color: var(--bg-button-primary);
   }
   50% {
-    transform: scale(1.05); /* Slightly smaller flash */
+    transform: scale(1.05);
     background-color: var(--bg-button-primary-flash); /* Use Variable */
   }
   100% {
@@ -1285,16 +1314,10 @@ const sendMessage = async () => {
   background-color: var(--bg-button-tts-on); /* Use Variable */
   color: var(--text-button-tts-on); /* Use Variable */
 }
-/* Hover state for TTS OFF */
 .tts-button:hover:not(.tts-on):not(:disabled) {
   background-color: var(--bg-button-secondary-hover); /* Use variable */
 }
-/* Hover state for TTS ON */
 .tts-button.tts-on:hover:not(:disabled) {
-  background-color: color-mix(
-    in srgb,
-    var(--bg-button-tts-on) 90%,
-    /* Darken the 'on' color slightly */ #000000 /* Mix with black */
-  );
+  background-color: color-mix(in srgb, var(--bg-button-tts-on) 90%, #000000);
 }
 </style>
