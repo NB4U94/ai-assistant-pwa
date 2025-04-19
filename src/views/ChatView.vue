@@ -520,8 +520,11 @@ const copyText = async (textToCopy, event) => {
       buttonElement.innerHTML = '✅' // Checkmark feedback
       buttonElement.disabled = true // Briefly disable
       setTimeout(() => {
-        buttonElement.innerHTML = originalContent
-        buttonElement.disabled = false // Re-enable
+        if (buttonElement) {
+          // Check if button still exists
+          buttonElement.innerHTML = originalContent
+          buttonElement.disabled = false // Re-enable
+        }
       }, 1500) // Duration of feedback
     }
   } catch (err) {
@@ -538,8 +541,9 @@ const processMessageText = (text) => {
 
   // Regex to find URLs (starting with http/https/ftp/file or www.) and potential domain names
   // This regex is simplified and might capture some false positives (like file.txt)
+  // Updated to be slightly less aggressive on domain-like matches without slashes
   const urlRegex =
-    /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_|])|(\bwww\.[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_|])|(\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b(?![^<]*?>|[^<>]*?<\/[^<>]*?>))/gi
+    /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_|])|(\bwww\.[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_|])|(\b[a-zA-Z0-9.-]{2,}\.[a-zA-Z]{2,6}\b(?:\/[-A-Z0-9+&@#%?=~_|!:,.;]*)?(?![^<]*?>|[^<>]*?<\/[^<>]*?>))/gi
 
   const segments = []
   let lastIndex = 0
@@ -554,23 +558,11 @@ const processMessageText = (text) => {
     let matchedString = match[0]
     let url = matchedString
 
-    // Basic check to avoid matching simple filenames as links (e.g., "file.js")
-    // This is imperfect and might need refinement based on expected text patterns.
-    if (
-      !match[2] &&
-      !match[3] &&
-      !/\//.test(matchedString) &&
-      matchedString.split('.').length === 2 &&
-      matchedString.length < 15
-    ) {
-      segments.push({ type: 'text', text: matchedString })
-    } else {
-      // Prepend https:// if scheme is missing (for www. or domain-like matches)
-      if (!url.startsWith('http') && !url.startsWith('ftp') && !url.startsWith('file')) {
-        url = 'https://' + url
-      }
-      segments.push({ type: 'link', text: matchedString, url: url })
+    // Prepend https:// if scheme is missing (for www. or domain-like matches)
+    if (!url.match(/^(https?|ftp|file):\/\//i)) {
+      url = 'https://' + url
     }
+    segments.push({ type: 'link', text: matchedString, url: url })
 
     lastIndex = urlRegex.lastIndex
   }
@@ -669,81 +661,85 @@ const addMessage = (payload, sender = 'User', imagePreviewUrl = null) => {
 }
 // -----------------------
 
-// --- API Call Logic ---
+// --- API Call Logic --- CORRECTED ---
 const chatHistoryForApi = computed(() => {
   // Convert messages array to the format Gemini API expects
-  // [{ role: 'user'/'model', parts: [{ text: '...' }] }, ...]
-  return (
-    messages.value
-      // Filter out system messages and the "AI is thinking..." placeholder
-      .filter(
-        (msg) => (msg.sender === 'User' || msg.sender === 'AI') && msg.text !== 'AI is thinking...',
-      )
-      .map((msg) => ({
-        role: msg.sender === 'User' ? 'user' : 'model',
-        // Currently only handling text parts; image history needs adjustment if required
-        parts: [{ text: msg.text }],
-      }))
-  )
+  return messages.value
+    .filter(
+      (msg) => (msg.sender === 'User' || msg.sender === 'AI') && msg.text !== 'AI is thinking...',
+    )
+    .map((msg) => ({
+      role: msg.sender === 'User' ? 'user' : 'model',
+      parts: [{ text: msg.text }], // Assumes only text for now
+    }))
 })
 
 const callBackendApi = async (inputText, imageFile) => {
   const NETLIFY_FUNCTION_URL = '/.netlify/functions/call-gemini'
-  let imageFileData = null // Will be { base64Data, mimeType } or null
+  let imageFileData = null
 
-  // Process image file if provided
   if (imageFile) {
     try {
-      // Use the refined readFileAsBase64 helper
       imageFileData = await readFileAsBase64(imageFile)
     } catch (error) {
       console.error('Error reading image file for backend API call:', error)
-      // Return an error object that addMessage can understand
       return { error: true, text: 'Error processing the image file before sending.' }
     }
   }
 
-  // Prepare the payload for the Netlify function
   const payload = {
-    history: chatHistoryForApi.value, // Use the computed history
+    history: chatHistoryForApi.value,
     inputText: inputText.trim(),
-    imageFile: imageFileData, // Send processed image data or null
+    imageFile: imageFileData,
   }
 
   try {
     console.log('Calling Netlify function:', NETLIFY_FUNCTION_URL)
-    // Make the fetch request
     const response = await fetch(NETLIFY_FUNCTION_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload), // Send the payload as JSON
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     })
 
-    // Try to parse the JSON response body
+    // Read the response body as text FIRST
+    const rawText = await response.text()
+
+    // Check if the HTTP response status indicates failure AFTER reading text
+    if (!response.ok) {
+      // Try to parse the raw text as JSON to get error details from the function if possible
+      let errorPayload = { error: `Function returned HTTP status ${response.status}` }
+      try {
+        const parsedError = JSON.parse(rawText)
+        if (parsedError.error) {
+          errorPayload.error = parsedError.error
+        }
+      } catch (e) {
+        // Ignore parsing error if the error response wasn't JSON
+        console.warn('Non-JSON error response from function:', rawText.substring(0, 100) + '...')
+        // Keep the original HTTP status error message
+        errorPayload.error += `: ${rawText.substring(0, 100)}...`
+      }
+      // Throw using the potentially extracted error message
+      throw new Error(errorPayload.error)
+    }
+
+    // If response.ok is true, attempt to parse the raw text as JSON
     let responseData
     try {
-      responseData = await response.json()
+      responseData = JSON.parse(rawText)
     } catch (e) {
-      // Handle cases where the response isn't valid JSON
-      console.error('Failed to parse JSON response from function:', e)
-      const rawText = await response.text() // Get raw text for debugging
-      console.error('Raw response text:', rawText)
+      console.error('Failed to parse successful response JSON:', e)
+      console.error('Raw text from successful response:', rawText)
       throw new Error(
-        `Received non-JSON response (Status: ${response.status}). Response: ${rawText.substring(0, 100)}...`,
+        `Received invalid JSON from backend function even though status was OK. Content: ${rawText.substring(0, 100)}...`,
       )
     }
 
-    // Check if the HTTP response status indicates failure
-    if (!response.ok) {
-      // Use error message from JSON response if available, otherwise use status text
-      const errorMsg = responseData.error || `Function returned HTTP status ${response.status}`
-      throw new Error(errorMsg)
-    }
+    // --- Process the successful JSON data ---
 
-    // Check for application-level errors within the response data
+    // Check for application-level errors within the successful response data
     if (responseData.error) {
+      // This shouldn't happen if response.ok was true, but check just in case
       throw new Error(responseData.error)
     }
 
@@ -757,7 +753,6 @@ const callBackendApi = async (inputText, imageFile) => {
         ? ` Ratings: ${JSON.stringify(responseData.safetyRatings)}`
         : ''
       console.warn(`AI response blocked due to: ${responseData.blockReason}`)
-      // Return structured error for blocked content
       return {
         error: true,
         text: `Response blocked by safety filters (${responseData.blockReason}).${safetyFeedback}`,
@@ -766,22 +761,18 @@ const callBackendApi = async (inputText, imageFile) => {
 
     // Check if aiText is actually present and a string
     if (typeof responseData.aiText === 'string') {
-      // Return the successful response data (which addMessage expects)
-      return responseData // Contains { aiText: "...", blockReason?, safetyRatings? }
+      return responseData // Return successful data object { aiText: "..." }
     } else {
-      // Handle cases where response is ok, not blocked, but aiText is missing/invalid
       console.warn('Received successful response but aiText is missing or invalid:', responseData)
       return { error: true, text: '[AI response received, but content is missing or invalid]' }
     }
   } catch (error) {
-    // Catch fetch errors, JSON parsing errors, or thrown errors from checks above
+    // Catch fetch errors, errors thrown above, etc.
     console.error('Error during callBackendApi:', error)
-    // Return a structured error object
     return { error: true, text: `Failed to get response: ${error.message}` }
   }
 }
-
-// -----------------------
+// --- END API Call Logic --- CORRECTED ---
 
 // --- Send Button Flash Animation ---
 const triggerSendFlash = () => {
@@ -793,7 +784,10 @@ const triggerSendFlash = () => {
     button.classList.add('flash-active')
     // Remove class after animation duration (300ms in CSS)
     setTimeout(() => {
-      button.classList.remove('flash-active')
+      if (button) {
+        // Check button still exists
+        button.classList.remove('flash-active')
+      }
     }, 300)
   }
 }
@@ -1181,7 +1175,7 @@ const sendMessage = async () => {
   /* Use the dedicated variable for green focus shadow */
   box-shadow: var(
     --input-focus-shadow,
-    0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 30%, transparent)
+    0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent)
   ); /* Green glow with fallback */
 }
 /* --- END TEXTAREA FOCUS STATE --- */

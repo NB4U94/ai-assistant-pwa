@@ -35,6 +35,7 @@ const settingsStore = useSettingsStore()
 const appContainerClass = computed(() => {
   return {
     'dark-theme': settingsStore.theme === 'dark',
+    // 'light-theme': settingsStore.theme === 'light', // Can explicitly add light-theme class if needed for specific overrides
   }
 })
 
@@ -46,7 +47,6 @@ let activeTimeout = null // Keep track of the active state timeout
 
 // Function to apply random flicker classes
 const applyFlicker = (intensity = 'low') => {
-  // console.log(`[Debug Animation] applyFlicker called with intensity: ${intensity}`); // Keep logs commented unless debugging
   const logoElement = document.getElementById('header-logo')
   if (!logoElement) return
   const chars = logoElement.querySelectorAll('.header-char')
@@ -69,20 +69,20 @@ const applyFlicker = (intensity = 'low') => {
     }
     if (flickerClass) {
       char.classList.add(flickerClass)
-      setTimeout(() => char.classList.remove(flickerClass), 1000)
+      // Automatically remove class after a duration slightly longer than longest animation
+      setTimeout(() => char.classList.remove(flickerClass), 1100)
     }
   })
 }
 
 // Start idle flicker effect
 const startHeaderIdleFlicker = () => {
-  // console.log('[Debug Animation] startHeaderIdleFlicker called.'); // Keep logs commented unless debugging
-  stopHeaderIdleFlicker()
+  stopHeaderIdleFlicker() // Ensure no duplicates
   idleFlickerInterval = setInterval(() => {
     if (!isHeaderActive.value) {
       applyFlicker('low')
     }
-  }, 2500)
+  }, 2500) // Interval between idle flickers
 }
 
 // Stop idle flicker effect
@@ -95,12 +95,10 @@ const stopHeaderIdleFlicker = () => {
 
 // Trigger active state
 const triggerHeaderActiveAnimation = (durationMs = 500) => {
-  // Shorter duration for keypress
-  // console.log(`[Debug Animation] triggerHeaderActiveAnimation called for ${durationMs}ms.`); // Keep logs commented unless debugging
   isHeaderActive.value = true
-  stopHeaderIdleFlicker()
-  applyFlicker('high') // Initial burst
-  const busyInterval = setInterval(() => applyFlicker('high'), 500)
+  stopHeaderIdleFlicker() // Stop idle flicker during active state
+  applyFlicker('high') // Initial burst of flicker
+  const busyInterval = setInterval(() => applyFlicker('high'), 500) // Continuous high flicker
 
   // Clear previous timeout if one exists, to extend duration on rapid triggers
   if (activeTimeout) {
@@ -109,15 +107,14 @@ const triggerHeaderActiveAnimation = (durationMs = 500) => {
 
   // Automatically turn off active state after duration
   activeTimeout = setTimeout(() => {
-    // console.log('[Debug Animation] triggerHeaderActiveAnimation: Timeout reached, deactivating.'); // Keep logs commented
     isHeaderActive.value = false
-    clearInterval(busyInterval)
+    clearInterval(busyInterval) // Stop the busy flicker
     startHeaderIdleFlicker() // Resume idle flicker
     activeTimeout = null // Clear the timeout ID tracker
   }, durationMs)
 }
 
-// --- NEW: Keypress Listener ---
+// --- Keypress Listener ---
 const handleKeyPress = (event) => {
   // Check if focus is likely within an input/textarea to avoid triggering everywhere
   const activeElement = document.activeElement
@@ -138,18 +135,13 @@ const handleKeyPress = (event) => {
 }
 
 onMounted(() => {
-  // console.log('[Debug Animation] App.vue onMounted: Setting up header flicker.'); // Keep logs commented
   startHeaderIdleFlicker()
-  // Add keypress listener
   window.addEventListener('keydown', handleKeyPress)
 })
 
 onUnmounted(() => {
-  // console.log('[Debug Animation] App.vue onUnmounted: Stopping header flicker.'); // Keep logs commented
   stopHeaderIdleFlicker()
-  // Remove keypress listener
   window.removeEventListener('keydown', handleKeyPress)
-  // Clear any pending timeout for active state
   if (activeTimeout) {
     clearTimeout(activeTimeout)
   }
@@ -168,16 +160,16 @@ onUnmounted(() => {
   --bg-input-area: #f5f5f5;
   --bg-input-field: #ffffff;
   --bg-header: #ededf0;
-  --bg-message-user: #0b57d0;
+  --bg-message-user: #0b57d0; /* Google blue */
   --bg-message-ai: #e9e9eb;
   --bg-message-error: #ffebee;
-  --bg-button-primary: #007bff;
+  --bg-button-primary: #007bff; /* Bootstrap blue */
   --bg-button-primary-hover: #0056b3;
   --bg-button-primary-flash: #8ec5fc;
   --bg-button-secondary: #d1d1d1;
   --bg-button-secondary-hover: #c0c0c0;
-  --bg-button-listening: #ff4d4d;
-  --bg-button-tts-on: #66bb6a;
+  --bg-button-listening: #ff4d4d; /* Red */
+  --bg-button-tts-on: #66bb6a; /* Green */
   --bg-avatar-user: #0b57d0;
   --bg-avatar-ai: #757575;
 
@@ -187,9 +179,9 @@ onUnmounted(() => {
   --text-header-active: #111111;
   --text-light: #ffffff;
   --text-placeholder: #888888;
-  --text-link: #1a0dab;
-  --text-link-hover: #60076a;
-  --text-error: #c62828;
+  --text-link: #1a0dab; /* Google link color */
+  --text-link-hover: #60076a; /* Darker purple */
+  --text-error: #c62828; /* Dark red */
   --text-message-user: #ffffff;
   --text-message-ai: #333333;
   --text-message-error: #c62828;
@@ -205,9 +197,13 @@ onUnmounted(() => {
   --border-color-header: #d0d0d5;
   --border-color-error: #ffcdd2;
 
-  --accent-color-primary: #0f0; /* Vibrant Green */
-  --accent-shadow-primary: rgba(0, 255, 100, 0.8);
-  --input-focus-shadow: 0 0 0 2px var(--accent-color-primary); /* Green focus */
+  /* --- MODIFIED FOR LIGHT THEME CONTRAST --- */
+  --accent-color-primary: #1e8449; /* Darker Green for light mode */
+  /* --- END MODIFICATION --- */
+
+  --accent-shadow-primary: rgba(30, 132, 73, 0.8); /* Adjusted shadow to match darker green */
+  /* Use darker green for focus shadow in light mode */
+  --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
   --header-shadow-idle: none;
   --header-shadow-active: 0 0 3px rgba(0, 0, 0, 0.3), 0 0 5px var(--accent-color-primary);
   --header-shadow-flicker: 0 0 5px rgba(0, 0, 0, 0.5), 0 0 10px var(--accent-color-primary);
@@ -221,28 +217,28 @@ onUnmounted(() => {
   --bg-input-area: #252525;
   --bg-input-field: #333;
   --bg-header: #252525;
-  --bg-message-user: #005090;
+  --bg-message-user: #005090; /* Kept deep blue */
   --bg-message-ai: #3a3a3a;
-  --bg-message-error: #700;
-  --bg-button-primary: #007bff;
+  --bg-message-error: #700; /* Dark red */
+  --bg-button-primary: #007bff; /* Keep primary blue */
   --bg-button-primary-hover: #0056b3;
-  --bg-button-primary-flash: #58a6ff;
+  --bg-button-primary-flash: #58a6ff; /* Lighter blue flash */
   --bg-button-secondary: #555;
   --bg-button-secondary-hover: #666;
-  --bg-button-listening: #a00;
-  --bg-button-tts-on: #388e3c;
+  --bg-button-listening: #a00; /* Darker red */
+  --bg-button-tts-on: #388e3c; /* Darker green */
   --bg-avatar-user: #005090;
   --bg-avatar-ai: #555;
 
   --text-primary: #eee;
-  --text-secondary: #eee; /* **** UPDATED FOR BETTER CONTRAST **** */
+  --text-secondary: #aaa; /* Lighter secondary for dark */
   --text-header: #aaa;
   --text-header-active: #ddd;
   --text-light: #ffffff;
   --text-placeholder: #888;
-  --text-link: #8ab4f8;
+  --text-link: #8ab4f8; /* Google blue for links */
   --text-link-hover: #aecbfa;
-  --text-error: #fcc;
+  --text-error: #fcc; /* Light red for errors */
   --text-message-user: #fff;
   --text-message-ai: #eee;
   --text-message-error: #fcc;
@@ -258,8 +254,12 @@ onUnmounted(() => {
   --border-color-header: #3a3a3a;
   --border-color-error: #a00;
 
-  /* Green focus shadow remains the same */
-  /* --input-focus-shadow: 0 0 0 2px var(--accent-color-primary); */
+  /* --- Ensure Dark Theme uses VIBRANT Green --- */
+  --accent-color-primary: #0f0; /* Vibrant Green for dark mode */
+  /* --- END --- */
+  --accent-shadow-primary: rgba(0, 255, 100, 0.8); /* Vibrant shadow */
+  /* Use vibrant green for focus shadow in dark mode */
+  --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
   --header-shadow-idle: none;
   --header-shadow-active: 0 0 3px rgba(255, 255, 255, 0.3), 0 0 5px var(--accent-color-primary);
   --header-shadow-flicker: 0 0 5px rgba(255, 255, 255, 0.7), 0 0 10px var(--accent-color-primary);
@@ -268,16 +268,63 @@ onUnmounted(() => {
 
 /* --- Header Animation Keyframes --- */
 @keyframes basicFlicker {
-  /* ... keyframes unchanged ... */
+  0%,
+  100% {
+    opacity: inherit;
+    text-shadow: var(--header-shadow-idle);
+  }
+  50% {
+    opacity: 0.7;
+    text-shadow: var(--header-shadow-flicker);
+  }
 }
 @keyframes slowPartialFlicker {
-  /* ... keyframes unchanged ... */
+  0%,
+  10%,
+  90%,
+  100% {
+    opacity: inherit;
+    text-shadow: var(--header-shadow-idle);
+  }
+  30%,
+  70% {
+    opacity: 0.5;
+    text-shadow: var(--header-shadow-active);
+  }
+  50% {
+    opacity: 0.9;
+    text-shadow: var(--header-shadow-flicker);
+  }
 }
 @keyframes fastFullFlicker {
-  /* ... keyframes unchanged ... */
+  0%,
+  100% {
+    opacity: inherit;
+    text-shadow: var(--header-shadow-idle);
+  }
+  25% {
+    opacity: 0.3;
+    text-shadow: var(--header-shadow-flicker);
+  }
+  50% {
+    opacity: 0.9;
+    text-shadow: var(--header-shadow-active);
+  }
+  75% {
+    opacity: 0.5;
+    text-shadow: var(--header-shadow-flicker);
+  }
 }
 @keyframes slowFadeFlicker {
-  /* ... keyframes unchanged ... */
+  0%,
+  100% {
+    opacity: inherit;
+    text-shadow: var(--header-shadow-idle);
+  }
+  50% {
+    opacity: 0.4;
+    text-shadow: var(--header-shadow-idle);
+  }
 }
 /* --- End Keyframes --- */
 </style>
@@ -289,7 +336,7 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  overflow: hidden;
+  overflow: hidden; /* Prevent body scroll */
   margin: 0;
   padding: 0;
   background-color: var(--bg-app-container);
@@ -301,15 +348,15 @@ onUnmounted(() => {
 
 /* Header Styles */
 #main-header {
-  height: 50px;
+  height: 50px; /* Fixed header height */
   background-color: var(--bg-header);
   border-bottom: 1px solid var(--border-color-header);
   display: flex;
   align-items: center;
   padding: 0 1rem;
-  flex-shrink: 0;
+  flex-shrink: 0; /* Prevent header shrinking */
   position: relative;
-  z-index: 10;
+  z-index: 10; /* Keep header above content */
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease;
@@ -321,12 +368,15 @@ onUnmounted(() => {
   font-weight: bold;
   cursor: default;
   user-select: none;
-  display: inline-block;
+  -webkit-user-select: none; /* Safari */
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE */
+  display: inline-block; /* Needed for individual char animations */
 }
 
 .header-char {
-  display: inline-block;
-  opacity: 0.6;
+  display: inline-block; /* Allow animation */
+  opacity: 0.6; /* Dimmer when idle */
   color: var(--text-header);
   text-shadow: var(--header-shadow-idle);
   transition:
@@ -336,12 +386,12 @@ onUnmounted(() => {
 }
 
 #header-logo.active .header-char {
-  opacity: 0.85;
+  opacity: 0.85; /* Brighter when active */
   color: var(--text-header-active);
   text-shadow: var(--header-shadow-active);
 }
 
-/* Apply animations */
+/* Apply animations via classes */
 .animate-flicker-basic {
   animation: basicFlicker 0.3s linear;
 }
@@ -355,26 +405,26 @@ onUnmounted(() => {
   animation: slowFadeFlicker 1s linear;
 }
 
-/* Wrapper for main layout */
+/* Wrapper for main layout (sidebars + content) */
 .main-layout-wrapper {
   display: flex;
-  flex-grow: 1;
-  overflow: hidden;
+  flex-grow: 1; /* Take remaining vertical space */
+  overflow: hidden; /* Prevent content overflow from causing body scroll */
 }
 
 #left-sidebar,
 #right-sidebar {
-  height: 100%;
-  overflow-y: auto;
-  flex-shrink: 0;
+  /* height: 100%; */ /* Let flexbox handle height */
+  overflow-y: auto; /* Allow scrolling within sidebars */
+  flex-shrink: 0; /* Prevent sidebars shrinking */
   background-color: var(--bg-sidebar);
-  color: var(--text-secondary); /* Uses updated variable */
+  color: var(--text-secondary); /* Base text color for sidebars */
   border-color: var(--border-color-medium);
   transition:
     background-color 0.3s ease,
     color 0.3s ease,
     border-color 0.3s ease;
-  padding: 1rem; /* Add some padding to sidebars */
+  padding: 1rem; /* Default padding */
 }
 
 #left-sidebar {
@@ -383,15 +433,23 @@ onUnmounted(() => {
 }
 
 #main-content {
-  flex-grow: 1;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  flex-grow: 1; /* Take remaining horizontal space */
+  /* height: 100%; */ /* Let flexbox handle height */
+  display: flex; /* Use flex for router-view */
+  flex-direction: column; /* Stack elements within main */
   background-color: var(--bg-main-content);
   color: var(--text-primary);
   transition:
     background-color 0.3s ease,
     color 0.3s ease;
+  overflow: hidden; /* Prevent internal scroll */
+}
+
+/* Ensure RouterView content within main-content can scroll if needed */
+#main-content > :deep(div) {
+  /* Target immediate child div (usually the view component) */
+  height: 100%;
+  overflow-y: auto;
 }
 
 #right-sidebar {
