@@ -1,22 +1,72 @@
 <template>
   <div class="right-sidebar-content">
     <h2>Quick Settings</h2>
-    <p>(Placeholder for quick settings - styling applied)</p>
+
+    <div class="quick-settings-list">
+      <template v-if="isChatView">
+        <button class="quick-setting-button" @click="placeholderAction('Save Transcript')">
+          Save Transcript
+        </button>
+        <button class="quick-setting-button" @click="placeholderAction('Clear Chat')">
+          Clear Chat
+        </button>
+      </template>
+
+      <template v-else-if="isImageGenView">
+        <button class="quick-setting-button" @click="placeholderAction('Clear Canvas')">
+          Clear Canvas
+        </button>
+        <button class="quick-setting-button" @click="placeholderAction('Change Aspect Ratio')">
+          Aspect Ratio
+        </button>
+      </template>
+
+      <template v-else-if="isAssistantsView">
+        <button class="quick-setting-button" @click="placeholderAction('Sort Assistants')">
+          Sort Assistants
+        </button>
+      </template>
+
+      <template v-else-if="isSettingsView">
+        <p class="no-quick-settings">(Main settings active)</p>
+      </template>
+
+      <template v-else>
+        <p class="no-quick-settings">(No quick settings for this view)</p>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup>
-// Component-specific JavaScript logic will go here later
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+
+// Get the current route object
+const route = useRoute()
+
+// Computed properties to check the current route path
+const isChatView = computed(() => route.path === '/')
+const isImageGenView = computed(() => route.path === '/image-gen')
+const isAssistantsView = computed(
+  () => route.path === '/assistants' || route.name === 'assistant-edit',
+) // Include edit route
+const isSettingsView = computed(() => route.path === '/settings')
+
+// Placeholder function for button clicks (replace with real actions later)
+const placeholderAction = (actionName) => {
+  console.log(`[RightSidebar] Placeholder action clicked: ${actionName}`)
+  alert(`Action not yet implemented: ${actionName}`)
+}
 </script>
 
 <style scoped>
-/* Define the pulsing halo animation for interactive elements */
+/* Define the pulsing halo animation */
 @keyframes pulse-halo {
   0% {
     box-shadow: 0 0 0 0px color-mix(in srgb, var(--accent-color-primary) 40%, transparent);
   }
   50% {
-    /* Increase shadow size slightly */
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-color-primary) 25%, transparent);
   }
   100% {
@@ -30,35 +80,36 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  /* FIX: Base text color changed to primary accent (green) */
-  color: var(--accent-color-primary);
+  color: var(--accent-color-primary); /* Base green text */
 }
 
 h2 {
   margin-top: 0;
-  margin-bottom: 1.5rem; /* Match left sidebar */
-  color: var(--text-primary); /* Keep primary text color for heading */
+  margin-bottom: 1.5rem;
+  color: var(--text-primary);
   font-family: sans-serif;
-  text-align: center; /* Center heading */
+  text-align: center;
   font-weight: 600;
-  flex-shrink: 0; /* Prevent heading shrinking if content overflows */
+  flex-shrink: 0;
 }
 
-p {
-  /* FIX: Ensure placeholder text uses the base accent color */
-  color: var(--accent-color-primary);
+/* Container for the list of settings */
+.quick-settings-list {
+  flex-grow: 1; /* Allow list to take space */
+  overflow-y: auto; /* Allow scrolling if many settings */
+}
+
+/* Placeholder text if no settings */
+.no-quick-settings {
+  color: var(--text-secondary); /* Use secondary text color */
   font-family: sans-serif;
   font-size: 0.9em;
-  text-align: center; /* Center placeholder text */
-  flex-grow: 1; /* Allow paragraph to take up space */
-  display: flex;
-  align-items: center; /* Vertically center if needed */
-  justify-content: center;
+  text-align: center;
+  font-style: italic;
+  margin-top: 2rem;
 }
 
-/* --- Styles for future interactive elements --- */
-/* FIX: Uncommented example styles for reference/use */
-
+/* Quick Setting Button Style */
 .quick-setting-button {
   display: block;
   width: 100%;
@@ -70,39 +121,28 @@ p {
   border-radius: 6px;
   color: var(--accent-color-primary); /* Green text */
   font-family: sans-serif;
-  font-size: 0.9em; /* Match placeholder text */
+  font-size: 0.9em;
   cursor: pointer;
   transition:
     color 0.2s ease,
     background-color 0.2s ease,
-    /* Added background transition */ border-color 0.2s ease; /* Added border transition */
+    border-color 0.2s ease;
   outline: none;
-  box-shadow: none; /* Ensure no default shadow */
-  flex-shrink: 0; /* Prevent shrinking */
+  box-shadow: none;
+  flex-shrink: 0;
 }
 
 /* Apply halo and subtle background on hover/focus */
 .quick-setting-button:hover:not(:disabled),
 .quick-setting-button:focus-visible:not(:disabled) {
-  /* Use focus-visible */
-  color: var(--accent-color-primary); /* Keep text green */
-  border-color: var(--accent-color-primary); /* Highlight border */
-  background-color: color-mix(
-    in srgb,
-    var(--accent-color-primary) 10%,
-    transparent
-  ); /* Subtle background highlight */
-  animation: pulse-halo 1.5s infinite ease-in-out; /* Apply halo */
+  color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary);
+  background-color: color-mix(in srgb, var(--accent-color-primary) 10%, transparent);
+  animation: pulse-halo 1.5s infinite ease-in-out;
 }
 
 .quick-setting-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  /* Remove hover effects for disabled state if needed */
-  /* animation: none; */
-  /* background-color: transparent; */
-  /* border-color: var(--border-color-medium); */
 }
-
-/* --- End Example Styles --- */
 </style>
