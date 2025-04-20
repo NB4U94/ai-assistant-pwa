@@ -28,7 +28,7 @@ export const useSettingsStore = defineStore('settings', {
     },
     // Other actions can be added below
     // setTtsEnabled(enabled) {
-    //  this.isTtsEnabled = !!enabled; // Ensure boolean
+    //   this.isTtsEnabled = !!enabled; // Ensure boolean
     // }
   },
 })

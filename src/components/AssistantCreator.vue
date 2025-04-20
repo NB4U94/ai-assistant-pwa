@@ -35,7 +35,7 @@
         </div>
       </div>
       <div class="creator-actions footer-actions">
-        <button @click="cancelCreation" class="button-secondary">Cancel</button>
+        <button @click="cancelCreation" class="button-secondary back-button">Cancel</button>
         <button @click="confirmLevelAndProceed" class="button-primary" :disabled="!selectedLevel">
           Next: Define Assistant
         </button>
@@ -47,42 +47,60 @@
         {{ isEditMode ? 'Edit Assistant Definition' : 'Define Assistant' }} (Level
         {{ selectedLevel }}: {{ currentLevelName }})
       </h3>
-      <div v-if="currentQuestions.length > 0" class="question-area scrollable-content">
-        <div class="question-header">
-          <label :for="'question-' + currentQuestionIndex" class="question-label">
-            {{ currentQuestionIndex + 1 }}. {{ currentQuestions[currentQuestionIndex].text }}
-          </label>
-          <button
-            class="help-icon"
-            @click="toggleHelp(currentQuestionIndex)"
-            :aria-expanded="isHelpVisible(currentQuestionIndex).toString()"
-            :aria-controls="'help-' + currentQuestionIndex"
-            title="Show help for this question"
+      <div class="scrollable-content-area">
+        <div v-if="currentQuestions.length > 0" class="question-area">
+          <div class="question-header">
+            <label :for="'question-' + currentQuestionIndex" class="question-label">
+              {{ currentQuestionIndex + 1 }}. {{ currentQuestions[currentQuestionIndex].text }}
+            </label>
+            <button
+              class="help-icon"
+              @click="toggleHelp(currentQuestionIndex)"
+              :aria-expanded="isHelpVisible(currentQuestionIndex).toString()"
+              :aria-controls="'help-' + currentQuestionIndex"
+              title="Show help for this question"
+            >
+              ?
+            </button>
+          </div>
+          <div
+            class="help-box"
+            :id="'help-' + currentQuestionIndex"
+            v-if="isHelpVisible(currentQuestionIndex)"
           >
-            ?
-          </button>
+            <p><strong>Guidance:</strong> {{ currentQuestions[currentQuestionIndex].help }}</p>
+            <p>
+              <strong>Example:</strong>
+              <em>{{ currentQuestions[currentQuestionIndex].example }}</em>
+            </p>
+          </div>
+          <textarea
+            :id="'question-' + currentQuestionIndex"
+            v-model="answers[currentQuestionIndex]"
+            class="answer-input"
+            rows="5"
+            :placeholder="`Provide details for: ${currentQuestions[currentQuestionIndex].promptKey}... (Shift+Enter for new line)`"
+            @keydown.enter.exact.prevent="nextQuestion"
+            ref="answerTextareaRef"
+          ></textarea>
         </div>
-        <div
-          class="help-box"
-          :id="'help-' + currentQuestionIndex"
-          v-if="isHelpVisible(currentQuestionIndex)"
-        >
-          <p><strong>Guidance:</strong> {{ currentQuestions[currentQuestionIndex].help }}</p>
-          <p>
-            <strong>Example:</strong> <em>{{ currentQuestions[currentQuestionIndex].example }}</em>
-          </p>
-        </div>
-        <textarea
-          :id="'question-' + currentQuestionIndex"
-          v-model="answers[currentQuestionIndex]"
-          class="answer-input"
-          rows="5"
-          :placeholder="`Provide details for: ${currentQuestions[currentQuestionIndex].promptKey}... (Shift+Enter for new line)`"
-          @keydown.enter.exact.prevent="nextQuestion"
-          ref="answerTextareaRef"
-        ></textarea>
       </div>
       <div class="creator-actions footer-actions question-nav">
+        <button
+          @click="goBackToLevelSelection"
+          v-if="!isEditMode"
+          class="button-tertiary back-button footer-back-button back-to-level-button"
+        >
+          Back to Level Selection
+        </button>
+        <button
+          @click="cancelCreation"
+          v-else
+          class="button-secondary back-button footer-back-button"
+        >
+          Cancel Edit
+        </button>
+
         <button
           @click="previousQuestion"
           class="button-secondary"
@@ -97,92 +115,88 @@
           {{ isLastQuestion ? 'Finish & Review Instructions' : 'Next Question' }}
         </button>
       </div>
-      <button
-        @click="goBackToLevelSelection"
-        v-if="!isEditMode"
-        class="button-tertiary back-button footer-back-button"
-      >
-        Back to Level Selection
-      </button>
-      <button @click="cancelCreation" v-else class="button-tertiary back-button footer-back-button">
-        Cancel Edit
-      </button>
     </div>
 
     <div v-if="currentStep === 3" class="creator-step">
       <h3>{{ isEditMode ? 'Review & Update Assistant' : 'Review & Save Assistant' }}</h3>
 
-      <div class="review-area scrollable-content">
-        <div class="review-input-group">
-          <label for="assistant-name">Assistant Name:</label>
-          <div class="name-input-area">
-            <input
-              type="text"
-              id="assistant-name"
-              v-model="assistantName"
-              placeholder="Enter a name (or suggest one)"
-            />
-            <button
-              @click="suggestName"
-              class="button-tertiary suggest-button"
-              title="Suggest name based on Role/Task"
-              :disabled="isSuggestingName"
-            >
-              {{ isSuggestingName ? 'Suggesting...' : 'Suggest' }}
-            </button>
-          </div>
-          <div v-if="suggestNameError" class="error-text suggest-error">{{ suggestNameError }}</div>
-        </div>
-
-        <div class="review-input-group">
-          <label for="assistant-image-upload">Assistant Image (Optional):</label>
-          <div class="image-upload-controls">
-            <input
-              type="file"
-              id="assistant-image-upload"
-              ref="imageFileInputRef"
-              @change="handleImageFileSelected"
-              accept="image/png, image/jpeg, image/gif, image/webp"
-              style="display: none"
-            />
-            <button
-              type="button"
-              @click="triggerImageUpload"
-              class="button-secondary upload-button"
-            >
-              {{ assistantImageUrl ? 'Change Image' : 'Upload Image' }}
-            </button>
-            <div class="image-preview-container">
-              <img
-                v-if="assistantImageUrl"
-                :src="assistantImageUrl"
-                alt="Image Preview"
-                class="image-url-preview"
-                @error="onImagePreviewError"
+      <div class="scrollable-content-area">
+        <div class="review-area">
+          <div class="review-input-group">
+            <label for="assistant-name">Assistant Name:</label>
+            <div class="name-input-area">
+              <input
+                type="text"
+                id="assistant-name"
+                v-model="assistantName"
+                placeholder="Enter a name (or suggest one)"
               />
-              <div v-if="!assistantImageUrl" class="image-url-preview placeholder">?</div>
               <button
-                v-if="assistantImageUrl"
-                @click="removeSelectedImage"
-                class="remove-image-button"
-                title="Remove image"
+                @click="suggestName"
+                class="button-tertiary suggest-button"
+                title="Suggest name based on Role/Task"
+                :disabled="isSuggestingName"
               >
-                ✖
+                {{ isSuggestingName ? 'Suggesting...' : 'Suggest' }}
               </button>
             </div>
+            <div v-if="suggestNameError" class="error-text suggest-error">
+              {{ suggestNameError }}
+            </div>
           </div>
-          <div v-if="imageError" class="error-text image-error">{{ imageError }}</div>
-        </div>
-        <div v-if="saveError" class="error-text save-error">{{ saveError }}</div>
 
-        <label class="review-label">Generated Instructions:</label>
-        <pre class="generated-instructions">{{ finalInstructions }}</pre>
-        <div class="additional-instructions">
-          <strong>Quick Guide:</strong>
-          <p>{{ boilerplateInstructions }}</p>
+          <div class="review-input-group">
+            <label for="assistant-image-upload">Assistant Image (Optional):</label>
+            <div class="image-upload-controls">
+              <input
+                type="file"
+                id="assistant-image-upload"
+                ref="imageFileInputRef"
+                @change="handleImageFileSelected"
+                accept="image/png, image/jpeg, image/gif, image/webp"
+                style="display: none"
+              />
+              <button
+                type="button"
+                @click="triggerImageUpload"
+                class="button-secondary upload-button"
+              >
+                {{ assistantImageUrl ? 'Change Image' : 'Upload Image' }}
+              </button>
+              <div class="image-preview-container">
+                <img
+                  v-if="assistantImageUrl"
+                  :src="assistantImageUrl"
+                  alt="Image Preview"
+                  class="image-url-preview"
+                  @error="onImagePreviewError"
+                />
+                <div v-if="!assistantImageUrl" class="image-url-preview placeholder">?</div>
+                <button
+                  v-if="assistantImageUrl"
+                  @click="removeSelectedImage"
+                  class="remove-image-button"
+                  title="Remove image"
+                >
+                  ✖
+                </button>
+              </div>
+            </div>
+            <div v-if="imageError" class="error-text image-error">{{ imageError }}</div>
+          </div>
+          <div v-if="saveError" class="error-text save-error">{{ saveError }}</div>
+
+          <label class="review-label">Generated Instructions:</label>
+          <pre class="generated-instructions">{{ finalInstructions }}</pre>
+          <div class="additional-instructions">
+            <strong>Quick Guide:</strong>
+            <p>{{ boilerplateInstructions }}</p>
+          </div>
         </div>
       </div>
       <div class="creator-actions footer-actions review-actions">
+        <button @click="cancelCreation" class="button-secondary back-button">Cancel</button>
+
         <button @click="goBackToQuestions" class="button-secondary">Edit Answers</button>
         <button @click="testAssistant" class="button-secondary">
           Test {{ isEditMode ? '(Current Settings)' : '(Not Saved)' }}
@@ -203,9 +217,6 @@
           }}
         </button>
       </div>
-      <button @click="cancelCreation" class="button-tertiary back-button footer-back-button">
-        Cancel
-      </button>
 
       <div class="modal-overlay test-modal" v-if="isTestModalVisible" @click.self="closeTestModal">
         <div class="test-modal-content">
@@ -271,7 +282,7 @@ const assistantBeingTested = ref(null)
 const isEditMode = ref(false)
 const assistantIdToEdit = ref(null)
 
-// --- Intricacy Levels & Questions Data --- (Keep full data)
+// --- Intricacy Levels & Questions Data --- (Keep full data - truncated for brevity in thought log, but full here)
 const intricacyLevels = ref([
   {
     value: 1,
@@ -740,9 +751,10 @@ const onImagePreviewError = (event) => {
   // Don't clear assistantImageUrl here, as it might still be a valid URL saved previously
   // Just hide the broken img tag
   event.target.style.display = 'none'
-  // Ensure placeholder is shown
-  const placeholder = event.target.nextElementSibling
-  if (placeholder && placeholder.classList.contains('placeholder')) {
+  // Ensure placeholder is shown if available
+  const previewContainer = event.target.closest('.image-preview-container')
+  const placeholder = previewContainer?.querySelector('.image-url-preview.placeholder')
+  if (placeholder) {
     placeholder.style.display = 'flex'
   }
 }
@@ -761,33 +773,49 @@ const suggestName = async () => {
   }
   isSuggestingName.value = true
   suggestNameError.value = null
-  const suggestionPrompt = `Based on the following details...\n\nSuggest exactly 3 names... Example: Name One, Name Two, Name Three`
+  const suggestionPrompt = `Based on the following AI assistant configuration details, suggest exactly 3 concise and relevant names for the assistant. Focus on the Role and Task. Do not add any extra text, just the names separated by commas.\n\n**Precise Role/Persona:**\n${role}\n\n**Primary Task/Objective:**\n${task}\n\nSuggested Names (comma-separated):`
+
   try {
     const response = await fetch('/.netlify/functions/call-gemini', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inputText: suggestionPrompt, history: [] }),
+      body: JSON.stringify({
+        inputText: suggestionPrompt,
+        history: [], // No history needed for name suggestion
+        config: { temperature: 0.6 }, // Adjust temperature if needed
+      }),
     })
-    let responseData = await response.json()
-    if (!response.ok || responseData.error) {
-      throw new Error(responseData.error || `Name suggestion failed`)
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      console.error('Error response body:', errorBody)
+      throw new Error(`Name suggestion failed with status: ${response.status}. ${errorBody}`)
     }
+
+    const responseData = await response.json()
+
+    if (responseData.error) {
+      throw new Error(responseData.error)
+    }
+
     if (responseData.aiText) {
       const suggestedNames = responseData.aiText
         .split(',')
         .map((name) => name.trim())
         .filter((name) => name)
+
       if (suggestedNames.length > 0) {
-        assistantName.value = suggestedNames[0]
+        assistantName.value = suggestedNames[0] // Use the first suggestion
       } else {
-        throw new Error('AI did not return names in the expected format.')
+        console.warn('AI did not return names in the expected format:', responseData.aiText)
+        suggestNameError.value = 'AI returned names in an unexpected format.'
       }
     } else {
       throw new Error('AI response did not contain suggested names.')
     }
   } catch (err) {
     console.error('Error suggesting name:', err)
-    suggestNameError.value = `Failed to suggest name: ${err.message}`
+    suggestNameError.value = `Failed to suggest name: ${err.message || 'Network error or unexpected response'}`
   } finally {
     isSuggestingName.value = false
   }
@@ -812,14 +840,14 @@ const testAssistant = () => {
 
 // openTestModal remains the same (includes imageUrl)
 const openTestModal = () => {
-  generateFinalInstructions()
+  generateFinalInstructions() // Ensure instructions are current
   assistantBeingTested.value = {
     id: assistantIdToEdit.value || `temp_${Date.now()}`,
     name: assistantName.value.trim(),
     level: selectedLevel.value,
     instructions: finalInstructions.value,
-    imageUrl: assistantImageUrl.value || null,
-    createdAt: Date.now(), // Or load original createdAt if editing? Decide later.
+    imageUrl: assistantImageUrl.value || null, // Use current preview URL
+    createdAt: assistantsStore.getAssistantById(assistantIdToEdit.value)?.createdAt || Date.now(), // Preserve original creation date if editing
   }
   isTestModalVisible.value = true
 }
@@ -852,7 +880,8 @@ const saveOrUpdateAssistant = () => {
   generateFinalInstructions() // Ensure instructions are up-to-date
 
   const assistantConfig = {
-    id: assistantIdToEdit.value, // Null if creating
+    // For update, use existing ID. For add, let store generate it.
+    id: isEditMode.value ? assistantIdToEdit.value : undefined,
     name: assistantName.value.trim(),
     level: selectedLevel.value,
     instructions: finalInstructions.value,
@@ -864,25 +893,30 @@ const saveOrUpdateAssistant = () => {
     if (isEditMode.value) {
       // --- UPDATE ---
       console.log('[AssistantCreator] Attempting to update assistant via store:', assistantConfig)
-      success = assistantsStore.updateAssistant(assistantConfig)
+      success = assistantsStore.updateAssistant(assistantConfig) // Pass full config including ID
       if (success) {
         console.log(`[AssistantCreator] Assistant updated successfully.`)
         router.push({ name: 'assistants' }) // Navigate back to list on successful update
       } else {
-        saveError.value = `Failed to update assistant. Name might already exist or store error occurred.`
-        console.error(`Failed to update assistant via store action.`)
+        // Store action likely returned false (e.g., name conflict)
+        saveError.value =
+          assistantsStore.lastError ||
+          `Failed to update assistant. Name might already exist or store error occurred.`
+        console.error(`Failed to update assistant via store action. Error: ${saveError.value}`)
       }
     } else {
       // --- CREATE ---
       console.log('[AssistantCreator] Attempting to add assistant via store:', assistantConfig)
-      const { id, ...configToAdd } = assistantConfig // Don't pass null ID for add
-      success = assistantsStore.addAssistant(configToAdd)
+      success = assistantsStore.addAssistant(assistantConfig) // Pass config without ID
       if (success) {
         console.log(`[AssistantCreator] Assistant saved successfully.`)
         emit('assistant-created') // *** Emit event on successful creation ***
       } else {
-        saveError.value = `Failed to save assistant. Name might already exist or store error occurred.`
-        console.error(`Failed to add assistant via store action.`)
+        // Store action likely returned false (e.g., name conflict)
+        saveError.value =
+          assistantsStore.lastError ||
+          `Failed to save assistant. Name might already exist or store error occurred.`
+        console.error(`Failed to add assistant via store action. Error: ${saveError.value}`)
       }
     }
   } catch (e) {
@@ -952,7 +986,7 @@ watch(
       suggestNameError.value = null
     }
   },
-  { immediate: false },
+  { immediate: false }, // Only run when route.params.id actually changes after mount
 )
 </script>
 
@@ -967,8 +1001,6 @@ watch(
   display: flex;
   flex-direction: column;
   width: 100%;
-  /* Let parent modal control height */
-  /* height: 100%; */
   max-height: 100%; /* Ensure it doesn't overflow parent */
   box-sizing: border-box;
   overflow: hidden; /* Prevent creator itself from scrolling */
@@ -981,6 +1013,7 @@ watch(
   flex-direction: column;
   height: 100%; /* Allow step content to fill */
   overflow: hidden; /* Prevent step itself from scrolling */
+  flex-grow: 1; /* Ensure step takes full height */
 }
 
 h3 {
@@ -1069,18 +1102,20 @@ h3 {
 }
 
 /* Step 2 & 3 Structure for Scrolling */
-div[v-if='currentStep === 2'] > .scrollable-content,
-div[v-if='currentStep === 3'] > .scrollable-content {
+.scrollable-content-area {
   flex-grow: 1; /* Allow content to take available space */
   overflow-y: auto; /* Enable vertical scrolling ONLY for this area */
-  padding: 0.5rem; /* Add some padding inside scroll area */
+  padding: 0.5rem 0.5rem 0 0.5rem; /* Add some padding inside scroll area, less at bottom */
   margin-bottom: 1rem; /* Space before footer actions */
+  min-height: 0; /* Crucial for flex children in overflow containers */
 }
 
-/* Question Area (Step 2) */
+/* Question Area (Step 2) - Now inside scrollable-content-area */
 .question-area {
-  /* Removed margin-bottom, padding, background, border-radius as they are handled by scrollable-content */
-  /* Removed flex-grow, display, flex-direction, overflow-y */
+  /* Contains header, help, textarea */
+  display: flex;
+  flex-direction: column;
+  /* Removed height: 100% - let content define size */
 }
 
 .question-header {
@@ -1165,9 +1200,9 @@ div[v-if='currentStep === 3'] > .scrollable-content {
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
-  flex-grow: 1; /* Allow textarea to grow vertically */
-  min-height: 100px;
+  min-height: 100px; /* Keep a minimum size */
   box-sizing: border-box;
+  flex-shrink: 0; /* Prevent shrinking, let scroll container handle overflow */
 }
 .answer-input:focus {
   outline: none;
@@ -1180,9 +1215,11 @@ div[v-if='currentStep === 3'] > .scrollable-content {
   font-size: 0.9em;
 }
 
-/* Review Area (Step 3) */
+/* Review Area (Step 3) - Now inside scrollable-content-area */
 .review-area {
-  /* Removed flex-grow, overflow-y */
+  /* Contains name, image, errors, instructions */
+  display: flex;
+  flex-direction: column;
 }
 .review-input-group {
   margin-bottom: 1rem;
@@ -1277,11 +1314,11 @@ div[v-if='currentStep === 3'] > .scrollable-content {
 }
 .suggest-error {
   margin: 0.2rem 0 0.5rem 0;
-  padding-left: 105px;
+  padding-left: 105px; /* Align roughly under suggest button if name input wraps */
 }
 .save-error {
   margin-top: 0.5rem;
-  text-align: right;
+  text-align: right; /* Align with save button */
 }
 .image-error {
   margin-top: 0.3rem;
@@ -1302,11 +1339,13 @@ div[v-if='currentStep === 3'] > .scrollable-content {
   padding: 1rem;
   font-family: monospace;
   white-space: pre-wrap;
-  word-wrap: break-word; /* Removed overflow-y, handled by parent */
+  word-wrap: break-word;
   font-size: 0.85em;
   margin-bottom: 1rem;
-  color: var(--text-primary); /* Removed flex-grow, min-height */
-  flex-shrink: 0; /* Prevent shrinking, let parent scroll */
+  color: var(--text-primary);
+  /* FIX: Remove flex-shrink to allow it to be contained by scrollable parent */
+  /* flex-shrink: 0; */
+  /* Allow natural height, scrolling handled by parent */
 }
 .additional-instructions {
   font-size: 0.85em;
@@ -1317,7 +1356,7 @@ div[v-if='currentStep === 3'] > .scrollable-content {
   margin-bottom: 1.5rem;
   line-height: 1.4;
   border: 1px dashed var(--border-color-light);
-  flex-shrink: 0;
+  flex-shrink: 0; /* Keep this fixed relative to generated instructions */
 }
 .additional-instructions strong {
   display: block;
@@ -1331,38 +1370,46 @@ div[v-if='currentStep === 3'] > .scrollable-content {
 /* Footer Actions (Common) */
 .creator-actions.footer-actions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.75rem;
+  flex-wrap: wrap; /* Allow buttons to wrap */
+  /* justify-content: flex-end; /* Default alignment */
+  gap: 0.75rem; /* Space between buttons */
   margin-top: auto; /* Push to bottom */
   padding-top: 1rem;
   border-top: 1px solid var(--border-color-light);
   flex-shrink: 0; /* Keep footer fixed */
   background-color: var(--bg-input-field); /* Match creator background */
-  /* Add padding to match parent if needed, or remove parent padding */
-  margin-left: -2rem; /* Counteract parent padding */
-  margin-right: -2rem;
-  margin-bottom: -1.5rem;
-  padding: 1rem 2rem; /* Match parent padding */
+  /* FIX: Simplify padding/margin - Use component's padding */
+  padding: 1rem; /* Consistent padding */
+  /* Removed negative margins */
+  align-items: center; /* Align items vertically if they wrap */
 }
-.footer-actions.question-nav {
-  justify-content: space-between;
-}
+/* Specific justifications */
+.footer-actions.question-nav,
 .footer-actions.review-actions {
-  justify-content: space-between;
+  justify-content: space-between; /* Space out first/last groups */
 }
 
-/* Back button in footer */
-.footer-back-button {
-  margin-right: auto; /* Push other buttons right */
+/* Special handling for the first button if it's a 'back' type */
+.footer-actions > .back-button:first-child {
+  margin-right: auto; /* Pushes subsequent items/groups to the right */
 }
 
-/* Buttons (Copied from previous) */
+/* Group buttons that should stay together */
+.footer-actions span, /* Question counter */
+.footer-actions .button-secondary,
+.footer-actions .button-primary {
+  margin-left: 0.5rem; /* Add space between right-aligned buttons/items */
+}
+.footer-actions > .back-button:first-child + * {
+  margin-left: 0; /* Remove margin from item immediately after back button */
+}
+
+/* Buttons (Base Styles) */
 .button-primary,
 .button-secondary,
 .button-tertiary {
   padding: 0.6rem 1.2rem;
-  border: none;
+  border: 1px solid transparent; /* Base border */
   border-radius: 6px;
   cursor: pointer;
   font-family: sans-serif;
@@ -1373,31 +1420,46 @@ div[v-if='currentStep === 3'] > .scrollable-content {
     opacity 0.2s ease,
     color 0.2s ease,
     border-color 0.2s ease;
+  /* FIX: Ensure buttons don't shrink too small and text doesn't wrap */
+  flex-shrink: 0;
+  white-space: nowrap;
+  /* min-width: 80px; /* Avoid fixed min-width if possible, let padding define size */
+  text-align: center;
+  line-height: 1.2; /* Prevent text descenders causing height jumps */
 }
+/* Primary Button */
 .button-primary {
   background-color: var(--bg-button-primary);
   color: var(--text-button-primary);
+  border-color: var(--bg-button-primary);
 }
 .button-primary:hover:not(:disabled) {
   background-color: var(--bg-button-primary-hover);
+  border-color: var(--bg-button-primary-hover);
 }
 .button-primary:disabled {
   background-color: color-mix(in srgb, var(--bg-button-primary) 50%, var(--bg-input-field));
+  border-color: color-mix(in srgb, var(--bg-button-primary) 50%, var(--bg-input-field));
   cursor: not-allowed;
   opacity: 0.7;
 }
+/* Secondary Button */
 .button-secondary {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
+  border-color: var(--bg-button-secondary);
 }
 .button-secondary:hover:not(:disabled) {
   background-color: var(--bg-button-secondary-hover);
+  border-color: var(--bg-button-secondary-hover);
 }
 .button-secondary:disabled {
   background-color: color-mix(in srgb, var(--bg-button-secondary) 50%, var(--bg-input-field));
+  border-color: color-mix(in srgb, var(--bg-button-secondary) 50%, var(--bg-input-field));
   cursor: not-allowed;
   opacity: 0.7;
 }
+/* Tertiary Button */
 .button-tertiary {
   background-color: transparent;
   color: var(--text-secondary);
@@ -1408,7 +1470,26 @@ div[v-if='currentStep === 3'] > .scrollable-content {
   border-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
 }
-/* .back-button { margin-right: auto; justify-self: flex-start; } */ /* Handled by footer-back-button */
+
+/* FIX: Specific style for the "Back to Level" button */
+.back-to-level-button {
+  background-color: var(--bg-error, #a04040); /* Use error background */
+  color: var(--text-light, white); /* Ensure text is readable */
+  border: 1px solid var(--bg-error, #a04040);
+}
+.back-to-level-button:hover {
+  background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
+  border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
+  color: var(--text-light, white);
+}
+
+.question-counter {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  margin: 0 0.5rem; /* Adjust spacing */
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 /* Shake animation */
 @keyframes shake {
@@ -1435,7 +1516,7 @@ div[v-if='currentStep === 3'] > .scrollable-content {
   border-color: var(--text-error) !important;
 }
 
-/* Modal styles */
+/* Modal styles (Unchanged) */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1493,13 +1574,14 @@ div[v-if='currentStep === 3'] > .scrollable-content {
 }
 .test-modal .test-modal-chat-area {
   flex-grow: 1;
-  overflow-y: hidden;
-  display: flex;
+  overflow-y: hidden; /* ChatView handles its own scrolling */
+  display: flex; /* Required for flex child */
 }
 .test-modal .test-modal-chat-area > :deep(.chat-view) {
   height: 100%;
   width: 100%;
-  border-radius: 0;
+  border-radius: 0; /* Remove border-radius if ChatView has one */
+  border: none; /* Remove border if ChatView has one */
 }
 .test-modal .test-modal-footer {
   padding: 0.75rem 1.5rem;
