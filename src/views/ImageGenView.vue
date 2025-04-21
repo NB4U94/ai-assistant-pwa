@@ -40,10 +40,12 @@
           </button>
         </div>
       </div>
-      <div v-else-if="!error" class="placeholder-text">Your generated image will appear here.</div>
-      <div v-if="error" class="error-message">
+      <div v-else-if="!apiError" class="placeholder-text">
+        Your generated image will appear here.
+      </div>
+      <div v-if="apiError" class="error-message">
         <p><strong>Error generating image:</strong></p>
-        <p>{{ error }}</p>
+        <p>{{ apiError }}</p>
         <button @click="clearError" class="clear-error-button">Dismiss</button>
       </div>
     </div>
@@ -66,71 +68,66 @@
 
 <script setup>
 import { ref } from 'vue'
+// Import the composable
+import { useApi } from '@/composables/useApi'
+
+// Initialize the composable
+// No need to pass readFileAsBase64 for image generation
+const { isLoading, error: apiError, callApi } = useApi()
 
 const prompt = ref('')
-const generatedImageUrl = ref(null) // Store URL of the generated image
-const isLoading = ref(false)
-const error = ref(null) // Store any error messages
+const generatedImageUrl = ref(null) // Store DATA URL of the generated image
 const showFullScreen = ref(false) // Controls visibility of the full-screen modal
 
-// Function to call the Netlify backend for image generation
+// Updated function using the composable's callApi
 const generateImage = async () => {
-  if (!prompt.value.trim() || isLoading.value) return
-  isLoading.value = true
-  error.value = null
+  if (!prompt.value.trim() || isLoading.value) return // Check composable's isLoading
+
+  // Clear previous results and errors before starting
   generatedImageUrl.value = null
-  console.log('Attempting to generate image via Netlify function...')
+  // Error state is now managed within the composable, but clearError() below clears the ref
+
+  console.log('Attempting to generate image via useApi composable...')
 
   try {
-    const response = await fetch('/.netlify/functions/call-stability-api', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: prompt.value }),
-    })
+    const url = '/.netlify/functions/call-openai-dalle3'
+    const payload = { prompt: prompt.value }
 
-    let responseData
-    try {
-      responseData = await response.json()
-    } catch (e) {
-      console.error('Failed to parse JSON response:', e)
-      let rawText = `Response status: ${response.status}. Could not parse response body.`
-      try {
-        rawText = await response.text()
-      } catch (e2) {
-        /* ignore */
-      }
-      throw new Error(
-        `Received non-JSON response from backend function. ${rawText.substring(0, 150)}`,
-      )
-    }
+    // Await the result from the composable's function
+    const responseData = await callApi(url, payload, 'POST')
 
-    if (!response.ok) {
-      const errorMsg = responseData?.error || `Function returned HTTP status ${response.status}`
-      throw new Error(errorMsg)
-    }
+    // Check for the expected key in the successful response
     if (!responseData.imageBase64) {
       console.error('Missing imageBase64 in successful response:', responseData)
-      throw new Error('Backend function did not return image data.')
+      const revisedPromptInfo = responseData.revisedPrompt
+        ? ` Revised Prompt: ${responseData.revisedPrompt}`
+        : ''
+      throw new Error(`Backend function did not return image data.${revisedPromptInfo}`)
     }
 
-    // Construct the data URL for JPEG format
-    generatedImageUrl.value = `data:image/jpeg;base64,${responseData.imageBase64}`
+    // Construct the data URL
+    generatedImageUrl.value = `data:image/png;base64,${responseData.imageBase64}`
     console.log('Image generated and displayed successfully.')
+    if (responseData.revisedPrompt) {
+      console.log('Revised prompt from OpenAI:', responseData.revisedPrompt)
+    }
   } catch (err) {
-    console.error('Error in generateImage function:', err)
-    error.value = err.message || 'An unknown error occurred.'
+    // Error handling is now simpler, as callApi throws a standard error object
+    // The error message is automatically stored in apiError by the composable
+    console.error('Error caught in generateImage:', err)
+    // No need to set apiError here, it's handled by the composable's catch block
     generatedImageUrl.value = null
-  } finally {
-    isLoading.value = false
+    // Note: apiError ref (from useApi) will hold the error message for display
   }
+  // isLoading is automatically set to false within the composable
 }
 
-// Function to clear the error message
+// Function to clear the error message (clears the composable's error ref)
 const clearError = () => {
-  error.value = null
+  apiError.value = null
 }
 
-// --- Full Screen Modal Functions ---
+// --- Full Screen Modal Functions --- (Unchanged)
 const openFullScreen = () => {
   if (generatedImageUrl.value) {
     showFullScreen.value = true
@@ -141,27 +138,32 @@ const closeFullScreen = () => {
 }
 // --- End Full Screen Modal Functions ---
 
-// --- Download Image Function ---
+// --- Download Image Function --- (Unchanged from previous working version)
 const downloadImage = () => {
   if (!generatedImageUrl.value) return
 
-  // Create a temporary link element
-  const link = document.createElement('a')
-  link.href = generatedImageUrl.value
-
-  // Create a filename (e.g., generated-image-timestamp.jpeg)
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-') // Simple timestamp for unique name
-  link.download = `generated-image-${timestamp}.jpeg`
-
-  // Append to body, click, and remove
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  try {
+    const link = document.createElement('a')
+    link.href = generatedImageUrl.value
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const mimeType = generatedImageUrl.value.match(/data:(image\/\w+);/)
+    const extension = mimeType && mimeType[1] ? mimeType[1].split('/')[1] : 'png'
+    link.download = `generated-image-${timestamp}.${extension}`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    console.log('Image download initiated.')
+  } catch (err) {
+    console.error('Error preparing image download:', err)
+    // Display error using the composable's error ref
+    apiError.value = `Failed to prepare download: ${err.message}`
+  }
 }
 // --- End Download Image Function ---
 </script>
 
 <style scoped>
+/* Styles are unchanged - include the same <style> block from the previous version */
 .image-gen-view {
   padding: 1.5rem 2rem;
   height: 100%;
@@ -290,10 +292,6 @@ h2 {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem; /* Space above buttons */
-  /* Position at bottom-right of container if needed, or just center below */
-  /* position: absolute;
-  bottom: 10px;
-  right: 10px; */
 }
 
 .image-action-button {
@@ -361,8 +359,6 @@ h2 {
   flex-direction: column;
   gap: 0.5rem;
   align-items: center;
-  /* Position absolutely if needed, or just let flexbox place it */
-  /* position: absolute; bottom: 1rem; left: 1rem; right: 1rem; */
 }
 .error-message p {
   margin: 0;

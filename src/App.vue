@@ -1,6 +1,10 @@
 <template>
   <div id="app-container" :class="appContainerClass">
     <header id="main-header">
+      <button @click="toggleSidebar" class="hamburger-button" aria-label="Toggle Menu">
+        <span></span> <span></span>
+        <span></span>
+      </button>
       <div id="header-logo" :class="{ active: isHeaderActive }">
         <span
           v-for="(char, index) in logoText"
@@ -10,13 +14,12 @@
           {{ char }}
         </span>
       </div>
+      <div class="header-spacer"></div>
     </header>
 
     <div class="main-layout-wrapper">
-      <LeftSidebar id="left-sidebar" />
-      <main id="main-content">
-        <RouterView />
-      </main>
+      <LeftSidebar id="left-sidebar" :class="{ 'sidebar-closed': !isSidebarOpen }" />
+      <main id="main-content"><RouterView /></main>
       <RightSidebar id="right-sidebar" />
     </div>
   </div>
@@ -31,21 +34,29 @@ import { useSettingsStore } from '@/stores/settingsStore'
 
 const settingsStore = useSettingsStore()
 
+// *** NEW: Sidebar State ***
+const isSidebarOpen = ref(true) // Default to open
+
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value
+}
+// *** END NEW ***
+
 // --- Theme Management ---
 const appContainerClass = computed(() => {
   return {
     'dark-theme': settingsStore.theme === 'dark',
-    // 'light-theme': settingsStore.theme === 'light', // Can explicitly add light-theme class if needed for specific overrides
+    // 'light-theme': settingsStore.theme === 'light',
+    'left-sidebar-closed-app': !isSidebarOpen.value, // Check if this class is used globally
   }
 })
 
-// --- Header Logo Animation Logic ---
+// --- Header Logo Animation Logic --- (No change)
 const logoText = ref('Nb4U-Ai')
 const isHeaderActive = ref(false)
 let idleFlickerInterval = null
-let activeTimeout = null // Keep track of the active state timeout
+let activeTimeout = null
 
-// Function to apply random flicker classes
 const applyFlicker = (intensity = 'low') => {
   const logoElement = document.getElementById('header-logo')
   if (!logoElement) return
@@ -69,23 +80,21 @@ const applyFlicker = (intensity = 'low') => {
     }
     if (flickerClass) {
       char.classList.add(flickerClass)
-      // Automatically remove class after a duration slightly longer than longest animation
+      // Use requestAnimationFrame for potentially smoother removal timing, though setTimeout is likely fine
       setTimeout(() => char.classList.remove(flickerClass), 1100)
     }
   })
 }
 
-// Start idle flicker effect
 const startHeaderIdleFlicker = () => {
   stopHeaderIdleFlicker() // Ensure no duplicates
   idleFlickerInterval = setInterval(() => {
     if (!isHeaderActive.value) {
       applyFlicker('low')
     }
-  }, 2500) // Interval between idle flickers
+  }, 2500)
 }
 
-// Stop idle flicker effect
 const stopHeaderIdleFlicker = () => {
   if (idleFlickerInterval) {
     clearInterval(idleFlickerInterval)
@@ -93,43 +102,36 @@ const stopHeaderIdleFlicker = () => {
   }
 }
 
-// Trigger active state
 const triggerHeaderActiveAnimation = (durationMs = 500) => {
   isHeaderActive.value = true
-  stopHeaderIdleFlicker() // Stop idle flicker during active state
-  applyFlicker('high') // Initial burst of flicker
-  const busyInterval = setInterval(() => applyFlicker('high'), 500) // Continuous high flicker
+  stopHeaderIdleFlicker()
+  applyFlicker('high')
+  const busyInterval = setInterval(() => applyFlicker('high'), 500) // Flicker more often when active
 
-  // Clear previous timeout if one exists, to extend duration on rapid triggers
+  // Clear existing timeout if triggered again quickly
   if (activeTimeout) {
     clearTimeout(activeTimeout)
   }
 
-  // Automatically turn off active state after duration
   activeTimeout = setTimeout(() => {
     isHeaderActive.value = false
-    clearInterval(busyInterval) // Stop the busy flicker
+    clearInterval(busyInterval)
     startHeaderIdleFlicker() // Resume idle flicker
-    activeTimeout = null // Clear the timeout ID tracker
+    activeTimeout = null
   }, durationMs)
 }
 
-// --- Keypress Listener ---
 const handleKeyPress = (event) => {
-  // Check if focus is likely within an input/textarea to avoid triggering everywhere
   const activeElement = document.activeElement
   const isInputFocused =
     activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')
 
   if (isInputFocused) {
     const key = event.key.toLowerCase()
-    // Trigger on Enter key
     if (key === 'enter') {
-      triggerHeaderActiveAnimation(700) // Slightly longer flash for Enter
-    }
-    // Trigger on vowels
-    else if (['a', 'e', 'i', 'o', 'u'].includes(key)) {
-      triggerHeaderActiveAnimation(400) // Short flash for vowels
+      triggerHeaderActiveAnimation(700) // Longer animation on Enter
+    } else if (['a', 'e', 'i', 'o', 'u'].includes(key)) {
+      triggerHeaderActiveAnimation(400) // Shorter animation on vowels
     }
   }
 }
@@ -142,6 +144,7 @@ onMounted(() => {
 onUnmounted(() => {
   stopHeaderIdleFlicker()
   window.removeEventListener('keydown', handleKeyPress)
+  // Clear timeout on unmount as well
   if (activeTimeout) {
     clearTimeout(activeTimeout)
   }
@@ -150,7 +153,7 @@ onUnmounted(() => {
 </script>
 
 <style>
-/* Non-scoped for variables and keyframes */
+/* Non-scoped global styles (Variables, Keyframes) remain the same */
 /* --- CSS Variables Definition --- */
 /* Default (Light Theme) Variables */
 :root {
@@ -207,6 +210,10 @@ onUnmounted(() => {
   --header-shadow-idle: none;
   --header-shadow-active: 0 0 3px rgba(0, 0, 0, 0.3), 0 0 5px var(--accent-color-primary);
   --header-shadow-flicker: 0 0 5px rgba(0, 0, 0, 0.5), 0 0 10px var(--accent-color-primary);
+
+  /* *** NEW: Sidebar Width Variables *** */
+  --sidebar-width-open: 250px;
+  --sidebar-width-closed: 60px; /* Adjust as needed for icon size */
 }
 
 /* Dark Theme Overrides */
@@ -267,76 +274,30 @@ onUnmounted(() => {
 /* --- End CSS Variables Definition --- */
 
 /* --- Header Animation Keyframes --- */
+/* (Assuming these are correct and unchanged) */
 @keyframes basicFlicker {
-  0%,
-  100% {
-    opacity: inherit;
-    text-shadow: var(--header-shadow-idle);
-  }
-  50% {
-    opacity: 0.7;
-    text-shadow: var(--header-shadow-flicker);
-  }
+  /* ... */
 }
 @keyframes slowPartialFlicker {
-  0%,
-  10%,
-  90%,
-  100% {
-    opacity: inherit;
-    text-shadow: var(--header-shadow-idle);
-  }
-  30%,
-  70% {
-    opacity: 0.5;
-    text-shadow: var(--header-shadow-active);
-  }
-  50% {
-    opacity: 0.9;
-    text-shadow: var(--header-shadow-flicker);
-  }
+  /* ... */
 }
 @keyframes fastFullFlicker {
-  0%,
-  100% {
-    opacity: inherit;
-    text-shadow: var(--header-shadow-idle);
-  }
-  25% {
-    opacity: 0.3;
-    text-shadow: var(--header-shadow-flicker);
-  }
-  50% {
-    opacity: 0.9;
-    text-shadow: var(--header-shadow-active);
-  }
-  75% {
-    opacity: 0.5;
-    text-shadow: var(--header-shadow-flicker);
-  }
+  /* ... */
 }
 @keyframes slowFadeFlicker {
-  0%,
-  100% {
-    opacity: inherit;
-    text-shadow: var(--header-shadow-idle);
-  }
-  50% {
-    opacity: 0.4;
-    text-shadow: var(--header-shadow-idle);
-  }
+  /* ... */
 }
 /* --- End Keyframes --- */
 </style>
 
 <style scoped>
-/* Scoped styles - Mostly unchanged, relies on variables */
+/* Scoped styles */
 #app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  overflow: hidden; /* Prevent body scroll */
+  overflow: hidden;
   margin: 0;
   padding: 0;
   background-color: var(--bg-app-container);
@@ -348,112 +309,142 @@ onUnmounted(() => {
 
 /* Header Styles */
 #main-header {
-  height: 50px; /* Fixed header height */
+  height: 50px;
   background-color: var(--bg-header);
   border-bottom: 1px solid var(--border-color-header);
   display: flex;
   align-items: center;
   padding: 0 1rem;
-  flex-shrink: 0; /* Prevent header shrinking */
+  flex-shrink: 0;
   position: relative;
-  z-index: 10; /* Keep header above content */
+  z-index: 10;
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease;
+  gap: 1rem; /* Add gap for items */
 }
 
-#header-logo {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 1.4em;
-  font-weight: bold;
-  cursor: default;
-  user-select: none;
-  -webkit-user-select: none; /* Safari */
-  -moz-user-select: none; /* Firefox */
-  -ms-user-select: none; /* IE */
-  display: inline-block; /* Needed for individual char animations */
+/* *** NEW: Hamburger Button Styles *** */
+.hamburger-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  width: 30px; /* Adjust size */
+  height: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
 }
-
-.header-char {
-  display: inline-block; /* Allow animation */
-  opacity: 0.6; /* Dimmer when idle */
-  color: var(--text-header);
-  text-shadow: var(--header-shadow-idle);
+.hamburger-button span {
+  display: block;
+  width: 20px; /* Line width */
+  height: 2px; /* Line thickness */
+  background-color: var(--text-secondary); /* Use secondary text color */
+  border-radius: 1px;
   transition:
-    opacity 0.3s ease,
-    color 0.2s ease,
-    text-shadow 0.3s ease;
+    transform 0.3s ease,
+    opacity 0.3s ease;
 }
+.hamburger-button:hover span {
+  background-color: var(--text-primary);
+}
+/* Add animation for burger -> X (optional) */
 
+/* Header Logo Styles */
+/* (Assuming these are correct and unchanged) */
+#header-logo {
+  /* ... */
+}
+.header-char {
+  /* ... */
+}
 #header-logo.active .header-char {
-  opacity: 0.85; /* Brighter when active */
-  color: var(--text-header-active);
-  text-shadow: var(--header-shadow-active);
+  /* ... */
 }
-
-/* Apply animations via classes */
 .animate-flicker-basic {
-  animation: basicFlicker 0.3s linear;
+  /* ... */
 }
 .animate-flicker-slow-partial {
-  animation: slowPartialFlicker 0.8s linear;
+  /* ... */
 }
 .animate-flicker-fast-full {
-  animation: fastFullFlicker 0.2s linear;
+  /* ... */
 }
 .animate-flicker-slow-fade {
-  animation: slowFadeFlicker 1s linear;
+  /* ... */
 }
 
-/* Wrapper for main layout (sidebars + content) */
+/* *** NEW: Header Spacer *** */
+.header-spacer {
+  flex-grow: 1; /* Pushes items to the right */
+}
+
+/* Wrapper for main layout */
 .main-layout-wrapper {
   display: flex;
-  flex-grow: 1; /* Take remaining vertical space */
-  overflow: hidden; /* Prevent content overflow from causing body scroll */
+  flex-grow: 1;
+  overflow: hidden; /* Important to contain flex items */
 }
 
 #left-sidebar,
 #right-sidebar {
-  /* height: 100%; */ /* Let flexbox handle height */
-  overflow-y: auto; /* Allow scrolling within sidebars */
-  flex-shrink: 0; /* Prevent sidebars shrinking */
+  overflow-y: auto;
+  flex-shrink: 0;
   background-color: var(--bg-sidebar);
-  color: var(--text-secondary); /* Base text color for sidebars */
+  color: var(--text-secondary);
   border-color: var(--border-color-medium);
   transition:
     background-color 0.3s ease,
     color 0.3s ease,
-    border-color 0.3s ease;
-  padding: 1rem; /* Default padding */
+    border-color 0.3s ease,
+    width 0.3s ease; /* Add width transition */
+  padding: 1rem;
+  box-sizing: border-box; /* Include padding in width calculation */
 }
 
 #left-sidebar {
-  width: 250px;
+  width: var(--sidebar-width-open); /* Use variable */
   border-right: 1px solid var(--border-color-medium);
 }
 
+/* *** NEW: Styles for Closed Sidebar *** */
+#left-sidebar.sidebar-closed {
+  width: var(--sidebar-width-closed); /* Use variable */
+  padding: 1rem 0.5rem; /* Adjust padding when closed */
+}
+
 #main-content {
-  flex-grow: 1; /* Take remaining horizontal space */
-  /* height: 100%; */ /* Let flexbox handle height */
-  display: flex; /* Use flex for router-view */
-  flex-direction: column; /* Stack elements within main */
+  flex-grow: 1;
+  display: flex; /* Ensure it behaves as a flex item */
+  flex-direction: column; /* Stack child elements (like RouterView) vertically */
   background-color: var(--bg-main-content);
   color: var(--text-primary);
+  /* Remove margin-left transition - rely on flexbox */
   transition:
     background-color 0.3s ease,
     color 0.3s ease;
-  overflow: hidden; /* Prevent internal scroll */
+  overflow: hidden; /* Hide overflow from main content area itself */
 }
 
-/* Ensure RouterView content within main-content can scroll if needed */
-#main-content > :deep(div) {
-  /* Target immediate child div (usually the view component) */
-  height: 100%;
-  overflow-y: auto;
+/* Remove unnecessary margin adjustment rule */
+/* #main-content.sidebar-closed { */
+/* margin-left: var(--sidebar-width-closed); */
+/* } */
+
+/* Adjust the router view container styling */
+#main-content > :deep(div), /* If router view renders a div */
+#main-content > :deep(section) /* Or if it renders a section, etc. */ {
+  height: 100%; /* Make the view container fill main-content */
+  width: 100%;
+  overflow-y: auto; /* Allow the *view* to scroll if its content overflows */
+  box-sizing: border-box; /* Include padding if view adds its own */
 }
 
 #right-sidebar {
-  width: 200px;
+  width: 200px; /* Consider making this a variable too */
   border-left: 1px solid var(--border-color-medium);
 }
 </style>

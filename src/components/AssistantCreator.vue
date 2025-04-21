@@ -1,6 +1,6 @@
 <template>
   <div class="assistant-creator">
-    <div v-if="currentStep === 1 && !isEditMode" class="creator-step">
+    <div v-if="wizard.currentStep.value === 1 && !isEditMode" class="creator-step">
       <h3>Create New Assistant</h3>
       <p class="intro-text">
         Hello! I'm the Assistant Creator. I'm here to help you craft a powerful custom AI assistant.
@@ -9,23 +9,23 @@
       </p>
       <div class="level-selection">
         <div
-          v-for="level in intricacyLevels"
+          v-for="level in wizard.intricacyLevels.value"
           :key="level.value"
           class="level-option"
-          :class="{ selected: selectedLevel === level.value }"
-          @click="selectLevel(level.value)"
+          :class="{ selected: wizard.selectedLevel.value === level.value }"
+          @click="wizard.selectLevel(level.value)"
           tabindex="0"
-          @keydown.enter.prevent="selectLevel(level.value)"
-          @keydown.space.prevent="selectLevel(level.value)"
+          @keydown.enter.prevent="wizard.selectLevel(level.value)"
+          @keydown.space.prevent="wizard.selectLevel(level.value)"
           role="radio"
-          :aria-checked="selectedLevel === level.value"
+          :aria-checked="wizard.selectedLevel.value === level.value"
           aria-label="Select Level"
         >
           <input
             type="radio"
             :id="'level-' + level.value"
             :value="level.value"
-            v-model="selectedLevel"
+            v-model="wizard.selectedLevel.value"
             class="visually-hidden"
             name="intricacyLevel"
           />
@@ -36,28 +36,33 @@
       </div>
       <div class="creator-actions footer-actions">
         <button @click="cancelCreation" class="button-secondary back-button">Cancel</button>
-        <button @click="confirmLevelAndProceed" class="button-primary" :disabled="!selectedLevel">
+        <button
+          @click="wizard.confirmLevelAndProceed"
+          class="button-primary"
+          :disabled="!wizard.selectedLevel.value"
+        >
           Next: Define Assistant
         </button>
       </div>
     </div>
 
-    <div v-if="currentStep === 2" class="creator-step">
+    <div v-if="wizard.currentStep.value === 2" class="creator-step">
       <h3>
         {{ isEditMode ? 'Edit Assistant Definition' : 'Define Assistant' }} (Level
-        {{ selectedLevel }}: {{ currentLevelName }})
+        {{ wizard.selectedLevel.value }}: {{ wizard.currentLevelName.value }})
       </h3>
       <div class="scrollable-content-area">
-        <div v-if="currentQuestions.length > 0" class="question-area">
+        <div v-if="wizard.currentQuestions.value.length > 0" class="question-area">
           <div class="question-header">
-            <label :for="'question-' + currentQuestionIndex" class="question-label">
-              {{ currentQuestionIndex + 1 }}. {{ currentQuestions[currentQuestionIndex].text }}
+            <label :for="'question-' + wizard.currentQuestionIndex.value" class="question-label">
+              {{ wizard.currentQuestionIndex.value + 1 }}.
+              {{ wizard.currentQuestions.value[wizard.currentQuestionIndex.value].text }}
             </label>
             <button
               class="help-icon"
-              @click="toggleHelp(currentQuestionIndex)"
-              :aria-expanded="isHelpVisible(currentQuestionIndex).toString()"
-              :aria-controls="'help-' + currentQuestionIndex"
+              @click="toggleHelp(wizard.currentQuestionIndex.value)"
+              :aria-expanded="isHelpVisible(wizard.currentQuestionIndex.value).toString()"
+              :aria-controls="'help-' + wizard.currentQuestionIndex.value"
               title="Show help for this question"
             >
               ?
@@ -65,29 +70,34 @@
           </div>
           <div
             class="help-box"
-            :id="'help-' + currentQuestionIndex"
-            v-if="isHelpVisible(currentQuestionIndex)"
+            :id="'help-' + wizard.currentQuestionIndex.value"
+            v-if="isHelpVisible(wizard.currentQuestionIndex.value)"
           >
-            <p><strong>Guidance:</strong> {{ currentQuestions[currentQuestionIndex].help }}</p>
+            <p>
+              <strong>Guidance:</strong>
+              {{ wizard.currentQuestions.value[wizard.currentQuestionIndex.value].help }}
+            </p>
             <p>
               <strong>Example:</strong>
-              <em>{{ currentQuestions[currentQuestionIndex].example }}</em>
+              <em>{{
+                wizard.currentQuestions.value[wizard.currentQuestionIndex.value].example
+              }}</em>
             </p>
           </div>
           <textarea
-            :id="'question-' + currentQuestionIndex"
-            v-model="answers[currentQuestionIndex]"
+            :id="'question-' + wizard.currentQuestionIndex.value"
+            v-model="form.answers.value[wizard.currentQuestionIndex.value]"
             class="answer-input"
             rows="5"
-            :placeholder="`Provide details for: ${currentQuestions[currentQuestionIndex].promptKey}... (Shift+Enter for new line)`"
-            @keydown.enter.exact.prevent="nextQuestion"
+            :placeholder="`Provide details for: ${wizard.currentQuestions.value[wizard.currentQuestionIndex.value].promptKey}... (Shift+Enter for new line)`"
+            @keydown.enter.exact.prevent="wizard.nextQuestion"
             ref="answerTextareaRef"
           ></textarea>
         </div>
       </div>
       <div class="creator-actions footer-actions question-nav">
         <button
-          @click="goBackToLevelSelection"
+          @click="wizard.goBackToLevelSelection"
           v-if="!isEditMode"
           class="button-tertiary back-button footer-back-button back-to-level-button"
         >
@@ -102,22 +112,23 @@
         </button>
 
         <button
-          @click="previousQuestion"
+          @click="wizard.previousQuestion"
           class="button-secondary"
-          :disabled="currentQuestionIndex === 0"
+          :disabled="wizard.currentQuestionIndex.value === 0"
         >
           Previous
         </button>
         <span class="question-counter"
-          >{{ currentQuestionIndex + 1 }} / {{ currentQuestions.length }}</span
+          >{{ wizard.currentQuestionIndex.value + 1 }} /
+          {{ wizard.currentQuestions.value.length }}</span
         >
-        <button @click="nextQuestion" class="button-primary">
-          {{ isLastQuestion ? 'Finish & Review Instructions' : 'Next Question' }}
+        <button @click="wizard.nextQuestion" class="button-primary">
+          {{ wizard.isLastQuestion.value ? 'Finish & Review Instructions' : 'Next Question' }}
         </button>
       </div>
     </div>
 
-    <div v-if="currentStep === 3" class="creator-step">
+    <div v-if="wizard.currentStep.value === 3" class="creator-step">
       <h3>{{ isEditMode ? 'Review & Update Assistant' : 'Review & Save Assistant' }}</h3>
 
       <div class="scrollable-content-area">
@@ -128,20 +139,21 @@
               <input
                 type="text"
                 id="assistant-name"
-                v-model="assistantName"
+                v-model="form.assistantName.value"
                 placeholder="Enter a name (or suggest one)"
               />
               <button
-                @click="suggestName"
-                class="button-tertiary suggest-button"
+                @click="nameSuggestion.suggestName"
+                class="button-tertiary suggest-button suggest-button-plasma"
                 title="Suggest name based on Role/Task"
-                :disabled="isSuggestingName"
+                :disabled="nameSuggestion.isSuggestingName.value"
               >
-                {{ isSuggestingName ? 'Suggesting...' : 'Suggest' }}
+                <span v-if="!nameSuggestion.isSuggestingName.value">🎲</span>
+                <div v-else class="button-spinner"></div>
               </button>
             </div>
-            <div v-if="suggestNameError" class="error-text suggest-error">
-              {{ suggestNameError }}
+            <div v-if="nameSuggestion.suggestNameError.value" class="error-text suggest-error">
+              {{ nameSuggestion.suggestNameError.value }}
             </div>
           </div>
 
@@ -151,30 +163,32 @@
               <input
                 type="file"
                 id="assistant-image-upload"
-                ref="imageFileInputRef"
-                @change="handleImageFileSelected"
+                :ref="(el) => (form.imageFileInputRef.value = el)"
+                @change="form.handleImageFileSelected"
                 accept="image/png, image/jpeg, image/gif, image/webp"
                 style="display: none"
               />
               <button
                 type="button"
-                @click="triggerImageUpload"
+                @click="form.triggerImageUpload"
                 class="button-secondary upload-button"
               >
-                {{ assistantImageUrl ? 'Change Image' : 'Upload Image' }}
+                {{ form.assistantImageUrl.value ? 'Change Image' : 'Upload Image' }}
               </button>
               <div class="image-preview-container">
                 <img
-                  v-if="assistantImageUrl"
-                  :src="assistantImageUrl"
+                  v-if="form.assistantImageUrl.value"
+                  :src="form.assistantImageUrl.value"
                   alt="Image Preview"
                   class="image-url-preview"
-                  @error="onImagePreviewError"
+                  @error="form.onImagePreviewError"
                 />
-                <div v-if="!assistantImageUrl" class="image-url-preview placeholder">?</div>
+                <div v-if="!form.assistantImageUrl.value" class="image-url-preview placeholder">
+                  ?
+                </div>
                 <button
-                  v-if="assistantImageUrl"
-                  @click="removeSelectedImage"
+                  v-if="form.assistantImageUrl.value"
+                  @click="form.removeSelectedImage"
                   class="remove-image-button"
                   title="Remove image"
                 >
@@ -182,32 +196,36 @@
                 </button>
               </div>
             </div>
-            <div v-if="imageError" class="error-text image-error">{{ imageError }}</div>
+            <div v-if="form.imageError.value" class="error-text image-error">
+              {{ form.imageError.value }}
+            </div>
           </div>
-          <div v-if="saveError" class="error-text save-error">{{ saveError }}</div>
+          <div v-if="form.saveError.value" class="error-text save-error">
+            {{ form.saveError.value }}
+          </div>
 
           <label class="review-label">Generated Instructions:</label>
-          <pre class="generated-instructions">{{ finalInstructions }}</pre>
+          <pre class="generated-instructions">{{ form.finalInstructions.value }}</pre>
           <div class="additional-instructions">
             <strong>Quick Guide:</strong>
-            <p>{{ boilerplateInstructions }}</p>
+            <p>{{ form.boilerplateInstructions.value }}</p>
           </div>
         </div>
       </div>
       <div class="creator-actions footer-actions review-actions">
         <button @click="cancelCreation" class="button-secondary back-button">Cancel</button>
 
-        <button @click="goBackToQuestions" class="button-secondary">Edit Answers</button>
-        <button @click="testAssistant" class="button-secondary">
+        <button @click="wizard.goBackToQuestions" class="button-secondary">Edit Answers</button>
+        <button @click="handleTestAssistantClick" class="button-secondary">
           Test {{ isEditMode ? '(Current Settings)' : '(Not Saved)' }}
         </button>
         <button
-          @click="saveOrUpdateAssistant"
+          @click="form.saveOrUpdateAssistant"
           class="button-primary"
-          :disabled="!assistantName.trim() || isSaving"
+          :disabled="!form.assistantName.value.trim() || form.isSaving.value"
         >
           {{
-            isSaving
+            form.isSaving.value
               ? isEditMode
                 ? 'Updating...'
                 : 'Saving...'
@@ -218,19 +236,32 @@
         </button>
       </div>
 
-      <div class="modal-overlay test-modal" v-if="isTestModalVisible" @click.self="closeTestModal">
+      <div
+        class="modal-overlay test-modal"
+        v-if="testing.isTestModalVisible.value"
+        @click.self="testing.closeTestModal"
+      >
         <div class="test-modal-content">
           <div class="test-modal-header">
-            <h3>Testing Assistant: "{{ assistantBeingTested?.name }}"</h3>
-            <button @click="closeTestModal" class="close-modal-button" title="Close Test Chat">
+            <h3>Testing Assistant: "{{ testing.assistantBeingTested.value?.name }}"</h3>
+            <button
+              @click="testing.closeTestModal"
+              class="close-modal-button"
+              title="Close Test Chat"
+            >
               ✖
             </button>
           </div>
           <div class="test-modal-chat-area">
-            <ChatView v-if="assistantBeingTested" :assistant-config="assistantBeingTested" />
+            <ChatView
+              v-if="testing.assistantBeingTested.value"
+              :assistant-config="testing.assistantBeingTested.value"
+            />
           </div>
           <div class="test-modal-footer">
-            <button @click="closeTestModal" title="Close Test Chat Window">Close Test</button>
+            <button @click="testing.closeTestModal" title="Close Test Chat Window">
+              Close Test
+            </button>
           </div>
         </div>
       </div>
@@ -242,438 +273,73 @@
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAssistantsStore } from '@/stores/assistantsStore'
-import ChatView from '@/views/ChatView.vue' // Check path
+import ChatView from '@/views/ChatView.vue' // Ensure path is correct
 
-// --- Props (from router) ---
+// Import the data and ALL the composables
+// import { intricacyLevels, questionsByLevel } from '@/data/assistantQuestions.js'; // No longer needed directly here
+import { useAssistantWizard } from '@/composables/useAssistantWizard.js'
+import { useAssistantForm } from '@/composables/useAssistantForm.js'
+import { useAssistantNameSuggestion } from '@/composables/useAssistantNameSuggestion.js'
+import { useAssistantTesting } from '@/composables/useAssistantTesting.js'
+
+// --- Props & Emits ---
 const props = defineProps({
-  id: { type: String, required: false, default: null },
+  id: { type: String, required: false, default: null }, // For edit mode
 })
-
-// --- Emits ---
-// *** Added 'assistant-created' back for signaling modal closure ***
 const emit = defineEmits(['cancel', 'assistant-created'])
 
-// --- Router and Route ---
+// --- Router & Store ---
 const router = useRouter()
 const route = useRoute()
-
-// --- Pinia Store Instance ---
 const assistantsStore = useAssistantsStore()
 
-// --- State Management ---
-const currentStep = ref(1)
-const selectedLevel = ref(null)
-const currentQuestionIndex = ref(0)
-const answers = ref([])
-const finalInstructions = ref('')
-const boilerplateInstructions = ref('')
-const visibleHelpIndex = ref(null)
-const assistantName = ref('')
-const assistantImageUrl = ref('') // Will hold Base64 Data URL or existing URL
-const imageFileInputRef = ref(null) // Ref for the file input element
-const imageError = ref(null) // Error message for image upload
-const isSuggestingName = ref(false)
-const suggestNameError = ref(null)
-const isSaving = ref(false)
-const saveError = ref(null)
-const answerTextareaRef = ref(null)
-const isTestModalVisible = ref(false)
-const assistantBeingTested = ref(null)
-const isEditMode = ref(false)
-const assistantIdToEdit = ref(null)
+// --- Component State (Minimal state remains here) ---
+const isEditMode = ref(false) // Tracks if editing an existing assistant
+const assistantIdToEdit = ref(null) // ID of assistant being edited
+const answerTextareaRef = ref(null) // Ref for focusing the textarea
+const visibleHelpIndex = ref(null) // State for toggling help boxes
 
-// --- Intricacy Levels & Questions Data --- (Keep full data - truncated for brevity in thought log, but full here)
-const intricacyLevels = ref([
-  {
-    value: 1,
-    name: 'Level 1: Basic',
-    description:
-      'Covers core Role, Task, Context, and Format. Ideal for quicker creation of simpler assistants.',
-  },
-  {
-    value: 2,
-    name: 'Level 2: Intermediate',
-    description:
-      'Adds Tone, Examples, Detail Level, Things to Avoid, and Audience. For assistants needing more specific guidance.',
-  },
-  {
-    value: 3,
-    name: 'Level 3: Advanced',
-    description:
-      'Most comprehensive set covering all aspects for precise behavior and handling various scenarios.',
-  },
-])
-const questionsByLevel = {
-  1: [
-    {
-      text: 'What is the precise role or persona?',
-      promptKey: 'Precise Role/Persona',
-      help: 'Define the identity or character the assistant should adopt.',
-      example: 'A helpful and friendly coding tutor specializing in Python.',
-    },
-    {
-      text: 'What is the primary task or objective?',
-      promptKey: 'Primary Task/Objective',
-      help: 'What should the assistant primarily help the user accomplish?',
-      example: 'To explain complex Python concepts clearly and provide working code examples.',
-    },
-    {
-      text: 'What is the essential context or background?',
-      promptKey: 'Essential Context/Background Information',
-      help: 'Key information the assistant needs to know to perform its task.',
-      example: 'The user is a beginner learning Python 3. Focus on core language features.',
-    },
-    {
-      text: 'What specific output format or structure?',
-      promptKey: 'Specific Output Format/Structure',
-      help: 'How should the final output look? (e.g., code blocks, bullet points, specific sections)',
-      example:
-        'Provide explanations in clear paragraphs, followed by markdown code blocks for examples.',
-    },
-  ],
-  2: [
-    /* Level 2 Questions */
-    {
-      text: 'What is the precise role or persona?',
-      promptKey: 'Precise Role/Persona',
-      help: 'Define the identity or character the assistant should adopt.',
-      example: 'A professional travel agent specializing in budget-friendly European trips.',
-    },
-    {
-      text: 'What is the primary task or objective?',
-      promptKey: 'Primary Task/Objective',
-      help: 'What should the assistant primarily help the user accomplish?',
-      example:
-        'To create customized 1-week travel itineraries based on user preferences and budget.',
-    },
-    {
-      text: 'What is the essential context or background?',
-      promptKey: 'Essential Context/Background Information',
-      help: 'Key information the assistant needs to know.',
-      example:
-        'Focus on travel within Schengen Area countries. Assume user prefers hostels or budget hotels.',
-    },
-    {
-      text: 'What specific output format or structure?',
-      promptKey: 'Specific Output Format/Structure',
-      help: 'How should the final output look?',
-      example: 'A day-by-day itinerary with suggested activities, transport, and estimated costs.',
-    },
-    {
-      text: 'What tone and style?',
-      promptKey: 'Tone and Style',
-      help: 'Describe the desired communication style (e.g., formal, friendly, enthusiastic).',
-      example: 'Friendly, informative, and slightly enthusiastic.',
-    },
-    {
-      text: 'Provide one or two concrete examples of ideal output.',
-      promptKey: 'Concrete Examples of Ideal Output',
-      help: 'Paste or describe an example of what a good response looks like.',
-      example:
-        "'Day 1 (Paris): Arrive at CDG, take RER B to city center. Check into hostel near Le Marais (€30). Afternoon: Explore Le Marais, visit Place des Vosges. Evening: Budget dinner (€15), walk along the Seine.'",
-    },
-    {
-      text: 'What is the desired level of detail/complexity?',
-      promptKey: 'Desired Level of Detail/Complexity',
-      help: 'How much detail should be included? (e.g., brief overview, very detailed steps)',
-      example:
-        'Provide moderate detail, including specific suggestions but allowing for flexibility.',
-    },
-    {
-      text: 'Are there things to avoid?',
-      promptKey: 'Things to Avoid',
-      help: 'Specify any topics, phrases, or behaviors the assistant should not engage in.',
-      example:
-        'Avoid recommending luxury hotels or expensive fine dining. Do not suggest activities outside the specified region.',
-    },
-    {
-      text: 'Who is the intended audience?',
-      promptKey: 'Intended Audience',
-      help: 'Describe the user this assistant is for.',
-      example: 'Young adults or students looking for budget travel options in Europe.',
-    },
-  ],
-  3: [
-    /* Level 3 Questions */
-    {
-      text: 'What is the precise role or persona?',
-      promptKey: 'Precise Role/Persona',
-      help: 'Define the identity.',
-      example: 'A meticulous technical documentation writer.',
-    },
-    {
-      text: 'What is the primary task or objective?',
-      promptKey: 'Primary Task/Objective',
-      help: 'What should it do?',
-      example: 'Generate API documentation based on provided code comments and specifications.',
-    },
-    {
-      text: 'What is the essential context?',
-      promptKey: 'Essential Context/Background Information',
-      help: 'What background info is needed?',
-      example: 'Assume input is well-commented Python code following standard conventions.',
-    },
-    {
-      text: 'What specific output format?',
-      promptKey: 'Specific Output Format/Structure',
-      help: 'How should output look?',
-      example: 'Markdown format with sections for Parameters, Returns, Examples.',
-    },
-    {
-      text: 'What tone and style?',
-      promptKey: 'Tone and Style',
-      help: 'Communication style?',
-      example: 'Formal, precise, and objective.',
-    },
-    {
-      text: 'Provide examples of ideal output.',
-      promptKey: 'Concrete Examples of Ideal Output',
-      help: 'Show a good example.',
-      example:
-        '### FunctionName \n\n ```python\ndef FunctionName(param1: str): ...```\n\n**Parameters:**\n * `param1` (str): Description.\n\n**Returns:**\n * `str`: Description.',
-    },
-    {
-      text: 'What is the desired level of detail?',
-      promptKey: 'Desired Level of Detail/Complexity',
-      help: 'How detailed?',
-      example: 'Very detailed, covering all parameters and potential exceptions.',
-    },
-    {
-      text: 'Should it explain its reasoning/steps?',
-      promptKey: 'Explanation of Reasoning/Steps',
-      help: 'Explain how it got the answer?',
-      example: 'No, just provide the documentation.',
-    },
-    {
-      text: 'Are there things to avoid?',
-      promptKey: 'Things to Avoid',
-      help: "What shouldn't it do?",
-      example:
-        'Avoid making assumptions about code functionality not present in comments. Do not add subjective opinions.',
-    },
-    {
-      text: 'How should it handle follow-up questions?',
-      promptKey: 'Handling Follow-up Questions',
-      help: 'Responding to clarification requests?',
-      example:
-        'Answer based on the original context and instructions, ask for clarification if the follow-up is ambiguous.',
-    },
-    {
-      text: 'Who is the intended audience?',
-      promptKey: 'Intended Audience',
-      help: 'Who is this for?',
-      example: 'Other software developers using the API.',
-    },
-    {
-      text: 'Any specific steps or order?',
-      promptKey: 'Instructional Hierarchy/Order of Operations',
-      help: 'Order of operations?',
-      example: 'First parse parameters, then return values, then generate examples.',
-    },
-    {
-      text: "Any absolute 'do not do' directives?",
-      promptKey: 'Negative Constraints',
-      help: 'Strict boundaries?',
-      example:
-        "Do not invent parameters or functionality. Do not include placeholder text like 'TODO'.",
-    },
-    {
-      text: 'How should it respond to feedback/revisions?',
-      promptKey: 'Iterative Refinement',
-      help: 'Handling correction requests?',
-      example:
-        'Accept the feedback and regenerate the specific section requested, incorporating the correction.',
-    },
-    {
-      text: 'How should it handle ambiguity?',
-      promptKey: 'Handling Ambiguity',
-      help: 'If the input is unclear?',
-      example:
-        'State that the input is ambiguous and ask for specific clarification on the unclear part.',
-    },
-    {
-      text: 'How should it integrate context?',
-      promptKey: 'Knowledge Integration',
-      help: 'Prioritizing provided info?',
-      example: 'Prioritize explicit comments in the code over general programming knowledge.',
-    },
-    {
-      text: 'Should it have internal evaluation criteria?',
-      promptKey: 'Output Evaluation (Internal)',
-      help: 'Self-check before output?',
-      example: 'Yes, check if all documented parameters have a description.',
-    },
-    {
-      text: 'What are default behaviors if info is missing?',
-      promptKey: 'Default Behaviors',
-      help: 'Assumptions for missing info?',
-      example: "If return type is missing, state 'Return type not specified'.",
-    },
-    {
-      text: 'Multi-turn expected? How to remember?',
-      promptKey: 'Multi-Turn Conversation',
-      help: 'Remembering previous turns?',
-      example: 'Yes, maintain context of the current function being documented across turns.',
-    },
-  ],
-}
+// --- Initialize Composables (Pass reactive refs and functions) ---
 
-// --- Computed Properties ---
-const currentQuestions = computed(() => {
-  return selectedLevel.value && questionsByLevel[selectedLevel.value]
-    ? questionsByLevel[selectedLevel.value]
-    : []
-})
-const isLastQuestion = computed(() => {
-  return (
-    currentQuestions.value.length > 0 &&
-    currentQuestionIndex.value === currentQuestions.value.length - 1
-  )
-})
-const currentLevelName = computed(() => {
-  const level = intricacyLevels.value.find((level) => level.value === selectedLevel.value)
-  return level ? level.name : ''
+// 1. Form Composable (manages name, answers, image, instructions, saving)
+const form = useAssistantForm({
+  selectedLevel: computed(() => wizard.selectedLevel.value), // Pass reactive computed from wizard
+  currentQuestions: computed(() => wizard.currentQuestions.value), // Pass reactive computed from wizard
+  isEditMode: isEditMode,
+  assistantIdToEdit: assistantIdToEdit,
+  emit: emit,
 })
 
-// --- Methods ---
-
-/**
- * Load assistant data for editing.
- */
-const loadAssistantForEdit = (id) => {
-  console.log(`[AssistantCreator] Attempting to load assistant with ID: ${id}`)
-  const assistantToEdit = assistantsStore.getAssistantById(id)
-
-  if (assistantToEdit) {
-    console.log('[AssistantCreator] Found assistant:', assistantToEdit)
-    assistantIdToEdit.value = assistantToEdit.id
-    assistantName.value = assistantToEdit.name
-    selectedLevel.value = assistantToEdit.level
-    finalInstructions.value = assistantToEdit.instructions
-    assistantImageUrl.value = assistantToEdit.imageUrl || '' // Load imageUrl
-    imageError.value = null // Clear previous image errors
-
-    nextTick(() => {
-      // Repopulate answers array
-      const instructionLines = assistantToEdit.instructions.split('\n\n')
-      const loadedAnswers = new Array(currentQuestions.value.length).fill('')
-      const keyToAnswerMap = new Map()
-      instructionLines.forEach((line) => {
-        const match = line.match(/^\*\*(.*?):\*\*\s*\n([\s\S]*)/)
-        if (match && match[1] && match[2]) {
-          keyToAnswerMap.set(match[1].trim(), match[2].trim())
-        }
-      })
-      currentQuestions.value.forEach((question, index) => {
-        const answer = keyToAnswerMap.get(question.promptKey)
-        loadedAnswers[index] = answer && answer !== '(Not specified)' ? answer : ''
-      })
-      answers.value = loadedAnswers
-
-      isEditMode.value = true
-      currentStep.value = 2 // Start editing at questions
-      console.log('[AssistantCreator] Edit mode activated. State populated.')
-    })
-  } else {
-    console.error(`[AssistantCreator] Assistant with ID ${id} not found in store.`)
-    saveError.value = `Error: Assistant with ID ${id} not found. Cannot edit.`
-    setTimeout(() => {
-      router.push({ name: 'assistants' })
-    }, 3000)
-  }
-}
-
-const selectLevel = (levelValue) => {
-  selectedLevel.value = levelValue
-}
-
-const confirmLevelAndProceed = () => {
-  if (!selectedLevel.value) return
-  currentQuestionIndex.value = 0
-  answers.value = new Array(currentQuestions.value.length).fill('')
-  visibleHelpIndex.value = null
-  assistantName.value = ''
-  assistantImageUrl.value = '' // Reset image URL
-  imageError.value = null // Reset image error
-  saveError.value = null
-  suggestNameError.value = null
-  finalInstructions.value = ''
-  isEditMode.value = false
-  assistantIdToEdit.value = null
-  currentStep.value = 2
-  nextTick(() => {
-    answerTextareaRef.value?.focus()
-  })
-}
-
-const previousQuestion = () => {
-  if (currentQuestionIndex.value > 0) {
-    visibleHelpIndex.value = null
-    currentQuestionIndex.value--
+// 2. Wizard Composable (manages steps, level, question index, navigation)
+const wizard = useAssistantWizard({
+  isEditMode: isEditMode,
+  answers: form.answers, // Pass answers ref FROM form
+  resetFormState: form.resetFormState, // Pass reset function FROM form
+  generateFinalInstructions: form.generateFinalInstructions, // Pass function FROM form
+  focusTextarea: (select = false) => {
+    // Pass function to focus textarea
     nextTick(() => {
       answerTextareaRef.value?.focus()
-      answerTextareaRef.value?.select()
+      if (select) answerTextareaRef.value?.select()
     })
-  }
-}
+  },
+})
 
-const nextQuestion = () => {
-  visibleHelpIndex.value = null
-  if (!isLastQuestion.value) {
-    currentQuestionIndex.value++
-    nextTick(() => {
-      answerTextareaRef.value?.focus()
-      answerTextareaRef.value?.select()
-    })
-  } else {
-    generateFinalInstructions()
-    currentStep.value = 3
-  }
-}
+// 3. Name Suggestion Composable (Needs refs from form)
+const nameSuggestion = useAssistantNameSuggestion({
+  answers: form.answers,
+  assistantName: form.assistantName,
+})
 
-const generateFinalInstructions = () => {
-  let markdown = ''
-  if (currentQuestions.value && currentQuestions.value.length === answers.value.length) {
-    currentQuestions.value.forEach((question, index) => {
-      markdown += `**${question.promptKey}:**\n`
-      markdown += `${answers.value[index]?.trim() || '(Not specified)'}\n\n`
-    })
-    finalInstructions.value = markdown.trim()
-  } else {
-    console.error(
-      '[AssistantCreator] Mismatch between questions and answers length or questions not loaded.',
-    )
-    finalInstructions.value = 'Error generating instructions.'
-  }
-  // Set boilerplate...
-  if (selectedLevel.value === 1) {
-    boilerplateInstructions.value = 'Remember that this is a foundational instruction set...'
-  } else if (selectedLevel.value === 2) {
-    boilerplateInstructions.value = 'This instruction set provides a good level of detail...'
-  } else {
-    boilerplateInstructions.value = 'This is a comprehensive instruction set...'
-  }
-}
+// 4. Testing Modal Composable (Needs store & functions/data from form)
+const testing = useAssistantTesting({
+  assistantsStore: assistantsStore,
+  generateFinalInstructions: form.generateFinalInstructions,
+})
 
-const goBackToQuestions = () => {
-  visibleHelpIndex.value = null
-  saveError.value = null
-  currentStep.value = 2
-  nextTick(() => {
-    answerTextareaRef.value?.focus()
-  })
-}
+// --- Methods specific to this component ---
 
-const goBackToLevelSelection = () => {
-  if (!isEditMode.value) {
-    selectedLevel.value = null
-    visibleHelpIndex.value = null
-    currentStep.value = 1
-  } else {
-    cancelCreation()
-  }
-}
-
+// Help Box Toggle
 const toggleHelp = (index) => {
   visibleHelpIndex.value = visibleHelpIndex.value === index ? null : index
 }
@@ -681,316 +347,146 @@ const isHelpVisible = (index) => {
   return visibleHelpIndex.value === index
 }
 
-// *** NEW: Trigger hidden file input ***
-const triggerImageUpload = () => {
-  imageFileInputRef.value?.click()
-}
-
-// *** NEW: Handle selected image file ***
-const handleImageFileSelected = (event) => {
-  const file = event.target.files?.[0]
-  imageError.value = null // Clear previous error
-
-  if (!file) {
-    return // No file selected
-  }
-
-  // Basic Validation (Type and Size)
-  const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
-  if (!allowedTypes.includes(file.type)) {
-    imageError.value = 'Invalid file type. Please select PNG, JPG, GIF, or WEBP.'
-    resetFileInput()
-    return
-  }
-
-  const maxSizeMB = 2 // Set max size in MB
-  if (file.size > maxSizeMB * 1024 * 1024) {
-    imageError.value = `File is too large. Maximum size is ${maxSizeMB}MB.`
-    resetFileInput()
-    return
-  }
-
-  // Read file as Base64 Data URL
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    assistantImageUrl.value = e.target?.result // Set the Data URL for preview and saving
-    console.log(
-      '[AssistantCreator] Image loaded as Data URL (length):',
-      assistantImageUrl.value?.length,
-    )
-  }
-  reader.onerror = (e) => {
-    console.error('[AssistantCreator] FileReader error:', e)
-    imageError.value = 'Error reading image file.'
-    resetFileInput() // Clear selection on error
-  }
-  reader.readAsDataURL(file)
-}
-
-// *** NEW: Remove selected image ***
-const removeSelectedImage = () => {
-  assistantImageUrl.value = ''
-  imageError.value = null
-  resetFileInput()
-}
-
-// *** NEW: Helper to reset file input ***
-const resetFileInput = () => {
-  if (imageFileInputRef.value) {
-    imageFileInputRef.value.value = null // Clear the selected file
-  }
-}
-
-// *** NEW: Handle preview image error ***
-const onImagePreviewError = (event) => {
-  console.warn(
-    'Preview image failed to load (might be invalid Data URL or temporary issue):',
-    event.target.src.substring(0, 100) + '...',
-  )
-  imageError.value = 'Could not display image preview.'
-  // Don't clear assistantImageUrl here, as it might still be a valid URL saved previously
-  // Just hide the broken img tag
-  event.target.style.display = 'none'
-  // Ensure placeholder is shown if available
-  const previewContainer = event.target.closest('.image-preview-container')
-  const placeholder = previewContainer?.querySelector('.image-url-preview.placeholder')
-  if (placeholder) {
-    placeholder.style.display = 'flex'
-  }
-}
-
-// suggestName remains the same
-const suggestName = async () => {
-  if (answers.value.length < 2) {
-    suggestNameError.value = 'Please answer the first two questions first.'
-    return
-  }
-  const role = answers.value[0]?.trim()
-  const task = answers.value[1]?.trim()
-  if (!role || !task) {
-    suggestNameError.value = "Please answer the 'Role' and 'Task' questions first."
-    return
-  }
-  isSuggestingName.value = true
-  suggestNameError.value = null
-  const suggestionPrompt = `Based on the following AI assistant configuration details, suggest exactly 3 concise and relevant names for the assistant. Focus on the Role and Task. Do not add any extra text, just the names separated by commas.\n\n**Precise Role/Persona:**\n${role}\n\n**Primary Task/Objective:**\n${task}\n\nSuggested Names (comma-separated):`
-
-  try {
-    const response = await fetch('/.netlify/functions/call-gemini', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inputText: suggestionPrompt,
-        history: [], // No history needed for name suggestion
-        config: { temperature: 0.6 }, // Adjust temperature if needed
-      }),
-    })
-
-    if (!response.ok) {
-      const errorBody = await response.text()
-      console.error('Error response body:', errorBody)
-      throw new Error(`Name suggestion failed with status: ${response.status}. ${errorBody}`)
-    }
-
-    const responseData = await response.json()
-
-    if (responseData.error) {
-      throw new Error(responseData.error)
-    }
-
-    if (responseData.aiText) {
-      const suggestedNames = responseData.aiText
-        .split(',')
-        .map((name) => name.trim())
-        .filter((name) => name)
-
-      if (suggestedNames.length > 0) {
-        assistantName.value = suggestedNames[0] // Use the first suggestion
-      } else {
-        console.warn('AI did not return names in the expected format:', responseData.aiText)
-        suggestNameError.value = 'AI returned names in an unexpected format.'
-      }
-    } else {
-      throw new Error('AI response did not contain suggested names.')
-    }
-  } catch (err) {
-    console.error('Error suggesting name:', err)
-    suggestNameError.value = `Failed to suggest name: ${err.message || 'Network error or unexpected response'}`
-  } finally {
-    isSuggestingName.value = false
-  }
-}
-
-// testAssistant remains the same
-const testAssistant = () => {
-  if (!assistantName.value.trim()) {
-    saveError.value = 'Please enter a name for the assistant before testing.'
-    const nameInput = document.getElementById('assistant-name')
-    if (nameInput) {
-      nameInput.classList.add('input-error-shake')
-      setTimeout(() => nameInput.classList.remove('input-error-shake'), 600)
-      nameInput.focus()
-    }
-    return
-  }
-  saveError.value = null
-  console.log(`Opening test modal for assistant "${assistantName.value}"...`)
-  openTestModal()
-}
-
-// openTestModal remains the same (includes imageUrl)
-const openTestModal = () => {
-  generateFinalInstructions() // Ensure instructions are current
-  assistantBeingTested.value = {
-    id: assistantIdToEdit.value || `temp_${Date.now()}`,
-    name: assistantName.value.trim(),
-    level: selectedLevel.value,
-    instructions: finalInstructions.value,
-    imageUrl: assistantImageUrl.value || null, // Use current preview URL
-    createdAt: assistantsStore.getAssistantById(assistantIdToEdit.value)?.createdAt || Date.now(), // Preserve original creation date if editing
-  }
-  isTestModalVisible.value = true
-}
-
-// closeTestModal remains the same
-const closeTestModal = () => {
-  console.log('Closing test modal from creator.')
-  isTestModalVisible.value = false
-  assistantBeingTested.value = null
-}
-
-/**
- * Save or Update Assistant. Includes imageUrl.
- * *** NOW EMITS 'assistant-created' when creating, NAVIGATES when updating. ***
- */
-const saveOrUpdateAssistant = () => {
-  if (!assistantName.value.trim()) {
-    saveError.value = `Please enter a name before ${isEditMode.value ? 'updating' : 'saving'}.`
-    const nameInput = document.getElementById('assistant-name')
-    if (nameInput) {
-      nameInput.classList.add('input-error-shake')
-      setTimeout(() => nameInput.classList.remove('input-error-shake'), 600)
-      nameInput.focus()
-    }
-    return
-  }
-  isSaving.value = true
-  saveError.value = null
-  imageError.value = null // Clear image error on save attempt
-  generateFinalInstructions() // Ensure instructions are up-to-date
-
-  const assistantConfig = {
-    // For update, use existing ID. For add, let store generate it.
-    id: isEditMode.value ? assistantIdToEdit.value : undefined,
-    name: assistantName.value.trim(),
-    level: selectedLevel.value,
-    instructions: finalInstructions.value,
-    imageUrl: assistantImageUrl.value || null, // Use current value (Data URL or existing URL)
-  }
-
-  let success = false
-  try {
-    if (isEditMode.value) {
-      // --- UPDATE ---
-      console.log('[AssistantCreator] Attempting to update assistant via store:', assistantConfig)
-      success = assistantsStore.updateAssistant(assistantConfig) // Pass full config including ID
-      if (success) {
-        console.log(`[AssistantCreator] Assistant updated successfully.`)
-        router.push({ name: 'assistants' }) // Navigate back to list on successful update
-      } else {
-        // Store action likely returned false (e.g., name conflict)
-        saveError.value =
-          assistantsStore.lastError ||
-          `Failed to update assistant. Name might already exist or store error occurred.`
-        console.error(`Failed to update assistant via store action. Error: ${saveError.value}`)
-      }
-    } else {
-      // --- CREATE ---
-      console.log('[AssistantCreator] Attempting to add assistant via store:', assistantConfig)
-      success = assistantsStore.addAssistant(assistantConfig) // Pass config without ID
-      if (success) {
-        console.log(`[AssistantCreator] Assistant saved successfully.`)
-        emit('assistant-created') // *** Emit event on successful creation ***
-      } else {
-        // Store action likely returned false (e.g., name conflict)
-        saveError.value =
-          assistantsStore.lastError ||
-          `Failed to save assistant. Name might already exist or store error occurred.`
-        console.error(`Failed to add assistant via store action. Error: ${saveError.value}`)
-      }
-    }
-  } catch (e) {
-    console.error(
-      `[AssistantCreator] Error during ${isEditMode.value ? 'update' : 'save'} operation:`,
-      e,
-    )
-    saveError.value = `An unexpected error occurred: ${e.message}`
-    success = false
-  } finally {
-    isSaving.value = false // Reset saving state regardless of outcome
-  }
-}
-
-// cancelCreation remains the same
+// Cancel Action (Handles routing or emitting)
 const cancelCreation = () => {
   if (isEditMode.value) {
-    console.log('Edit cancelled by user. Navigating back.')
-    router.push({ name: 'assistants' })
+    console.log('[CreatorComponent] Edit cancelled. Navigating back.')
+    router.push({ name: 'assistants' }) // Navigate back to list on cancel edit
   } else {
-    console.log('Creation cancelled by user.')
-    emit('cancel') // Close the creation modal
+    console.log('[CreatorComponent] Creation cancelled.')
+    wizard.resetWizard() // Reset wizard state
+    form.resetFormState() // Reset form state
+    emit('cancel') // Emit cancel event for modal parent
   }
 }
 
-// --- Lifecycle Hooks ---
+// Prepare data and open test modal using data from Form Composable
+const handleTestAssistantClick = () => {
+  // Validation now implicitly handled by the button's disabled state using form.assistantName
+  if (!form.assistantName.value.trim()) {
+    form.saveError.value = 'Please enter a name for the assistant before testing.'
+    // Add shake animation if possible/needed via class binding?
+    return
+  }
+  form.saveError.value = null // Clear previous save errors
+  // Gather data needed by the testing composable's open function
+  const currentAssistantFormData = {
+    name: form.assistantName.value,
+    level: wizard.selectedLevel.value,
+    imageUrl: form.assistantImageUrl.value,
+    instructions: form.finalInstructions.value, // Use potentially updated instructions
+  }
+  testing.openTestModal(currentAssistantFormData, assistantIdToEdit.value)
+}
+
+// --- Lifecycle & Watchers ---
+
+// Load data if ID prop is present (Edit Mode)
+// This function now coordinates setting state in Wizard and Form composables
+const loadAssistantForEdit = (id) => {
+  console.log(`[CreatorComponent] Attempting to load assistant ID: ${id} for edit.`)
+  const assistantToEdit = assistantsStore.getAssistantById(id)
+
+  if (assistantToEdit) {
+    assistantIdToEdit.value = assistantToEdit.id
+    isEditMode.value = true
+
+    // 1. Set Wizard State (Level)
+    wizard.selectedLevel.value = assistantToEdit.level
+
+    // 2. Set Form State (Name, Image, Instructions)
+    // Make sure form composable's load function is robust
+    form.loadAssistantData(assistantToEdit)
+
+    // 3. Repopulate answers ref in Form Composable based on loaded instructions
+    // Wait for wizard's currentQuestions to update based on selectedLevel
+    nextTick(() => {
+      const instructionLines = assistantToEdit.instructions?.split('\n\n') || []
+      const loadedAnswers = new Array(wizard.currentQuestions.value.length).fill('')
+      const keyToAnswerMap = new Map()
+      instructionLines.forEach((line) => {
+        const match = line.match(/^\*\*(.*?):\*\*\s*\n([\s\S]*)/)
+        if (match && match[1] && match[2]) {
+          keyToAnswerMap.set(match[1].trim(), match[2].trim())
+        }
+      })
+      // Use the correct 'currentQuestions' from the wizard
+      wizard.currentQuestions.value.forEach((question, index) => {
+        const answer = keyToAnswerMap.get(question.promptKey)
+        loadedAnswers[index] = answer && answer !== '(Not specified)' ? answer : ''
+      })
+      form.answers.value = loadedAnswers // Update the ref inside useAssistantForm
+
+      // 4. Set Wizard Step & Focus
+      wizard.currentStep.value = 2 // Start editing at questions
+      wizard.currentQuestionIndex.value = 0 // Start at first question
+      console.log('[CreatorComponent] Edit mode activated and state populated.')
+      nextTick(() => {
+        // Focus after state is set
+        answerTextareaRef.value?.focus()
+      })
+    })
+  } else {
+    console.error(`[CreatorComponent] Assistant ID ${id} not found. Redirecting.`)
+    form.saveError.value = `Error: Assistant with ID ${id} not found. Cannot edit.`
+    isEditMode.value = false // Ensure not stuck in edit mode
+    assistantIdToEdit.value = null // Clear the invalid ID
+    wizard.resetWizard() // Reset wizard to step 1
+    form.resetFormState() // Reset form
+    // Consider navigating away or showing a persistent error message
+    router.push({ name: 'assistants' }).catch((err) => console.error('Navigation failed:', err)) // Redirect with error catch
+  }
+}
+
+// Handle initial load or route changes for editing
 onMounted(() => {
   if (props.id) {
     loadAssistantForEdit(props.id)
   } else {
-    // Ensure create mode starts fresh
+    // Ensure clean state for creation mode
     isEditMode.value = false
     assistantIdToEdit.value = null
-    currentStep.value = 1
-    console.log('[AssistantCreator] Mounted in CREATE mode.')
-    selectedLevel.value = null
-    answers.value = []
-    assistantName.value = ''
-    assistantImageUrl.value = ''
-    imageError.value = null
-    finalInstructions.value = ''
-    saveError.value = null
-    suggestNameError.value = null
+    wizard.resetWizard()
+    form.resetFormState()
+    console.log('[CreatorComponent] Mounted in CREATE mode.')
   }
 })
 
 watch(
   () => route.params.id,
-  (newId, oldId) => {
-    // Handle navigation between edit routes or from edit to create/other
-    if (newId && newId !== assistantIdToEdit.value) {
-      console.log(`[AssistantCreator] Route ID changed to: ${newId}. Reloading data.`)
+  (newId) => {
+    const currentId = assistantIdToEdit.value
+    if (newId && newId !== currentId) {
+      console.log(`[CreatorComponent] Route ID changed to: ${newId}. Reloading for edit.`)
       loadAssistantForEdit(newId)
     } else if (!newId && isEditMode.value) {
-      // Navigated away from edit mode, reset to create state
-      console.log('[AssistantCreator] Navigated away from edit mode. Resetting state.')
+      // Navigated away from edit (e.g., to create view or list)
+      console.log('[CreatorComponent] Navigated away from edit. Resetting state.')
       isEditMode.value = false
       assistantIdToEdit.value = null
-      currentStep.value = 1
-      selectedLevel.value = null
-      answers.value = []
-      assistantName.value = ''
-      assistantImageUrl.value = ''
-      imageError.value = null
-      finalInstructions.value = ''
-      saveError.value = null
-      suggestNameError.value = null
+      wizard.resetWizard()
+      form.resetFormState()
     }
   },
-  { immediate: false }, // Only run when route.params.id actually changes after mount
+  { immediate: false }, // Don't run on initial mount if props.id handles it
 )
+
+// Watch for level changes in CREATE mode to reset answers array length
+watch(
+  () => wizard.selectedLevel.value,
+  (newLevel, oldLevel) => {
+    if (!isEditMode.value && newLevel !== oldLevel) {
+      console.log('[CreatorComponent] Level changed in create mode, resetting answers array.')
+      // Ensure answers array length matches new questions
+      form.answers.value = new Array(wizard.currentQuestions.value?.length || 0).fill('')
+    }
+  },
+  { immediate: false },
+) // Don't run on initial mount
 </script>
 
 <style scoped>
+/* Use the SAME styles as the original component */
 .assistant-creator {
   padding: 1.5rem 2rem;
   background-color: var(--bg-input-field); /* Or appropriate background */
@@ -1108,6 +604,23 @@ h3 {
   padding: 0.5rem 0.5rem 0 0.5rem; /* Add some padding inside scroll area, less at bottom */
   margin-bottom: 1rem; /* Space before footer actions */
   min-height: 0; /* Crucial for flex children in overflow containers */
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-color-primary) var(--bg-sidebar);
+}
+.scrollable-content-area::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollable-content-area::-webkit-scrollbar-track {
+  background: var(--bg-sidebar);
+  border-radius: 4px;
+}
+.scrollable-content-area::-webkit-scrollbar-thumb {
+  background-color: var(--accent-color-primary);
+  border-radius: 4px;
+  border: 2px solid var(--bg-sidebar);
+}
+.scrollable-content-area::-webkit-scrollbar-thumb:hover {
+  background-color: var(--accent-color-secondary);
 }
 
 /* Question Area (Step 2) - Now inside scrollable-content-area */
@@ -1240,11 +753,30 @@ h3 {
 }
 .name-input-area input[type='text'] {
   flex-grow: 1;
-} /* Input takes space */
-.suggest-button {
+  height: 38px; /* Match button height approx */
   padding: 0.5rem 0.8rem;
-  font-size: 0.85em;
+  border: 1px solid var(--border-color-medium);
+  border-radius: 6px;
+  font-size: 0.9em;
+  background-color: var(--bg-input-field);
+  color: var(--text-primary);
+}
+.name-input-area input[type='text']:focus {
+  outline: none;
+  border-color: var(--accent-color-primary);
+  box-shadow: var(--input-focus-shadow);
+}
+
+.suggest-button {
+  padding: 0.5rem 0.8rem !important; /* Ensure padding is applied */
+  font-size: 0.85em !important;
+  height: 38px; /* Match input height */
   flex-shrink: 0;
+  /* Add width to fit spinner/icon */
+  min-width: 38px; /* Ensure it's roughly square if just icon */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .suggest-button:disabled {
   cursor: not-allowed;
@@ -1260,13 +792,17 @@ h3 {
 .upload-button {
   padding: 0.5rem 1rem !important; /* Override general button padding if needed */
   font-size: 0.85em !important;
+  height: 40px; /* Match preview height */
 }
 .image-preview-container {
   position: relative;
-} /* For positioning remove button */
-.image-url-preview {
-  width: 40px;
+  width: 40px; /* Explicit size */
   height: 40px;
+  flex-shrink: 0; /* Prevent shrinking */
+}
+.image-url-preview {
+  width: 100%; /* Fill container */
+  height: 100%;
   border-radius: 4px;
   object-fit: cover;
   border: 1px solid var(--border-color-light);
@@ -1299,6 +835,7 @@ h3 {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s ease;
+  z-index: 1; /* Ensure it's above preview */
 }
 .remove-image-button:hover {
   background: rgba(0, 0, 0, 0.8);
@@ -1314,11 +851,11 @@ h3 {
 }
 .suggest-error {
   margin: 0.2rem 0 0.5rem 0;
-  padding-left: 105px; /* Align roughly under suggest button if name input wraps */
+  /* padding-left: 105px; /* Align roughly under suggest button if name input wraps - might need adjustment */
 }
 .save-error {
   margin-top: 0.5rem;
-  text-align: right; /* Align with save button */
+  /* text-align: right; /* Align with save button if needed */
 }
 .image-error {
   margin-top: 0.3rem;
@@ -1465,7 +1002,7 @@ h3 {
   color: var(--text-secondary);
   border: 1px solid var(--border-color-light);
 }
-.button-tertiary:hover {
+.button-tertiary:hover:not(:disabled) {
   background-color: var(--bg-button-secondary);
   border-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
@@ -1473,14 +1010,14 @@ h3 {
 
 /* FIX: Specific style for the "Back to Level" button */
 .back-to-level-button {
-  background-color: var(--bg-error, #a04040); /* Use error background */
-  color: var(--text-light, white); /* Ensure text is readable */
-  border: 1px solid var(--bg-error, #a04040);
+  background-color: var(--bg-error, #a04040) !important; /* Use error background */
+  color: var(--text-light, white) !important; /* Ensure text is readable */
+  border: 1px solid var(--bg-error, #a04040) !important;
 }
 .back-to-level-button:hover {
-  background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
-  border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
-  color: var(--text-light, white);
+  background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black) !important;
+  border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black) !important;
+  color: var(--text-light, white) !important;
 }
 
 .question-counter {
@@ -1516,7 +1053,7 @@ h3 {
   border-color: var(--text-error) !important;
 }
 
-/* Modal styles (Unchanged) */
+/* Modal styles */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1534,7 +1071,7 @@ h3 {
 }
 .test-modal .test-modal-content {
   max-width: 90vw;
-  width: 800px;
+  width: 800px; /* Or your preferred max width */
   max-height: 90vh;
   background-color: var(--bg-modal, var(--bg-main-content));
   border-radius: 8px;
@@ -1576,13 +1113,17 @@ h3 {
   flex-grow: 1;
   overflow-y: hidden; /* ChatView handles its own scrolling */
   display: flex; /* Required for flex child */
+  background-color: var(--bg-main-content); /* Ensure background consistency */
 }
+/* Target ChatView specifically if needed */
 .test-modal .test-modal-chat-area > :deep(.chat-view) {
   height: 100%;
   width: 100%;
   border-radius: 0; /* Remove border-radius if ChatView has one */
   border: none; /* Remove border if ChatView has one */
+  /* Add any overrides if ChatView styles conflict */
 }
+
 .test-modal .test-modal-footer {
   padding: 0.75rem 1.5rem;
   background-color: var(--bg-input-area, #1a1a1a);
@@ -1605,5 +1146,105 @@ h3 {
 }
 .test-modal .test-modal-footer button:hover {
   background-color: var(--bg-button-secondary-hover);
+}
+
+/* --- ADDED STYLES for Spinner and Green Plasma --- */
+
+/* Spinner for Suggest Button */
+.button-spinner {
+  width: 16px; /* Adjust size as needed */
+  height: 16px;
+  border: 2px solid var(--text-button-secondary); /* Spinner color */
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: button-spin 0.8s linear infinite;
+  margin: auto; /* Center it if button padding allows */
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Green Plasma Effect for Suggest Button */
+/* Define green plasma color variables (or use existing if suitable) */
+/* These could be moved to a global CSS file like main.css */
+:root {
+  --plasma-color-green-bright: hsl(120, 80%, 70%);
+  --plasma-color-green-mid: hsl(120, 70%, 50%);
+  --plasma-color-green-dim: hsl(120, 60%, 30%);
+}
+
+.suggest-button-plasma:not(:disabled) {
+  position: relative; /* Needed for pseudo-element */
+  overflow: hidden; /* Keep effect contained */
+  /* Add a subtle base shadow */
+  box-shadow: 0 0 3px 1px color-mix(in srgb, var(--plasma-color-green-mid) 20%, transparent);
+}
+
+.suggest-button-plasma:not(:disabled)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150%; /* Make it larger than the button */
+  padding-bottom: 150%; /* Make it square */
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--plasma-color-green-bright) 60%, transparent) 0%,
+    color-mix(in srgb, var(--plasma-color-green-mid) 40%, transparent) 40%,
+    color-mix(in srgb, var(--plasma-color-green-dim) 20%, transparent) 70%,
+    transparent 100%
+  );
+  border-radius: 50%;
+  transform-origin: center center;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+  animation: suggest-plasma-pulse 2.5s infinite ease-in-out;
+  z-index: 0; /* Behind button content */
+}
+
+.suggest-button-plasma:not(:disabled):hover::before {
+  /* Optional: Enhance effect on hover */
+  /* animation-duration: 1.5s; */
+}
+
+/* Ensure button content stays above pseudo-element */
+.suggest-button-plasma span,
+.suggest-button-plasma .button-spinner {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes suggest-plasma-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.7);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.7);
+    opacity: 0.4;
+  }
+}
+
+/* Override tertiary button styles slightly for better effect visibility */
+.suggest-button-plasma.button-tertiary {
+  background-color: color-mix(in srgb, var(--bg-sidebar) 50%, black); /* Darker base */
+  border-color: var(--plasma-color-green-dim); /* Hint of color */
+  color: var(--plasma-color-green-bright); /* Text color */
+  font-size: 1.2em !important; /* Make dice slightly larger */
+  padding: 0 !important; /* Remove padding if only icon */
+  width: 38px; /* Make it square */
+}
+.suggest-button-plasma.button-tertiary:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--bg-sidebar) 30%, black);
+  border-color: var(--plasma-color-green-mid);
+  color: white;
 }
 </style>

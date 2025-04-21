@@ -1,12 +1,12 @@
+// src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
 // Import all the view components
 import ChatView from '../views/ChatView.vue'
 import ImageGenView from '../views/ImageGenView.vue'
 import AssistantsView from '../views/AssistantsView.vue'
 import SettingsView from '../views/SettingsView.vue'
-// *** Import AssistantCreator component ***
-// Make sure the path is correct based on your project structure
 import AssistantCreator from '../components/AssistantCreator.vue'
+import MemoriesView from '../views/MemoriesView.vue' // *** NEW: Import MemoriesView ***
 
 const router = createRouter({
   // Use createWebHistory for standard URLs (without '#' hash)
@@ -31,14 +31,18 @@ const router = createRouter({
       name: 'assistants',
       component: AssistantsView,
     },
-    // *** NEW Route for Editing an Assistant ***
-    // This route uses a dynamic segment ':id' to capture the assistant's ID
-    // It loads the AssistantCreator component, which will handle both create and edit modes.
     {
+      // Route for Editing an Assistant
       path: '/assistants/edit/:id', // e.g., /assistants/edit/1713500000000
-      name: 'assistant-edit', // Unique name for this route
-      component: AssistantCreator, // Reuse the creator component
-      props: true, // Automatically pass route params (like 'id') as props to the component
+      name: 'assistant-edit',
+      component: AssistantCreator,
+      props: true,
+    },
+    // *** NEW Route for Memories View ***
+    {
+      path: '/memories',
+      name: 'memories',
+      component: MemoriesView,
     },
     // *** END NEW Route ***
     {
