@@ -1,48 +1,42 @@
 <template>
   <div class="image-gen-view">
-    <h2>Image Generation</h2>
-
-    <div class="image-gen-controls">
-      <textarea
-        v-model="prompt"
-        placeholder="Enter your image prompt here... (Press Enter to generate, Shift+Enter for new line)"
-        rows="3"
-        class="prompt-input"
-        aria-label="Image generation prompt"
-        @keydown.enter.exact.prevent="generateImage"
-        :disabled="isLoading"
-      ></textarea>
-      <button
-        @click="generateImage"
-        :disabled="!prompt.trim() || isLoading"
-        class="generate-button"
-      >
-        {{ isLoading ? 'Generating...' : 'Generate' }}
-      </button>
-    </div>
-
     <div class="image-display-area">
       <div v-if="isLoading" class="loading-indicator">
-        <div class="spinner"></div>
-        Generating image... (this may take a moment)
+        <div class="loading-indicator-visual large-plasma-loader"></div>
       </div>
+
       <div v-else-if="generatedImageUrl" class="generated-image-container">
-        <img
-          :src="generatedImageUrl"
-          alt="Generated image"
-          class="generated-image"
-          @click="openFullScreen"
-          title="Click to enlarge"
-        />
+        <div class="image-wrapper">
+          <img
+            :src="generatedImageUrl"
+            alt="Generated image"
+            class="generated-image"
+            @click="openFullScreen"
+            title="Click to enlarge"
+          />
+        </div>
         <div class="image-actions">
-          <button @click="downloadImage" class="image-action-button" title="Download Image">
-            Download 💾
+          <button
+            @click="downloadImage"
+            class="image-action-button icon-button"
+            title="Download Image"
+          >
+            ⬇️
           </button>
+          <span
+            v-if="revisedPrompt"
+            class="revised-prompt-display"
+            :title="`Revised Prompt: ${revisedPrompt}`"
+          >
+            ✏️ Revised
+          </span>
         </div>
       </div>
+
       <div v-else-if="!apiError" class="placeholder-text">
         Your generated image will appear here.
       </div>
+
       <div v-if="apiError" class="error-message">
         <p><strong>Error generating image:</strong></p>
         <p>{{ apiError }}</p>
@@ -50,170 +44,397 @@
       </div>
     </div>
 
+    <div class="image-gen-controls parameter-controls">
+      <div class="param-group">
+        <div class="param-label-group">
+          <label for="img-model">Model</label>
+          <button @click="toggleParamHelp('model')" class="help-icon-button" title="Model Info">
+            ?
+          </button>
+        </div>
+        <select id="img-model" v-model="selectedModel" :disabled="isLoading">
+          <option value="dall-e-3">DALL-E 3</option>
+          <option value="dall-e-2">DALL-E 2</option>
+        </select>
+        <div
+          class="param-help-box"
+          v-if="visibleHelpParam === 'model'"
+          v-on-click-outside="closeHelp"
+        >
+          Select the generation model. DALL-E 3 is newer. DALL-E 2 offers different sizes/params.
+        </div>
+      </div>
+      <div class="param-group">
+        <div class="param-label-group">
+          <label for="img-size">Size</label>
+          <button @click="toggleParamHelp('size')" class="help-icon-button" title="Size Info">
+            ?
+          </button>
+        </div>
+        <select id="img-size" v-model="selectedSize" :disabled="isLoading">
+          <option
+            v-for="sizeOption in availableSizes"
+            :key="sizeOption.value"
+            :value="sizeOption.value"
+          >
+            {{ sizeOption.label }}
+          </option>
+        </select>
+        <div
+          class="param-help-box"
+          v-if="visibleHelpParam === 'size'"
+          v-on-click-outside="closeHelp"
+        >
+          Image dimensions. DALL-E 3: 1024x1024, 1792x1024 (Wide), 1024x1792 (Tall). DALL-E 2:
+          1024x1024, 512x512, 256x256.
+        </div>
+      </div>
+      <div class="param-group" v-if="selectedModel === 'dall-e-3'">
+        <div class="param-label-group">
+          <label for="img-quality">Quality</label>
+          <button @click="toggleParamHelp('quality')" class="help-icon-button" title="Quality Info">
+            ?
+          </button>
+        </div>
+        <select id="img-quality" v-model="selectedQuality" :disabled="isLoading">
+          <option value="standard">Standard</option>
+          <option value="hd">HD</option>
+        </select>
+        <div
+          class="param-help-box"
+          v-if="visibleHelpParam === 'quality'"
+          v-on-click-outside="closeHelp"
+        >
+          (DALL-E 3 Only) 'HD' = finer detail, slower. 'Standard' = faster.
+        </div>
+      </div>
+      <div class="param-group" v-if="selectedModel === 'dall-e-3'">
+        <div class="param-label-group">
+          <label for="img-style">Style</label>
+          <button @click="toggleParamHelp('style')" class="help-icon-button" title="Style Info">
+            ?
+          </button>
+        </div>
+        <select id="img-style" v-model="selectedStyle" :disabled="isLoading">
+          <option value="vivid">Vivid</option>
+          <option value="natural">Natural</option>
+        </select>
+        <div
+          class="param-help-box"
+          v-if="visibleHelpParam === 'style'"
+          v-on-click-outside="closeHelp"
+        >
+          (DALL-E 3 Only) 'Vivid' = hyper-real, dramatic. 'Natural' = more realistic, less
+          hyper-real.
+        </div>
+      </div>
+    </div>
+
+    <div class="image-gen-controls prompt-controls input-area">
+      <textarea
+        v-model="prompt"
+        :placeholder="currentPlaceholder"
+        rows="1"
+        class="prompt-input"
+        aria-label="Image generation prompt"
+        @input="autoGrowPromptInput"
+        @keydown.enter.exact.prevent="generateImage"
+        :disabled="isLoading"
+        ref="promptInputRef"
+      ></textarea>
+      <PulsingIconButton
+        :is-loading="isLoading"
+        :disabled="!prompt.trim() || isLoading"
+        title="Generate Image"
+        @click="generateImage"
+        class="generate-button"
+      />
+    </div>
+
     <div class="fullscreen-modal" v-if="showFullScreen" @click.self="closeFullScreen">
       <img :src="generatedImageUrl" alt="Generated image - full screen" class="fullscreen-image" />
       <button
         @click="closeFullScreen"
-        class="close-fullscreen-button"
+        class="close-fullscreen-button icon-button"
         title="Close full screen view"
       >
         &times;
       </button>
-      <button @click="downloadImage" class="download-fullscreen-button" title="Download Image">
-        Download 💾
+      <button
+        @click="downloadImage"
+        class="download-fullscreen-button icon-button"
+        title="Download Image"
+      >
+        ⬇️
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-// Import the composable
+import { ref, watch, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useApi } from '@/composables/useApi'
+// Removed unused import: vOnClickOutside is used in the template, so keep it
+import { vOnClickOutside } from '@vueuse/components'
+// Removed unused import: PulsingIconButton is used in the template, so keep it
+import PulsingIconButton from '@/components/PulsingIconButton.vue'
 
-// Initialize the composable
-// No need to pass readFileAsBase64 for image generation
+// Destructure from useApi - this is the ONLY source for isLoading now
 const { isLoading, error: apiError, callApi } = useApi()
 
+// --- State ---
 const prompt = ref('')
-const generatedImageUrl = ref(null) // Store DATA URL of the generated image
-const showFullScreen = ref(false) // Controls visibility of the full-screen modal
+const generatedImageUrl = ref(null)
+const revisedPrompt = ref(null)
+const showFullScreen = ref(false)
+const promptInputRef = ref(null)
+const selectedModel = ref('dall-e-3')
+const selectedSize = ref('1024x1024')
+const selectedQuality = ref('standard')
+const selectedStyle = ref('vivid')
+const visibleHelpParam = ref(null)
 
-// Updated function using the composable's callApi
+// --- Placeholder Cycling ---
+const placeholderSuggestions = [
+  'A cyberpunk cityscape at dusk, raining neon...',
+  'A photorealistic cat wearing tiny glasses reading a book...',
+  'An oil painting of a majestic mountain range...',
+  'A cute robot tending a garden on Mars...',
+  'Pixel art scene of a medieval fantasy village...',
+  'Surreal image of clocks melting in a desert landscape...',
+  'A watercolor painting of a hummingbird sipping nectar...',
+  'Enter your image prompt here...',
+]
+const currentPlaceholder = ref(placeholderSuggestions[placeholderSuggestions.length - 1])
+let placeholderIntervalId = null
+let currentPlaceholderIndex = 0
+
+const cyclePlaceholder = () => {
+  currentPlaceholderIndex = (currentPlaceholderIndex + 1) % placeholderSuggestions.length
+  currentPlaceholder.value = placeholderSuggestions[currentPlaceholderIndex]
+}
+
+// --- Computed Properties ---
+const DALL_E_3_SIZES = [
+  { value: '1024x1024', label: '1024x1024 (Square)' },
+  { value: '1792x1024', label: '1792x1024 (Wide)' },
+  { value: '1024x1792', label: '1024x1792 (Tall)' },
+]
+const DALL_E_2_SIZES = [
+  { value: '1024x1024', label: '1024x1024' },
+  { value: '512x512', label: '512x512' },
+  { value: '256x256', label: '256x256' },
+]
+const availableSizes = computed(() => {
+  return selectedModel.value === 'dall-e-2' ? DALL_E_2_SIZES : DALL_E_3_SIZES
+})
+
+// --- Watcher ---
+// Removed unused 'newModel' and 'oldModel' parameters
+watch(selectedModel, () => {
+  const currentSizeIsValidForNewModel = availableSizes.value.some(
+    (s) => s.value === selectedSize.value,
+  )
+  if (!currentSizeIsValidForNewModel) {
+    selectedSize.value = '1024x1024'
+  }
+  visibleHelpParam.value = null
+})
+
+// --- Methods ---
+// These functions are used in the template, so ESLint warning is likely false positive
+const autoGrowPromptInput = () => {
+  nextTick(() => {
+    const el = promptInputRef.value
+    if (el) {
+      el.style.height = 'auto'
+      const maxHeight = 150
+      const newHeight = Math.min(el.scrollHeight, maxHeight)
+      el.style.height = `${newHeight}px`
+      el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden'
+    }
+  })
+}
+
 const generateImage = async () => {
-  if (!prompt.value.trim() || isLoading.value) return // Check composable's isLoading
-
-  // Clear previous results and errors before starting
+  if (!prompt.value.trim() || isLoading.value) return
   generatedImageUrl.value = null
-  // Error state is now managed within the composable, but clearError() below clears the ref
-
-  console.log('Attempting to generate image via useApi composable...')
+  revisedPrompt.value = null
+  apiError.value = null
 
   try {
     const url = '/.netlify/functions/call-openai-dalle3'
-    const payload = { prompt: prompt.value }
-
-    // Await the result from the composable's function
+    const payload = {
+      prompt: prompt.value,
+      model: selectedModel.value,
+      size: selectedSize.value,
+      ...(selectedModel.value === 'dall-e-3' && { quality: selectedQuality.value }),
+      ...(selectedModel.value === 'dall-e-3' && { style: selectedStyle.value }),
+    }
+    console.log('Sending payload to API:', payload)
     const responseData = await callApi(url, payload, 'POST')
+    console.log('Received response from API:', responseData)
 
-    // Check for the expected key in the successful response
-    if (!responseData.imageBase64) {
-      console.error('Missing imageBase64 in successful response:', responseData)
-      const revisedPromptInfo = responseData.revisedPrompt
-        ? ` Revised Prompt: ${responseData.revisedPrompt}`
-        : ''
-      throw new Error(`Backend function did not return image data.${revisedPromptInfo}`)
+    if (!responseData || !responseData.imageBase64) {
+      let errorMessage = 'Backend function did not return valid image data.'
+      if (responseData && responseData.error) {
+        errorMessage += ` Backend Error: ${responseData.error}`
+      } else if (responseData && responseData.revisedPrompt) {
+        errorMessage += ` Revised Prompt was: ${responseData.revisedPrompt}`
+      } else if (!responseData) {
+        errorMessage += ' No response data received.'
+      }
+      throw new Error(errorMessage)
     }
-
-    // Construct the data URL
     generatedImageUrl.value = `data:image/png;base64,${responseData.imageBase64}`
-    console.log('Image generated and displayed successfully.')
-    if (responseData.revisedPrompt) {
-      console.log('Revised prompt from OpenAI:', responseData.revisedPrompt)
-    }
+    revisedPrompt.value = responseData.revisedPrompt || null
   } catch (err) {
-    // Error handling is now simpler, as callApi throws a standard error object
-    // The error message is automatically stored in apiError by the composable
-    console.error('Error caught in generateImage:', err)
-    // No need to set apiError here, it's handled by the composable's catch block
-    generatedImageUrl.value = null
-    // Note: apiError ref (from useApi) will hold the error message for display
+    console.error('Error during image generation call:', err)
+    if (!apiError.value) {
+      apiError.value = err.message || 'An unknown error occurred during image generation.'
+    }
   }
-  // isLoading is automatically set to false within the composable
 }
 
-// Function to clear the error message (clears the composable's error ref)
 const clearError = () => {
   apiError.value = null
 }
 
-// --- Full Screen Modal Functions --- (Unchanged)
 const openFullScreen = () => {
   if (generatedImageUrl.value) {
     showFullScreen.value = true
   }
 }
+
 const closeFullScreen = () => {
   showFullScreen.value = false
 }
-// --- End Full Screen Modal Functions ---
 
-// --- Download Image Function --- (Unchanged from previous working version)
 const downloadImage = () => {
   if (!generatedImageUrl.value) return
-
   try {
     const link = document.createElement('a')
     link.href = generatedImageUrl.value
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const mimeType = generatedImageUrl.value.match(/data:(image\/\w+);/)
-    const extension = mimeType && mimeType[1] ? mimeType[1].split('/')[1] : 'png'
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
+    const mimeTypeMatch = generatedImageUrl.value.match(/data:(image\/(\w+));/)
+    const extension = mimeTypeMatch && mimeTypeMatch[2] ? mimeTypeMatch[2] : 'png'
     link.download = `generated-image-${timestamp}.${extension}`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    console.log('Image download initiated.')
   } catch (err) {
-    console.error('Error preparing image download:', err)
-    // Display error using the composable's error ref
+    console.error('Download failed:', err)
     apiError.value = `Failed to prepare download: ${err.message}`
   }
 }
-// --- End Download Image Function ---
+
+const toggleParamHelp = (paramKey) => {
+  visibleHelpParam.value = visibleHelpParam.value === paramKey ? null : paramKey
+}
+const closeHelp = () => {
+  visibleHelpParam.value = null
+}
+
+// --- Lifecycle Hooks ---
+onMounted(() => {
+  autoGrowPromptInput()
+  placeholderIntervalId = setInterval(cyclePlaceholder, 3500)
+})
+
+onUnmounted(() => {
+  if (placeholderIntervalId) {
+    clearInterval(placeholderIntervalId)
+  }
+})
+
+watch(prompt, autoGrowPromptInput)
 </script>
 
 <style scoped>
-/* Styles are unchanged - include the same <style> block from the previous version */
+/* --- Green Plasma Variables --- */
+:root {
+  --plasma-color-green-bright: hsl(120, 90%, 75%);
+  --plasma-color-green-mid: hsl(120, 80%, 60%);
+  --plasma-color-green-dim: hsl(120, 70%, 40%);
+}
+
+/* --- Main Layout --- */
 .image-gen-view {
-  padding: 1.5rem 2rem;
-  height: 100%;
+  padding: 1rem 1.5rem;
+  height: calc(100vh - 60px);
+  max-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   background-color: var(--bg-main-content);
   color: var(--text-primary);
+  box-sizing: border-box;
 }
 
-h2 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  color: var(--text-primary);
-  font-family: sans-serif;
-  text-align: center;
-  font-weight: 600;
-  border-bottom: 1px solid var(--border-color-medium);
-  padding-bottom: 1rem;
-  flex-shrink: 0;
-}
-
-.image-gen-controls {
+.image-display-area {
+  flex-grow: 1;
+  border: none;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  padding: 0.5rem;
+  background-color: transparent;
+  min-height: 150px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1rem;
 }
 
+.parameter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+  justify-content: flex-start;
+  padding: 0 0.5rem;
+  align-items: flex-end;
+}
+
+.input-area {
+  display: flex;
+  align-items: flex-end;
+  padding: 0.75rem;
+  background-color: var(--bg-input-area);
+  flex-shrink: 0;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border-color-medium);
+}
+
+/* --- Component Styles --- */
 .prompt-input {
-  width: 100%;
+  flex-grow: 1;
   padding: 0.75rem 1rem;
   border: 1px solid var(--border-color-medium);
-  border-radius: 8px;
-  resize: vertical;
+  border-radius: 18px;
+  resize: none;
   font-family: sans-serif;
   font-size: 1em;
-  min-height: 60px;
+  min-height: 40px;
+  max-height: 150px;
+  overflow-y: hidden;
+  line-height: 1.4;
   background-color: var(--bg-input-field);
   color: var(--text-primary);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
+  box-sizing: border-box;
 }
 .prompt-input::placeholder {
   color: var(--text-placeholder);
+  opacity: 0.8;
+  transition: opacity 0.5s ease-in-out;
 }
 .prompt-input:hover:not(:focus):not(:disabled) {
-  border-color: var(--accent-color-primary);
+  border-color: var(--accent-color-secondary);
 }
 .prompt-input:focus {
   outline: none;
@@ -226,127 +447,298 @@ h2 {
   opacity: 0.7;
 }
 
-.generate-button {
-  padding: 0.6rem 1.5rem;
-  background-color: var(--bg-button-primary);
-  color: var(--text-button-primary);
+.icon-button {
+  /* Base styles for non-pulsing icon buttons */
+  padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 50%;
   cursor: pointer;
-  font-family: sans-serif;
-  font-size: 1em;
-  font-weight: 500;
+  height: 40px;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5em;
+  flex-shrink: 0;
   transition:
     background-color 0.2s ease,
-    opacity 0.2s ease;
-  align-self: flex-end;
+    opacity 0.2s ease,
+    transform 0.1s ease;
+  line-height: 1;
+  background-color: transparent;
+  color: var(--text-secondary);
 }
-
-.generate-button:hover:not(:disabled) {
-  background-color: var(--bg-button-primary-hover);
-}
-
-.generate-button:disabled {
-  background-color: color-mix(in srgb, var(--bg-button-primary) 50%, var(--bg-main-content));
+.icon-button:disabled {
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.6;
+  transform: none !important;
+}
+.icon-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.icon-button:hover:not(:disabled) {
+  background-color: var(--bg-button-secondary-hover);
 }
 
-/* Image display area styling */
-.image-display-area {
-  flex-grow: 1;
-  border: 1px dashed var(--border-color-light);
-  border-radius: 8px;
+/* Specific class for the generate button if needed for margin */
+.generate-button {
+  margin-left: 0.5rem;
+}
+
+/* Parameter Controls Styles */
+.param-group {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  gap: 0.25rem;
+  position: relative;
+}
+.param-label-group {
+  display: flex;
   align-items: center;
-  padding: 1rem;
+  gap: 0.3rem;
+}
+.param-label-group label {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-bottom: 0.1rem;
+}
+.help-icon-button {
+  background: none;
+  border: 1px solid var(--text-placeholder);
+  padding: 0;
+  margin: 0 0 0.1rem 0;
+  cursor: pointer;
+  color: var(--text-placeholder);
+  font-size: 0.8em;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  transition: all 0.2s ease;
+}
+.help-icon-button:hover,
+.help-icon-button:focus-visible {
+  background-color: var(--plasma-color-green-dim);
+  color: white;
+  border-color: var(--plasma-color-green-mid);
+  box-shadow: 0 0 5px var(--plasma-color-green-dim);
+  outline: none;
+}
+.param-help-box {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--bg-tooltip, #3a3a3a);
+  color: var(--text-light, white);
+  padding: 0.6rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.85em;
+  line-height: 1.4;
+  white-space: normal;
+  width: max-content;
+  max-width: 280px;
+  z-index: 10;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color-heavy);
+  animation: fadeInHelpPopup 0.2s ease-out;
+  cursor: pointer;
+}
+.param-help-box::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: var(--bg-tooltip, #3a3a3a) transparent transparent transparent;
+}
+@keyframes fadeInHelpPopup {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 5px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.param-group select {
+  padding: 0.5rem 0.75rem;
+  height: 38px;
+  border: 1px solid var(--border-color-medium);
+  border-radius: 6px;
   background-color: var(--bg-input-field);
-  min-height: 200px; /* Minimum height */
-  position: relative; /* For positioning action buttons */
-  overflow: hidden;
+  color: var(--text-primary);
+  font-family: sans-serif;
+  font-size: 0.9em;
+  min-width: 120px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+.param-group select:hover:not(:disabled) {
+  border-color: var(--accent-color-secondary);
+}
+.param-group select:focus {
+  outline: none;
+  border-color: var(--accent-color-primary);
+  box-shadow: var(--input-focus-shadow);
+}
+.param-group select:disabled {
+  background-color: color-mix(in srgb, var(--bg-input-field) 50%, var(--bg-main-content));
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .generated-image-container {
   width: 100%;
   height: 100%;
   display: flex;
-  flex-direction: column; /* Stack image and actions */
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  position: relative; /* For positioning actions within */
-  gap: 0.5rem; /* Space between image and actions */
+  position: relative;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.image-wrapper {
+  width: 100%;
+  flex-grow: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .generated-image {
   max-width: 100%;
-  max-height: calc(100% - 40px); /* Leave space for action buttons */
+  max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
-  cursor: pointer; /* Indicate clickable */
-  display: block; /* Remove extra space below image */
+  cursor: pointer;
+  display: block;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .image-actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem; /* Space above buttons */
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.5rem;
+  width: 100%;
+  flex-shrink: 0;
+  position: relative;
+  bottom: 0;
 }
 
-.image-action-button {
-  background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
+.image-action-button.icon-button {
+  background-color: rgba(0, 0, 0, 0.5);
   color: white;
   border: none;
-  border-radius: 4px;
-  padding: 0.3rem 0.8rem;
-  font-size: 0.8em;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 1em;
   cursor: pointer;
   transition: background-color 0.2s ease;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.image-action-button:hover {
+.image-action-button.icon-button:hover {
   background-color: rgba(0, 0, 0, 0.7);
 }
+.revised-prompt-display {
+  font-size: 0.75em;
+  font-style: italic;
+  color: var(--text-secondary);
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  max-width: calc(100% - 80px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
 
-/* Placeholder and Loading */
-.placeholder-text,
-.loading-indicator {
+.placeholder-text {
   color: var(--text-placeholder);
   font-style: italic;
   font-size: 0.9em;
   text-align: center;
+  margin: auto;
+}
+.loading-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(var(--rgb-main-content, 30, 30, 30), 0.7);
+  backdrop-filter: blur(2px);
+  z-index: 5;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
-}
-.loading-indicator {
-  font-style: normal;
   color: var(--text-secondary);
+  font-style: normal;
+  font-size: 0.9em;
 }
 
-/* Spinner animation */
-.spinner {
-  border: 4px solid var(--border-color-light);
-  border-top: 4px solid var(--accent-color-primary);
+.loading-indicator-visual.large-plasma-loader {
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--accent-color-primary) 80%, white) 0%,
+    var(--accent-color-primary) 50%,
+    color-mix(in srgb, var(--accent-color-primary) 50%, transparent) 70%
+  );
+  animation: large-plasma-pulse 1.2s infinite ease-in-out;
+  box-shadow: 0 0 12px 3px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 
-@keyframes spin {
+@keyframes large-plasma-pulse {
   0% {
-    transform: rotate(0deg);
+    transform: scale(0.8);
+    opacity: 0.7;
+    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--accent-color-primary) 40%, transparent);
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 16px 4px color-mix(in srgb, var(--accent-color-primary) 60%, transparent);
   }
   100% {
-    transform: rotate(360deg);
+    transform: scale(0.8);
+    opacity: 0.7;
+    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--accent-color-primary) 40%, transparent);
   }
 }
 
-/* Error Message Styling */
 .error-message {
   width: calc(100% - 2rem);
+  max-width: 600px;
   background-color: var(--bg-message-error);
   color: var(--text-message-error);
   border: 1px solid var(--border-color-error);
@@ -359,11 +751,12 @@ h2 {
   flex-direction: column;
   gap: 0.5rem;
   align-items: center;
+  margin: 1rem auto;
+  position: relative;
 }
 .error-message p {
   margin: 0;
 }
-
 .clear-error-button {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
@@ -381,19 +774,19 @@ h2 {
 
 /* --- Full Screen Modal Styles --- */
 .fullscreen-modal {
-  position: fixed; /* Stay in place */
+  position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.85); /* Dark semi-transparent overlay */
+  background-color: rgba(0, 0, 0, 0.85);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000; /* Ensure it's on top */
-  padding: 2rem; /* Padding around the image */
+  z-index: 1000;
+  padding: 1rem;
   box-sizing: border-box;
-  cursor: pointer; /* Indicate clicking overlay closes it */
+  cursor: pointer;
 }
 
 .fullscreen-image {
@@ -401,49 +794,40 @@ h2 {
   max-height: 100%;
   object-fit: contain;
   display: block;
-  cursor: default; /* Default cursor for the image itself */
+  cursor: default;
 }
 
 .close-fullscreen-button {
   position: absolute;
   top: 15px;
-  right: 20px;
-  background: rgba(255, 255, 255, 0.2);
+  right: 15px;
+  background: rgba(40, 40, 40, 0.7);
   color: white;
-  border: none;
-  border-radius: 50%;
-  width: 35px;
-  height: 35px;
+  width: 44px;
+  height: 44px;
   font-size: 1.8em;
   line-height: 1;
-  cursor: pointer;
   padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s ease;
+  z-index: 1002;
+  /* Inherits .icon-button styles */
 }
 .close-fullscreen-button:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(70, 70, 70, 0.8);
 }
 
-.download-fullscreen-button {
+.download-fullscreen-button.icon-button {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
+  bottom: 15px;
+  right: 15px;
   background-color: var(--bg-button-primary);
   color: var(--text-button-primary);
-  border: none;
-  border-radius: 6px;
-  padding: 0.5rem 1rem;
-  font-size: 0.9em;
-  font-weight: 500;
-  cursor: pointer;
+  font-size: 1.5em;
   transition: background-color 0.2s ease;
-  z-index: 1001; /* Above modal background */
+  z-index: 1001;
+  width: 44px;
+  height: 44px;
 }
-.download-fullscreen-button:hover {
+.download-fullscreen-button.icon-button:hover {
   background-color: var(--bg-button-primary-hover);
 }
-/* --- End Full Screen Modal Styles --- */
 </style>
