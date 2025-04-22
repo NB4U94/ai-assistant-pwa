@@ -1,5 +1,5 @@
 <template>
-  <div id="app-container" :class="appContainerClass">
+  <div id="app-container" :class="appContainerClass" :style="appStyle">
     <header id="main-header">
       <button @click="toggleSidebar" class="hamburger-button" aria-label="Toggle Menu">
         <span></span> <span></span>
@@ -26,32 +26,40 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+// Removed unused 'watch' import
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import LeftSidebar from './components/LeftSidebar.vue'
 import RightSidebar from './components/RightSidebar.vue'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { storeToRefs } from 'pinia' // Import storeToRefs
 
 const settingsStore = useSettingsStore()
+// Get reactive state using storeToRefs
+const { theme, appFontSize } = storeToRefs(settingsStore)
 
-// *** NEW: Sidebar State ***
+// *** Sidebar State ***
 const isSidebarOpen = ref(true) // Default to open
-
 const toggleSidebar = () => {
   isSidebarOpen.value = !isSidebarOpen.value
 }
-// *** END NEW ***
 
 // --- Theme Management ---
+// Use 'theme' ref directly from storeToRefs
 const appContainerClass = computed(() => {
   return {
-    'dark-theme': settingsStore.theme === 'dark',
-    // 'light-theme': settingsStore.theme === 'light',
-    'left-sidebar-closed-app': !isSidebarOpen.value, // Check if this class is used globally
+    'dark-theme': theme.value === 'dark',
+    'left-sidebar-closed-app': !isSidebarOpen.value,
   }
 })
 
-// --- Header Logo Animation Logic --- (No change)
+// *** NEW: Dynamic App Style for Font Size ***
+const appStyle = computed(() => ({
+  fontSize: `${appFontSize.value}%`, // Apply font size as percentage
+}))
+// *** END NEW ***
+
+// --- Header Logo Animation Logic ---
 const logoText = ref('Nb4U-Ai')
 const isHeaderActive = ref(false)
 let idleFlickerInterval = null
@@ -80,14 +88,13 @@ const applyFlicker = (intensity = 'low') => {
     }
     if (flickerClass) {
       char.classList.add(flickerClass)
-      // Use requestAnimationFrame for potentially smoother removal timing, though setTimeout is likely fine
       setTimeout(() => char.classList.remove(flickerClass), 1100)
     }
   })
 }
 
 const startHeaderIdleFlicker = () => {
-  stopHeaderIdleFlicker() // Ensure no duplicates
+  stopHeaderIdleFlicker()
   idleFlickerInterval = setInterval(() => {
     if (!isHeaderActive.value) {
       applyFlicker('low')
@@ -106,9 +113,8 @@ const triggerHeaderActiveAnimation = (durationMs = 500) => {
   isHeaderActive.value = true
   stopHeaderIdleFlicker()
   applyFlicker('high')
-  const busyInterval = setInterval(() => applyFlicker('high'), 500) // Flicker more often when active
+  const busyInterval = setInterval(() => applyFlicker('high'), 500)
 
-  // Clear existing timeout if triggered again quickly
   if (activeTimeout) {
     clearTimeout(activeTimeout)
   }
@@ -116,7 +122,7 @@ const triggerHeaderActiveAnimation = (durationMs = 500) => {
   activeTimeout = setTimeout(() => {
     isHeaderActive.value = false
     clearInterval(busyInterval)
-    startHeaderIdleFlicker() // Resume idle flicker
+    startHeaderIdleFlicker()
     activeTimeout = null
   }, durationMs)
 }
@@ -129,9 +135,9 @@ const handleKeyPress = (event) => {
   if (isInputFocused) {
     const key = event.key.toLowerCase()
     if (key === 'enter') {
-      triggerHeaderActiveAnimation(700) // Longer animation on Enter
+      triggerHeaderActiveAnimation(700)
     } else if (['a', 'e', 'i', 'o', 'u'].includes(key)) {
-      triggerHeaderActiveAnimation(400) // Shorter animation on vowels
+      triggerHeaderActiveAnimation(400)
     }
   }
 }
@@ -144,7 +150,6 @@ onMounted(() => {
 onUnmounted(() => {
   stopHeaderIdleFlicker()
   window.removeEventListener('keydown', handleKeyPress)
-  // Clear timeout on unmount as well
   if (activeTimeout) {
     clearTimeout(activeTimeout)
   }
@@ -153,9 +158,7 @@ onUnmounted(() => {
 </script>
 
 <style>
-/* Non-scoped global styles (Variables, Keyframes) remain the same */
-/* --- CSS Variables Definition --- */
-/* Default (Light Theme) Variables */
+/* Global styles (Variables, Keyframes) remain the same */
 :root {
   --bg-app-container: #ffffff;
   --bg-sidebar: #f0f0f8;
@@ -163,28 +166,27 @@ onUnmounted(() => {
   --bg-input-area: #f5f5f5;
   --bg-input-field: #ffffff;
   --bg-header: #ededf0;
-  --bg-message-user: #0b57d0; /* Google blue */
+  --bg-message-user: #0b57d0;
   --bg-message-ai: #e9e9eb;
   --bg-message-error: #ffebee;
-  --bg-button-primary: #007bff; /* Bootstrap blue */
+  --bg-button-primary: #007bff;
   --bg-button-primary-hover: #0056b3;
   --bg-button-primary-flash: #8ec5fc;
   --bg-button-secondary: #d1d1d1;
   --bg-button-secondary-hover: #c0c0c0;
-  --bg-button-listening: #ff4d4d; /* Red */
-  --bg-button-tts-on: #66bb6a; /* Green */
+  --bg-button-listening: #ff4d4d;
+  --bg-button-tts-on: #66bb6a;
   --bg-avatar-user: #0b57d0;
   --bg-avatar-ai: #757575;
-
   --text-primary: #333333;
-  --text-secondary: #555555; /* Default secondary text */
+  --text-secondary: #555555;
   --text-header: #444444;
   --text-header-active: #111111;
   --text-light: #ffffff;
   --text-placeholder: #888888;
-  --text-link: #1a0dab; /* Google link color */
-  --text-link-hover: #60076a; /* Darker purple */
-  --text-error: #c62828; /* Dark red */
+  --text-link: #1a0dab;
+  --text-link-hover: #60076a;
+  --text-error: #c62828;
   --text-message-user: #ffffff;
   --text-message-ai: #333333;
   --text-message-error: #c62828;
@@ -193,30 +195,21 @@ onUnmounted(() => {
   --text-button-secondary: #333333;
   --text-button-listening: #ffffff;
   --text-button-tts-on: #ffffff;
-
   --border-color-light: #ccc;
   --border-color-medium: #aaa;
   --border-color-dark: #3a3a3a;
   --border-color-header: #d0d0d5;
   --border-color-error: #ffcdd2;
-
-  /* --- MODIFIED FOR LIGHT THEME CONTRAST --- */
-  --accent-color-primary: #1e8449; /* Darker Green for light mode */
-  /* --- END MODIFICATION --- */
-
-  --accent-shadow-primary: rgba(30, 132, 73, 0.8); /* Adjusted shadow to match darker green */
-  /* Use darker green for focus shadow in light mode */
+  --accent-color-primary: #1e8449;
+  --accent-shadow-primary: rgba(30, 132, 73, 0.8);
   --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
   --header-shadow-idle: none;
   --header-shadow-active: 0 0 3px rgba(0, 0, 0, 0.3), 0 0 5px var(--accent-color-primary);
   --header-shadow-flicker: 0 0 5px rgba(0, 0, 0, 0.5), 0 0 10px var(--accent-color-primary);
-
-  /* *** NEW: Sidebar Width Variables *** */
   --sidebar-width-open: 250px;
-  --sidebar-width-closed: 60px; /* Adjust as needed for icon size */
+  --sidebar-width-closed: 60px;
 }
 
-/* Dark Theme Overrides */
 .dark-theme {
   --bg-app-container: #1c1c1c;
   --bg-sidebar: #252525;
@@ -224,28 +217,27 @@ onUnmounted(() => {
   --bg-input-area: #252525;
   --bg-input-field: #333;
   --bg-header: #252525;
-  --bg-message-user: #005090; /* Kept deep blue */
+  --bg-message-user: #005090;
   --bg-message-ai: #3a3a3a;
-  --bg-message-error: #700; /* Dark red */
-  --bg-button-primary: #007bff; /* Keep primary blue */
+  --bg-message-error: #700;
+  --bg-button-primary: #007bff;
   --bg-button-primary-hover: #0056b3;
-  --bg-button-primary-flash: #58a6ff; /* Lighter blue flash */
+  --bg-button-primary-flash: #58a6ff;
   --bg-button-secondary: #555;
   --bg-button-secondary-hover: #666;
-  --bg-button-listening: #a00; /* Darker red */
-  --bg-button-tts-on: #388e3c; /* Darker green */
+  --bg-button-listening: #a00;
+  --bg-button-tts-on: #388e3c;
   --bg-avatar-user: #005090;
   --bg-avatar-ai: #555;
-
   --text-primary: #eee;
-  --text-secondary: #aaa; /* Lighter secondary for dark */
+  --text-secondary: #aaa;
   --text-header: #aaa;
   --text-header-active: #ddd;
   --text-light: #ffffff;
   --text-placeholder: #888;
-  --text-link: #8ab4f8; /* Google blue for links */
+  --text-link: #8ab4f8;
   --text-link-hover: #aecbfa;
-  --text-error: #fcc; /* Light red for errors */
+  --text-error: #fcc;
   --text-message-user: #fff;
   --text-message-ai: #eee;
   --text-message-error: #fcc;
@@ -254,27 +246,19 @@ onUnmounted(() => {
   --text-button-secondary: #ffffff;
   --text-button-listening: #fff;
   --text-button-tts-on: #ffffff;
-
   --border-color-light: #555;
   --border-color-medium: #3a3a3a;
   --border-color-dark: #222;
   --border-color-header: #3a3a3a;
   --border-color-error: #a00;
-
-  /* --- Ensure Dark Theme uses VIBRANT Green --- */
-  --accent-color-primary: #0f0; /* Vibrant Green for dark mode */
-  /* --- END --- */
-  --accent-shadow-primary: rgba(0, 255, 100, 0.8); /* Vibrant shadow */
-  /* Use vibrant green for focus shadow in dark mode */
+  --accent-color-primary: #0f0;
+  --accent-shadow-primary: rgba(0, 255, 100, 0.8);
   --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
   --header-shadow-idle: none;
   --header-shadow-active: 0 0 3px rgba(255, 255, 255, 0.3), 0 0 5px var(--accent-color-primary);
   --header-shadow-flicker: 0 0 5px rgba(255, 255, 255, 0.7), 0 0 10px var(--accent-color-primary);
 }
-/* --- End CSS Variables Definition --- */
-
-/* --- Header Animation Keyframes --- */
-/* (Assuming these are correct and unchanged) */
+/* Header Animation Keyframes */
 @keyframes basicFlicker {
   /* ... */
 }
@@ -287,7 +271,6 @@ onUnmounted(() => {
 @keyframes slowFadeFlicker {
   /* ... */
 }
-/* --- End Keyframes --- */
 </style>
 
 <style scoped>
@@ -305,9 +288,10 @@ onUnmounted(() => {
   transition:
     background-color 0.3s ease,
     color 0.3s ease;
+  /* Font size transition can be added if desired */
+  /* transition: font-size 0.2s ease; */
 }
 
-/* Header Styles */
 #main-header {
   height: 50px;
   background-color: var(--bg-header);
@@ -321,17 +305,16 @@ onUnmounted(() => {
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease;
-  gap: 1rem; /* Add gap for items */
+  gap: 1rem;
 }
 
-/* *** NEW: Hamburger Button Styles *** */
 .hamburger-button {
   background: none;
   border: none;
   padding: 0;
   margin: 0;
   cursor: pointer;
-  width: 30px; /* Adjust size */
+  width: 30px;
   height: 30px;
   display: flex;
   flex-direction: column;
@@ -340,9 +323,9 @@ onUnmounted(() => {
 }
 .hamburger-button span {
   display: block;
-  width: 20px; /* Line width */
-  height: 2px; /* Line thickness */
-  background-color: var(--text-secondary); /* Use secondary text color */
+  width: 20px;
+  height: 2px;
+  background-color: var(--text-secondary);
   border-radius: 1px;
   transition:
     transform 0.3s ease,
@@ -351,42 +334,55 @@ onUnmounted(() => {
 .hamburger-button:hover span {
   background-color: var(--text-primary);
 }
-/* Add animation for burger -> X (optional) */
 
-/* Header Logo Styles */
-/* (Assuming these are correct and unchanged) */
+/* Header Logo & Animation Styles */
 #header-logo {
-  /* ... */
+  font-family: 'Orbitron', sans-serif; /* Example font */
+  font-size: 1.4em;
+  font-weight: 600;
+  color: var(--text-header);
+  text-shadow: var(--header-shadow-idle);
+  transition:
+    text-shadow 0.5s ease,
+    color 0.3s ease;
+  user-select: none;
+  display: inline-block; /* Needed for potential transforms/animations */
 }
 .header-char {
-  /* ... */
+  display: inline-block; /* Allow transforms */
+  transition:
+    opacity 0.5s ease,
+    transform 0.3s ease;
+  color: inherit; /* Inherit color from #header-logo */
+}
+#header-logo.active {
+  color: var(--text-header-active);
+  text-shadow: var(--header-shadow-active);
 }
 #header-logo.active .header-char {
-  /* ... */
+  /* Add active char styles if any */
 }
 .animate-flicker-basic {
-  /* ... */
+  animation: basicFlicker 0.8s linear infinite alternate;
 }
 .animate-flicker-slow-partial {
-  /* ... */
+  animation: slowPartialFlicker 1.5s ease-in-out infinite alternate;
 }
 .animate-flicker-fast-full {
-  /* ... */
+  animation: fastFullFlicker 0.3s linear infinite alternate;
 }
 .animate-flicker-slow-fade {
-  /* ... */
+  animation: slowFadeFlicker 2s ease infinite alternate;
 }
 
-/* *** NEW: Header Spacer *** */
 .header-spacer {
-  flex-grow: 1; /* Pushes items to the right */
+  flex-grow: 1;
 }
 
-/* Wrapper for main layout */
 .main-layout-wrapper {
   display: flex;
   flex-grow: 1;
-  overflow: hidden; /* Important to contain flex items */
+  overflow: hidden; /* Keep this to prevent wrapper itself from scrolling */
 }
 
 #left-sidebar,
@@ -400,51 +396,49 @@ onUnmounted(() => {
     background-color 0.3s ease,
     color 0.3s ease,
     border-color 0.3s ease,
-    width 0.3s ease; /* Add width transition */
+    width 0.3s ease;
   padding: 1rem;
-  box-sizing: border-box; /* Include padding in width calculation */
+  box-sizing: border-box;
 }
 
 #left-sidebar {
-  width: var(--sidebar-width-open); /* Use variable */
+  width: var(--sidebar-width-open);
   border-right: 1px solid var(--border-color-medium);
 }
 
-/* *** NEW: Styles for Closed Sidebar *** */
 #left-sidebar.sidebar-closed {
-  width: var(--sidebar-width-closed); /* Use variable */
-  padding: 1rem 0.5rem; /* Adjust padding when closed */
+  width: var(--sidebar-width-closed);
+  padding: 1rem 0.5rem;
 }
 
 #main-content {
   flex-grow: 1;
-  display: flex; /* Ensure it behaves as a flex item */
-  flex-direction: column; /* Stack child elements (like RouterView) vertically */
+  display: flex; /* Keep display: flex if view roots need flex context */
+  flex-direction: column; /* Keep if view roots need flex context */
   background-color: var(--bg-main-content);
   color: var(--text-primary);
-  /* Remove margin-left transition - rely on flexbox */
   transition:
     background-color 0.3s ease,
     color 0.3s ease;
-  overflow: hidden; /* Hide overflow from main content area itself */
+  /* Removed overflow: hidden; let's see if content scrolls naturally */
+  /* If scrolling breaks, add overflow-y: auto here */
+  overflow-y: auto; /* Let's try adding scroll handling here */
 }
 
-/* Remove unnecessary margin adjustment rule */
-/* #main-content.sidebar-closed { */
-/* margin-left: var(--sidebar-width-closed); */
-/* } */
-
-/* Adjust the router view container styling */
-#main-content > :deep(div), /* If router view renders a div */
-#main-content > :deep(section) /* Or if it renders a section, etc. */ {
-  height: 100%; /* Make the view container fill main-content */
+/* === COMMENTED OUT THIS BLOCK === */
+/*
+#main-content > :deep(div),
+#main-content > :deep(section) {
+  height: 100%;
   width: 100%;
-  overflow-y: auto; /* Allow the *view* to scroll if its content overflows */
-  box-sizing: border-box; /* Include padding if view adds its own */
+  overflow-y: auto;
+  box-sizing: border-box;
 }
+*/
+/* ================================ */
 
 #right-sidebar {
-  width: 200px; /* Consider making this a variable too */
+  width: 200px;
   border-left: 1px solid var(--border-color-medium);
 }
 </style>

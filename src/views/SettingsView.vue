@@ -18,6 +18,8 @@
         <SettingsTabGeneral
           :isDarkMode="isDarkMode"
           :toggleTheme="toggleTheme"
+          :modelValue="appFontSize"
+          @update:modelValue="setAppFontSize"
           :showHelp="showHelp"
         />
       </div>
@@ -27,9 +29,24 @@
           :isTtsEnabled="isTtsEnabled"
           :toggleTtsEnabled="toggleTtsEnabled"
           :ttsSupported="ttsSupported"
-          v-model="selectedVoiceUriModel"
+          :modelValue="selectedVoiceUri"
+          @update:modelValue="setSelectedVoice"
           :availableVoices="availableVoices"
+          :temperature="chatTemperature"
+          @update:temperature="setChatTemperature"
+          :modelId="chatModel"
+          @update:modelId="setChatModel"
+          :maxTokens="chatMaxTokens"
+          @update:maxTokens="setChatMaxTokens"
+          :contextLength="chatContextLength"
+          @update:contextLength="setChatContextLength"
           :showHelp="showHelp"
+          :sendOnEnter="sendOnEnter"
+          :toggleSendOnEnter="toggleSendOnEnter"
+          :chatTopP="chatTopP"
+          @update:chatTopP="setChatTopP"
+          :handleClearHistory="handleClearHistory"
+          :handleResetChatDefaults="handleResetChatDefaults"
         />
       </div>
 
@@ -72,18 +89,40 @@ import SettingsTabAssistants from '@/components/settings/SettingsTabAssistants.v
 // --- Use Composables ---
 const { activeTab, tabs, changeTab } = useSettingsTabs()
 const { isHelpModalVisible, currentHelpContent, showHelp, closeHelpModal } = useSettingsHelpModal()
-const { isDarkMode, toggleTheme } = useGeneralSettings()
+
+// Get state and actions from General Settings composable
+// Assuming useGeneralSettings returns appFontSize (ref) and setAppFontSize (action)
+const { isDarkMode, toggleTheme, appFontSize, setAppFontSize } = useGeneralSettings()
+
+// Get state and actions from Chat Settings composable
+// *** REMOVED Safety Filter items ***
+// *** ADDED handleResetChatDefaults ***
 const {
   isTtsEnabled,
   toggleTtsEnabled,
   availableVoices,
   ttsSupported,
-  selectedVoiceUriModel, // This computed ref can be used directly with v-model on the child
+  selectedVoiceUri, // Use state ref
+  setSelectedVoice, // Use action
+  chatTemperature,
+  setChatTemperature,
+  chatModel,
+  setChatModel,
+  chatMaxTokens,
+  setChatMaxTokens,
+  chatContextLength,
+  setChatContextLength,
+  sendOnEnter,
+  toggleSendOnEnter,
+  chatTopP,
+  setChatTopP,
+  handleClearHistory,
+  handleResetChatDefaults, // Get the reset handler
 } = useChatSettings()
 </script>
 
 <style scoped>
-/* Styles remain the same as before */
+/* Styles remain the same */
 .settings-view {
   padding: 1.5rem 2rem;
   height: 100%;
@@ -134,8 +173,6 @@ h2 {
 .settings-tab-content {
   padding-top: 1rem;
 }
-
-/* Modal styles */
 .modal-overlay.help-modal {
   position: fixed;
   top: 0;
@@ -160,7 +197,6 @@ h2 {
     opacity: 1;
   }
 }
-
 .help-modal-content {
   background-color: var(--bg-modal, var(--bg-main-content));
   color: var(--text-primary);
@@ -184,7 +220,6 @@ h2 {
     opacity: 1;
   }
 }
-
 .help-modal-header {
   display: flex;
   justify-content: space-between;
@@ -199,7 +234,6 @@ h2 {
   font-weight: 600;
   color: var(--text-primary);
 }
-
 .close-modal-button {
   background: none;
   border: none;
@@ -213,7 +247,6 @@ h2 {
 .close-modal-button:hover {
   color: var(--text-primary);
 }
-
 .help-modal-body {
   font-size: 0.95em;
   line-height: 1.6;

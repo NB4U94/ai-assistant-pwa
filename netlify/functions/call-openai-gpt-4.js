@@ -18,7 +18,7 @@ const createResponse = (statusCode, body) => {
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*', // Allow requests from any origin (adjust for production)
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization', // Allow Authorization if needed later
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
     },
     body: JSON.stringify(body),
@@ -98,7 +98,7 @@ export const handler = async (event, _context) => {
     return createResponse(400, { error: 'Invalid payload: Missing or empty "messages" array.' })
   }
 
-  // Check the last message isn't empty (basic check)
+  // Optional: Check the last message isn't empty (basic check)
   const lastMessage = requestPayload.messages[requestPayload.messages.length - 1]
   if (
     !lastMessage ||
@@ -106,9 +106,8 @@ export const handler = async (event, _context) => {
     (Array.isArray(lastMessage.content) && lastMessage.content.length === 0) ||
     (typeof lastMessage.content === 'string' && !lastMessage.content.trim())
   ) {
-    console.error('Invalid payload: Last message has no content.')
-    // Allow OpenAI API to handle this potentially, but good to check.
-    // return createResponse(400, { error: 'Invalid payload: Last message has no content.' });
+    // Let OpenAI API handle this for now, but good to be aware of potentially empty final messages.
+    console.warn('Potential issue: Last message has no content.')
   }
 
   // --- Prepare OpenAI API Request Body ---
@@ -116,10 +115,11 @@ export const handler = async (event, _context) => {
   const openaiRequestBody = {
     model: requestPayload.model || 'gpt-4o', // Default to gpt-4o if not provided
     messages: requestPayload.messages, // Use the messages array directly from frontend
-    temperature: requestPayload.temperature ?? 0.7, // Default temperature
-    max_tokens: requestPayload.max_tokens || 1024, // Default max tokens
-    // Add any other parameters you might want to control (e.g., top_p, presence_penalty)
-    // top_p: requestPayload.top_p,
+    temperature: requestPayload.temperature ?? 0.7, // Default temperature if null/undefined
+    max_tokens: requestPayload.max_tokens || 1024, // Default max tokens if missing/falsy
+    // *** ADDED/MODIFIED: Include top_p from payload, with default ***
+    top_p: requestPayload.top_p ?? 1.0, // Default top_p if null/undefined
+    // Add other parameters here if needed (e.g., presence_penalty)
   }
 
   // --- Call OpenAI API ---
@@ -138,15 +138,17 @@ export const handler = async (event, _context) => {
     })
 
     let openaiData
+    let rawText // Define rawText outside the inner try block for logging on parse error
+
     try {
       // Get raw text first in case JSON parsing fails
-      const rawText = await openaiResponse.text()
+      rawText = await openaiResponse.text() // Assign to outer scope variable
       // console.log("Raw OpenAI Response Text:", rawText); // Log raw text for debugging
       openaiData = JSON.parse(rawText)
     } catch (parseError) {
       console.error('Error parsing OpenAI API response JSON:', parseError)
       // Log the raw text again if parsing failed
-      // console.error('Raw OpenAI API response text on parse error:', rawText);
+      console.error('Raw OpenAI API response text on parse error:', rawText)
       return createResponse(openaiResponse.status, {
         error: `Failed to parse API response. Status: ${openaiResponse.status}. See function logs for raw response.`,
       })
@@ -195,23 +197,8 @@ export const handler = async (event, _context) => {
     // Send the processed response back to the front-end.
     // The frontend expects 'aiText' key for the response content.
     return createResponse(200, {
-      // Rename the key from OpenAI 'response' to what frontend uses
-      response: {
-        // Keep the nested 'response' structure if frontend expects it
-        choices: [
-          {
-            // Mimic structure slightly if needed
-            message: {
-              content: aiText,
-            },
-          },
-        ],
-        // You might not need to mimic the full choices structure, check frontend:
-        // Often just sending the text directly is fine:
-        // aiText: aiText
-      },
-      // Or simply send the core data directly if frontend handles it:
-      aiText: aiText, // Send aiText directly as frontend likely expects this key
+      // Keep the response simple for the frontend based on ChatView expectations
+      aiText: aiText, // Send aiText directly
       blockReason: mappedFinishReason, // Use the mapped reason
       usage: usage, // Optionally include token usage data
     })

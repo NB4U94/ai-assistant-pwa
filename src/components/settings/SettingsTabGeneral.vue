@@ -38,21 +38,24 @@
         App Font Size
         <span class="setting-description">Adjust the base text size across the app.</span>
       </label>
-      <input
-        type="range"
-        id="font-size-slider"
-        class="settings-slider"
-        min="80"
-        max="120"
-        value="100"
-        disabled
-      />
+      <div class="slider-container">
+        <input
+          type="range"
+          id="font-size-slider"
+          class="settings-slider"
+          min="80"
+          max="120"
+          v-model="fontSizeModel"
+          aria-label="App Font Size"
+        />
+        <span class="slider-value">{{ fontSizeModel }}%</span>
+      </div>
       <button
         class="help-button"
         @click="
           showHelp(
             'App Font Size',
-            'Increases or decreases the size of most text within the application for better readability. Affects menus, chat bubbles, settings descriptions, etc. (Setting not yet active)',
+            'Increases or decreases the size of most text within the application (as a percentage of the default size) for better readability. Affects menus, chat bubbles, settings descriptions, etc.',
           )
         "
       >
@@ -153,38 +156,34 @@
 </template>
 
 <script setup>
-import { defineProps } from 'vue'
+import { defineProps, defineEmits, computed } from 'vue'
 
 // Define the props this component expects from its parent
-defineProps({
-  isDarkMode: {
-    type: Boolean,
-    required: true,
-  },
-  toggleTheme: {
-    type: Function,
-    required: true,
-  },
-  showHelp: {
-    type: Function,
-    required: true,
+const props = defineProps({
+  isDarkMode: { type: Boolean, required: true },
+  toggleTheme: { type: Function, required: true },
+  showHelp: { type: Function, required: true },
+  modelValue: { type: Number, required: true }, // Use modelValue for font size (v-model)
+})
+
+// Define the event for v-model updates
+const emit = defineEmits(['update:modelValue'])
+
+// Internal computed property for v-model on the range slider
+const fontSizeModel = computed({
+  get: () => props.modelValue,
+  set: (value) => {
+    // Ensure value is treated as a number when emitting
+    emit('update:modelValue', Number(value))
   },
 })
 </script>
 
 <style scoped>
-/* Styles specific to this tab could go here, but we'll leave them */
-/* in the parent SettingsView.vue for now for simplicity, */
-/* as they are mostly shared across tabs. */
-
-/* Add some padding if needed when rendered standalone */
-/* div {
-  padding: 1rem 0;
-} */
-
-/* Re-include styles that might be specific or useful here */
+/* Include styles consistent with other tabs */
 .setting-item {
   display: grid;
+  /* Adjust grid for potential value display next to slider */
   grid-template-columns: 1fr auto auto;
   align-items: center;
   padding: 1rem 0;
@@ -192,7 +191,7 @@ defineProps({
   gap: 1rem;
 }
 .setting-item:last-child {
-  border-bottom: none; /* Remove border for the last item in a section */
+  border-bottom: none;
 }
 
 .setting-label {
@@ -211,16 +210,39 @@ defineProps({
   white-space: normal;
 }
 
-.toggle-switch-placeholder,
-.settings-select,
-.settings-slider,
-.settings-input,
-.quick-setting-button,
-.help-button {
-  justify-self: end; /* Align control to the end of its grid cell */
+/* NEW: Container for slider and its value */
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* Space between slider and value */
+  justify-self: end; /* Align the container to the end */
 }
 
-/* Include toggle switch styles as they are used here */
+/* NEW: Style for the value display */
+.slider-value {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  min-width: 4ch; /* Ensure space for '100%' */
+  text-align: right;
+  font-variant-numeric: tabular-nums; /* Keep numbers aligned */
+}
+
+.toggle-switch-placeholder,
+.settings-slider,
+.quick-setting-button,
+.help-button {
+  justify-self: end; /* Align control to the end */
+}
+/* Remove justify-self from slider-container itself if its children handle alignment */
+.slider-container {
+  justify-self: end;
+}
+
+.settings-slider {
+  justify-self: initial; /* Let slider take space within flex container */
+}
+
+/* Toggle switch styles */
 .toggle-switch-placeholder {
   width: 44px;
   height: 24px;
@@ -258,7 +280,7 @@ defineProps({
   transform: translateX(20px);
 }
 
-/* Include other control base styles used here */
+/* Slider, Button base styles */
 .settings-slider,
 .quick-setting-button {
   padding: 0.4rem 0.6rem;
@@ -269,15 +291,13 @@ defineProps({
   font-family: sans-serif;
   font-size: 0.9em;
   flex-shrink: 0;
-  min-width: 100px;
-  max-width: 200px;
   box-sizing: border-box;
 }
 
 .settings-slider {
   cursor: pointer;
-  padding: 0;
-  height: 20px;
+  padding: 0; /* Remove padding for range input */
+  height: 20px; /* Consistent height */
   vertical-align: middle;
   min-width: 120px;
   max-width: 150px;
@@ -287,7 +307,9 @@ defineProps({
   text-align: center;
   cursor: pointer;
   transition: background-color 0.2s ease;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1rem; /* Keep padding for buttons */
+  min-width: 100px;
+  max-width: 200px;
 }
 .quick-setting-button:not(:disabled):hover {
   background-color: var(--bg-button-secondary-hover);
@@ -307,6 +329,11 @@ defineProps({
   opacity: 0.6;
   cursor: not-allowed;
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
+}
+.settings-slider:focus {
+  outline: none;
+  border-color: var(--accent-color-primary); /* Might not show on range */
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent); /* Might not show on range */
 }
 
 /* Help button style */
@@ -328,6 +355,7 @@ defineProps({
   padding: 0;
   transition: background-color 0.2s ease;
   outline: none;
+  justify-self: end; /* Ensure it aligns right */
 }
 .help-button:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
@@ -345,6 +373,6 @@ defineProps({
 .advanced-settings-section h3 {
   margin-bottom: 1rem;
   color: var(--text-secondary);
-  font-weight: 600; /* Slightly bolder heading */
+  font-weight: 600;
 }
 </style>
