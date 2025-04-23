@@ -188,7 +188,6 @@
 </template>
 
 <script setup>
-// Script section is unchanged from Response #57 (last correct version)
 import { ref, nextTick, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useAssistantsStore } from '@/stores/assistantsStore'
 import { useConversationStore } from '@/stores/conversationStore'
@@ -236,6 +235,19 @@ const handleComposableError = (errorMessage) => {
   addUiMessage(errorMessage, true)
 }
 
+// --- Scroll function defined earlier ---
+const scrollToBottom = (behavior = 'smooth') => {
+  nextTick(() => {
+    const el = messageAreaRef.value
+    if (el) {
+      // Check if ref is available
+      el.scrollTo({ top: el.scrollHeight, behavior: behavior })
+    } else {
+      console.warn('[ChatView] scrollToBottom called but messageAreaRef is not available yet.')
+    }
+  })
+}
+
 const { copiedState, formatTimestamp, copyText, processMessageText, autoGrowTextarea } = useUIUtils(
   { addErrorMessage: handleComposableError },
 )
@@ -279,9 +291,10 @@ const { isListening, speechSupported, toggleListening } = useSpeechRecognition({
   addErrorMessage: handleComposableError,
 })
 
+// --- COMPUTED PROPERTY displayMessages ---
 const displayMessages = computed(() => {
-  const persistedMessages = activeHistory.value.map((msg, index) => ({
-    id: `${conversationStore.activeSessionId || 'default'}-store-${msg.timestamp || index}`,
+  const persistedMessages = activeHistory.value.map((msg) => ({
+    id: `${conversationStore.activeSessionId || 'default'}-store-${msg.timestamp || Math.random()}`,
     text: typeof msg.content === 'string' ? msg.content : msg.content?.[0]?.text || '[Image Only]',
     sender: msg.role === 'user' ? 'User' : 'AI',
     timestamp: msg.timestamp || null,
@@ -303,7 +316,10 @@ const currentPlaceholder = ref(placeholders[0])
 let placeholderInterval = null
 
 onMounted(() => {
+  // scrollToBottom is now called conditionally within the watcher's nextTick
+  // We can still call it here once on mount if desired, it should be safe now.
   scrollToBottom('auto')
+
   let placeholderIndex = 0
   placeholderInterval = setInterval(() => {
     placeholderIndex = (placeholderIndex + 1) % placeholders.length
@@ -323,23 +339,62 @@ onUnmounted(() => {
   clearInterval(placeholderInterval)
 })
 
+// --- WATCHER for Active Session ID (Refined) ---
 watch(
   activeSessionId,
   (newId, oldId) => {
-    if (newId !== oldId) {
-      console.log(`[ChatView] Active session changed to ${newId} (was ${oldId})`)
-      userInput.value = ''
-      removeSelectedImage()
-      uiMessages.value = []
-      scrollToBottom('auto')
-      apiError.value = null
-      currentPlaceholder.value = activeSession.value?.name
-        ? `Ask ${activeSession.value.name}...`
-        : placeholders[0]
+    console.log(`[ChatView] Watcher triggered. New session ID: ${newId}, Old: ${oldId}`)
+
+    // --- Reset state unconditionally on initial run and subsequent changes ---
+    userInput.value = ''
+    removeSelectedImage()
+    uiMessages.value = []
+    apiError.value = null
+    // Update placeholder based on the *current* active session name
+    currentPlaceholder.value = activeSession.value?.name
+      ? `Ask ${activeSession.value.name}...`
+      : placeholders[0]
+
+    // --- Actions depending on refs - only run if not the initial immediate call OR within nextTick ---
+    // Check if oldId is defined (meaning it's not the first immediate run)
+    if (oldId !== undefined) {
+      console.log(
+        `[ChatView Watcher] Not initial run (oldId: ${oldId}). Calling scrollToBottom directly.`,
+      )
+      scrollToBottom('auto') // Safe to call directly on subsequent changes
+      nextTick(() => {
+        // Still use nextTick for focus after DOM updates
+        if (inputAreaRef.value) {
+          console.log('[ChatView Watcher] Focusing input in nextTick (subsequent run).')
+          inputAreaRef.value.focus()
+        } else {
+          console.warn('[ChatView Watcher] inputAreaRef not ready in nextTick (subsequent run).')
+        }
+      })
+    } else {
+      // This is the initial immediate run. Defer actions relying on refs.
+      console.log(
+        '[ChatView Watcher] Initial run. Deferring scrollToBottom and focus until nextTick.',
+      )
+      nextTick(() => {
+        if (messageAreaRef.value) {
+          console.log('[ChatView Watcher] Calling scrollToBottom in nextTick (initial run).')
+          scrollToBottom('auto') // Call scroll after initial DOM render
+        } else {
+          console.warn('[ChatView Watcher] messageAreaRef not ready in nextTick (initial run).')
+        }
+        if (inputAreaRef.value) {
+          console.log('[ChatView Watcher] Focusing input in nextTick (initial run).')
+          inputAreaRef.value.focus() // Focus after initial DOM render
+        } else {
+          console.warn('[ChatView Watcher] inputAreaRef not ready in nextTick (initial run).')
+        }
+      })
     }
   },
-  { immediate: false },
+  { immediate: true }, // Run immediately on load/mount AND on changes
 )
+
 watch(apiError, (newError) => {
   if (newError) {
     addUiMessage(newError, true)
@@ -355,22 +410,19 @@ const selectAssistant = (assistantId) => {
   console.log(`[ChatView] UI selecting session: ${targetSessionId}`)
   if (activeSessionId.value !== targetSessionId) {
     conversationStore.setActiveSession(targetSessionId)
+    // Watcher with immediate:true will handle UI updates now
   } else {
     console.log(`[ChatView] Session ${targetSessionId} already active.`)
   }
 }
 
-const scrollToBottom = (behavior = 'smooth') => {
-  nextTick(() => {
-    const el = messageAreaRef.value
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: behavior })
-  })
-}
+// Scroll function definition moved higher, before watcher
+
 const triggerSendFlash = () => {
   const btn = sendButtonRef.value
   if (!btn) return
   btn.classList.remove('flash-active')
-  void btn.offsetWidth
+  void btn.offsetWidth // Force reflow
   btn.classList.add('flash-active')
   setTimeout(() => {
     if (btn) btn.classList.remove('flash-active')
@@ -387,51 +439,78 @@ const handleEnterKey = (event) => {
 const sendMessage = async () => {
   const textInputRaw = userInput.value
   const imageFile = selectedFile.value
-  const imagePreviewUrlForStore = selectedImagePreview.value
+  const imagePreviewUrlForStore = selectedImagePreview.value // Capture preview URL for store
   const trimmedInput = textInputRaw.trim()
+
+  // Prevent sending if loading or if both text and image are empty
   if (isLoading.value || (trimmedInput === '' && !imageFile)) {
+    console.log('[ChatView] Send blocked: Loading or no content.')
     return
   }
+
+  // Add user message to the store immediately if there's content
   if (trimmedInput !== '' || imageFile) {
+    console.log('[ChatView] Adding user message to store:', {
+      role: 'user',
+      content: trimmedInput,
+      imagePreviewUrl: imagePreviewUrlForStore,
+    })
     conversationStore.addMessageToActiveSession(
       'user',
-      trimmedInput,
+      trimmedInput, // Send trimmed text
       Date.now(),
-      imagePreviewUrlForStore,
+      imagePreviewUrlForStore, // Send the captured preview URL
     )
   } else {
-    return
+    console.warn('[ChatView] Attempted to send empty message after initial check passed.')
+    return // Should not happen based on initial check, but as a safeguard
   }
+
+  // Trigger visual feedback
   triggerSendFlash()
+
+  // Prepare data for API call (use captured values)
   const textToSendToApi = trimmedInput
-  const imageFileToSendToApi = imageFile
+  const imageFileToSendToApi = imageFile // Use the captured file object
+
+  // Clear input fields AFTER adding message to store and capturing values
   userInput.value = ''
-  removeSelectedImage()
+  removeSelectedImage() // This clears selectedFile and selectedImagePreview
+
+  // Reset textarea height and placeholder after clearing
   nextTick(() => {
     if (inputAreaRef.value) {
-      inputAreaRef.value.style.height = 'auto'
-      autoGrowTextarea({ target: inputAreaRef.value })
+      inputAreaRef.value.style.height = 'auto' // Reset height before growing
+      autoGrowTextarea({ target: inputAreaRef.value }) // Adjust height if needed (likely shrinks)
     }
+    // Reset placeholder
     currentPlaceholder.value = activeSession.value?.name
       ? `Ask ${activeSession.value.name}...`
       : placeholders[0]
   })
+
+  // Process image file if it exists
   let imgData = null
   if (imageFileToSendToApi && typeof readFileAsBase64 === 'function') {
     try {
+      console.log('[ChatView] Reading image file as Base64...')
       imgData = await readFileAsBase64(imageFileToSendToApi)
+      console.log('[ChatView] Image file read successfully.')
     } catch (e) {
       console.error('[ChatView] Error processing image file for API:', e)
       addUiMessage(`Image processing error: ${e.message}`, true)
       scrollToBottom()
-      return
+      return // Stop if image processing fails
     }
   } else if (imageFileToSendToApi) {
+    // This case means file exists but readFileAsBase64 is not available (should not happen if composable is imported)
     console.error('[ChatView] readFileAsBase64 function not available.')
     addUiMessage('Internal error: Cannot process image file.', true)
     scrollToBottom()
     return
   }
+
+  // Prepare message history for API
   const messagesToSend = []
   if (typeof conversationStore.getFormattedHistoryForAPI !== 'function') {
     console.error('CRITICAL: getFormattedHistoryForAPI is missing!')
@@ -439,62 +518,142 @@ const sendMessage = async () => {
     return
   }
   const fullHistory = conversationStore.getFormattedHistoryForAPI()
+
+  // Apply context length limit (excluding the system prompt if present)
   const contextLimit = chatContextLength.value
   const historyToConsider = fullHistory.filter((msg) => msg.role !== 'system')
-  const limitedHistory = historyToConsider.slice(-contextLimit)
+  const limitedHistory = historyToConsider.slice(-contextLimit) // Get the last 'N' non-system messages
+
+  // Add system prompt first if it exists
   const systemPrompt = fullHistory.find((msg) => msg.role === 'system')
   if (systemPrompt) messagesToSend.push(systemPrompt)
+
+  // Add the limited history
   messagesToSend.push(...limitedHistory)
+
+  // Construct the current user message for the API (potentially multimodal)
   const currentUserMessageContent = []
   if (textToSendToApi) {
     currentUserMessageContent.push({ type: 'text', text: textToSendToApi })
   }
   if (imgData) {
-    currentUserMessageContent.push({
-      type: 'image_url',
-      image_url: { url: `data:${imgData.mimeType};base64,${imgData.base64Data}` },
-    })
+    // Ensure imgData has the expected structure
+    if (imgData.mimeType && imgData.base64Data) {
+      currentUserMessageContent.push({
+        type: 'image_url',
+        image_url: { url: `data:${imgData.mimeType};base64,${imgData.base64Data}` },
+      })
+    } else {
+      console.error('[ChatView] Invalid image data structure from readFileAsBase64:', imgData)
+      addUiMessage('Internal error: Failed to format image data for API.', true)
+      return
+    }
   }
+
+  // Add the constructed user message to the API payload, ensuring it's not effectively empty
   if (currentUserMessageContent.length > 0) {
-    messagesToSend.push({ role: 'user', content: currentUserMessageContent })
-  } else if (
+    // Check if the last message in the prepared history *is* the user message we just added to the store.
+    // This prevents adding it twice to the API call if getFormattedHistoryForAPI includes the latest message.
+    // We compare the content part.
+    const lastApiMessage = messagesToSend[messagesToSend.length - 1]
+    let historyAlreadyIncludesUserMessage = false
+    if (lastApiMessage?.role === 'user') {
+      // Simple comparison assuming structure is consistent
+      // Might need adjustment if content format varies significantly
+      if (JSON.stringify(lastApiMessage.content) === JSON.stringify(currentUserMessageContent)) {
+        historyAlreadyIncludesUserMessage = true
+        console.log(
+          '[ChatView] History already includes the current user message. Not adding duplicate to API payload.',
+        )
+      }
+    }
+
+    if (!historyAlreadyIncludesUserMessage) {
+      console.log('[ChatView] Adding current user message content to API payload.')
+      messagesToSend.push({ role: 'user', content: currentUserMessageContent })
+    }
+  } else {
+    // This case means we added a message to the store, but couldn't format it for the API? Should be rare.
+    console.warn(
+      '[ChatView] No content (text or image) could be formatted for the current user message for API call.',
+    )
+    // Decide if we should proceed with only history or stop. Let's stop for now.
+    return
+  }
+
+  // Final check: ensure there's something meaningful to send
+  if (
     messagesToSend.length === 0 ||
     (messagesToSend.length === 1 && messagesToSend[0].role === 'system')
   ) {
-    console.warn('[ChatView] Attempted to send API request with no user message content.')
+    console.warn(
+      '[ChatView] Attempted to send API request with no user message content after formatting.',
+    )
     return
   }
+
+  console.log('[ChatView] Preparing API payload:', {
+    model: chatModel.value,
+    temp: chatTemperature.value,
+    max_tokens: chatMaxTokens.value,
+    top_p: chatTopP.value,
+    messageCount: messagesToSend.length,
+  })
+
+  // Construct the final payload
   const payload = {
-    model: chatModel.value || 'gpt-4o',
-    temperature: chatTemperature.value ?? 0.7,
-    max_tokens: chatMaxTokens.value || 1024,
-    top_p: chatTopP.value ?? 1.0,
+    model: chatModel.value || 'gpt-4o', // Fallback model
+    temperature: chatTemperature.value ?? 0.7, // Use nullish coalescing for 0 temp
+    max_tokens: chatMaxTokens.value || 1024, // Fallback max tokens
+    top_p: chatTopP.value ?? 1.0, // Use nullish coalescing
     messages: messagesToSend,
   }
+
+  // Define API endpoint
   const url = '/.netlify/functions/call-openai-gpt-4'
+
+  // Scroll before sending request
   scrollToBottom()
+
+  // Call the API
   try {
+    console.log('[ChatView] Calling API...')
     const responseData = await callApi(url, payload, 'POST')
-    const aiContent = responseData?.aiText
+    console.log('[ChatView] API call finished. Response:', responseData)
+
+    // Process the response
+    const aiContent = responseData?.aiText // Use optional chaining
     if (typeof aiContent === 'string' && aiContent.trim() !== '') {
+      console.log('[ChatView] Adding AI response to store.')
       conversationStore.addMessageToActiveSession('assistant', aiContent.trim(), Date.now())
-      ttsSpeakText(aiContent.trim())
+      console.log('[ChatView] Attempting TTS for AI response.')
+      ttsSpeakText(aiContent.trim()) // Speak the response if TTS is enabled
     } else {
+      // Handle cases where response exists but aiText is missing/empty
       console.warn('[ChatView] API response missing expected AI content (aiText):', responseData)
       addUiMessage('Received an empty or invalid response from the AI.', true)
     }
   } catch (err) {
-    console.error('[ChatView] Error caught during sendMessage API call:', err)
+    // Errors are now handled by the apiError watcher via useApi composable
+    console.error(
+      '[ChatView] Error caught during sendMessage (should have been handled by watcher):',
+      err,
+    )
+    // Optionally add a generic UI message here if needed, but watcher should cover it.
+    // addUiMessage('An unexpected error occurred communicating with the AI.', true);
   } finally {
+    console.log('[ChatView] sendMessage finally block.')
+    // Ensure UI is responsive after call completes or fails
     scrollToBottom()
     nextTick(() => {
-      inputAreaRef.value?.focus()
+      inputAreaRef.value?.focus() // Refocus input area
     })
   }
 }
 </script>
 
 <style scoped>
+/* Styles are identical to the previous version */
 /* --- Keyframes --- */
 @keyframes faint-icon-glow {
   0%,
@@ -623,11 +782,11 @@ const sendMessage = async () => {
   flex-direction: column;
   background-color: var(--bg-main-content);
   color: var(--text-primary);
-  overflow: hidden;
+  overflow: hidden; /* Prevent chat view itself from scrolling */
 }
 .message-display-area {
   flex-grow: 1;
-  overflow-y: auto;
+  overflow-y: auto; /* Scroll messages */
   padding: 1rem 1rem 1rem 1rem;
   background-color: var(--bg-main-content);
   display: flex;
@@ -637,19 +796,19 @@ const sendMessage = async () => {
 /* --- Assistant Selector --- */
 .assistant-selector-area {
   padding: 0.5rem 0.5rem 0.75rem;
-  background-color: var(--bg-input-area);
+  background-color: var(--bg-input-area); /* Match input area background */
   border-bottom: 1px solid var(--border-color-medium);
   flex-shrink: 0;
-  overflow: hidden;
-  position: sticky;
+  overflow: hidden; /* Hide potential overflow if needed */
+  position: sticky; /* Keep selector visible */
   top: 0;
-  z-index: 10;
+  z-index: 10; /* Above message area */
 }
 .assistant-selector-row {
   display: flex;
   gap: 0.75rem;
-  padding-bottom: 5px;
-  -ms-overflow-style: none;
+  padding-bottom: 5px; /* Space for scrollbar */
+  -ms-overflow-style: none; /* Hide scrollbar IE/Edge */
 }
 .assistant-selector-item {
   display: flex;
@@ -662,14 +821,15 @@ const sendMessage = async () => {
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease;
-  min-width: 70px;
+  min-width: 70px; /* Ensure items have some base width */
   text-align: center;
-  outline: none;
+  outline: none; /* Remove default focus outline */
 }
 .assistant-selector-item:hover {
   background-color: var(--bg-button-secondary-hover);
 }
 .assistant-selector-item:focus-visible {
+  /* Style for keyboard focus */
   border-color: var(--accent-color-secondary, var(--accent-color-primary));
   box-shadow: 0 0 0 1px var(--accent-color-secondary, var(--accent-color-primary));
 }
@@ -718,7 +878,7 @@ const sendMessage = async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 65px;
+  max-width: 65px; /* Limit name width */
 }
 .assistant-selector-item.selected .assistant-selector-name {
   color: var(--text-primary);
@@ -739,28 +899,28 @@ const sendMessage = async () => {
 .message-container {
   display: flex;
   margin-bottom: 0.75rem;
-  max-width: 85%;
-  opacity: 0;
-  transform: translateY(10px);
-  animation: fadeIn 0.3s ease forwards;
-  position: relative;
+  max-width: 85%; /* Max width for messages */
+  opacity: 0; /* Start hidden for animation */
+  transform: translateY(10px); /* Start slightly lower */
+  animation: fadeIn 0.3s ease forwards; /* Fade in animation */
+  position: relative; /* For copy button positioning */
 }
 .user-container {
   align-self: flex-end;
   margin-left: auto;
-  flex-direction: row-reverse;
+  flex-direction: row-reverse; /* Avatar on the right */
 }
 .ai-container,
 .system-container {
   align-self: flex-start;
   margin-right: auto;
-  flex-direction: row;
+  flex-direction: row; /* Avatar on the left */
 }
 .avatar-placeholder {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background-color: var(--bg-avatar-ai);
+  background-color: var(--bg-avatar-ai); /* Default AI avatar bg */
   color: var(--text-light);
   display: flex;
   align-items: center;
@@ -768,41 +928,43 @@ const sendMessage = async () => {
   font-weight: bold;
   font-size: 0.9em;
   flex-shrink: 0;
-  margin-top: 4px;
-  margin-right: 0.5rem;
+  margin-top: 4px; /* Align slightly lower */
+  margin-right: 0.5rem; /* Space between avatar and message */
   user-select: none;
 }
 .user-container .avatar-placeholder {
   margin-right: 0;
   margin-left: 0.5rem;
-  background-color: var(--bg-avatar-user);
+  background-color: var(--bg-avatar-user); /* User avatar bg */
 }
 .system-container .avatar-placeholder {
-  display: none;
+  display: none; /* No avatar for system messages */
 }
 .message {
   padding: 0.6rem 1rem;
   border-radius: 18px;
-  word-wrap: break-word;
+  word-wrap: break-word; /* Break long words */
   font-family: sans-serif;
   line-height: 1.45;
-  position: relative;
-  min-width: 50px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  position: relative; /* For timestamp/copy button */
+  min-width: 50px; /* Minimum width for tiny messages */
+  display: flex; /* Use flex for image/text layout */
+  flex-direction: column; /* Stack image above text/timestamp */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); /* Subtle shadow */
 }
 .user-message {
   background-color: var(--bg-message-user);
   color: var(--text-message-user);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: 6px; /* Tail effect */
 }
 .ai-message {
   background-color: var(--bg-message-ai);
   color: var(--text-message-ai);
-  border-bottom-left-radius: 6px;
+  border-bottom-left-radius: 6px; /* Tail effect */
 }
+/* Style links within message text */
 .message-text :deep(a) {
+  /* Use :deep for slotted/generated content */
   color: var(--text-link);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -813,9 +975,9 @@ const sendMessage = async () => {
   text-decoration: none;
 }
 .system-message {
-  background-color: var(--bg-message-info, #e3f2fd);
+  background-color: var(--bg-message-info, #e3f2fd); /* Fallback color */
   color: var(--text-secondary);
-  width: 100%;
+  width: 100%; /* Span full width */
   text-align: center;
   font-style: italic;
   font-size: 0.9em;
@@ -823,53 +985,53 @@ const sendMessage = async () => {
   border-radius: 8px;
   padding-top: 0.8rem;
   padding-bottom: 0.8rem;
-  margin-left: auto;
+  margin-left: auto; /* Center if container allows */
   margin-right: auto;
   max-width: 90%;
-  box-shadow: none;
+  box-shadow: none; /* Remove bubble shadow */
 }
 .message.error-message-style {
   background-color: var(--bg-message-error);
   color: var(--text-message-error);
   border: 1px solid var(--border-color-error);
-  border-radius: 8px;
+  border-radius: 8px; /* Consistent error style */
 }
 .system-message.error-message-style {
   border-style: solid;
   font-style: normal;
-  background-color: var(--bg-message-error);
+  background-color: var(--bg-message-error); /* Ensure background matches */
   color: var(--text-error);
 }
 .system-container {
-  width: 100%;
+  width: 100%; /* Allow system message to potentially span more width */
   justify-content: center;
   align-self: center;
-  max-width: 100%;
+  max-width: 100%; /* Override container width limit slightly */
 }
 .message-image-thumbnail {
   max-width: 150px;
   max-height: 100px;
   border-radius: 8px;
-  margin-bottom: 0.5rem;
-  object-fit: contain;
+  margin-bottom: 0.5rem; /* Space below image */
+  object-fit: contain; /* Show whole image, scaled down */
   border: 1px solid var(--border-color-light);
-  align-self: flex-start;
+  align-self: flex-start; /* Align image to start */
 }
 .timestamp {
   font-size: 0.7em;
   color: var(--text-timestamp);
-  margin-top: 0.3rem;
+  margin-top: 0.3rem; /* Space above timestamp */
   text-align: right;
   user-select: none;
   -webkit-user-select: none;
-  width: 100%;
+  width: 100%; /* Ensure it takes width for right alignment */
 }
 .placeholder-message {
   color: var(--text-placeholder);
   font-style: italic;
   font-family: sans-serif;
   text-align: center;
-  margin: 2rem auto;
+  margin: 2rem auto; /* Center vertically somewhat */
   padding: 1rem;
   background-color: var(--bg-input-area);
   border-radius: 8px;
@@ -878,7 +1040,7 @@ const sendMessage = async () => {
 .copy-button {
   position: absolute;
   bottom: 2px;
-  right: -30px;
+  right: -30px; /* Position outside the message bubble */
   background-color: transparent;
   border: none;
   color: var(--text-secondary);
@@ -890,22 +1052,25 @@ const sendMessage = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
+  opacity: 0; /* Hidden by default */
   transition:
     opacity 0.2s ease,
     color 0.2s ease,
     background-color 0.2s ease;
-  z-index: 1;
+  z-index: 1; /* Ensure it's clickable */
   padding: 0;
 }
 .ai-container:hover .copy-button {
+  /* Show on AI message hover */
   opacity: 0.6;
 }
 .copy-button:hover:not([data-copied='true']) {
+  /* Brighten on hover */
   opacity: 1;
   color: var(--text-primary);
 }
 .copy-button[data-copied='true'] {
+  /* Copied state */
   opacity: 1;
   background-color: var(--accent-color-primary);
   color: var(--bg-input-area);
@@ -916,15 +1081,15 @@ const sendMessage = async () => {
 /* --- Input Area --- */
 .image-preview-area {
   padding: 0.5rem 0.75rem 0.5rem;
-  margin: 0 0.75rem;
-  background-color: var(--bg-sidebar);
+  margin: 0 0.75rem; /* Align with input area padding */
+  background-color: var(--bg-sidebar); /* Darker background */
   border: 1px solid var(--border-color-medium);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
+  border-bottom: none; /* Remove bottom border */
+  border-radius: 8px 8px 0 0; /* Rounded top corners */
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0;
+  flex-shrink: 0; /* Prevent shrinking */
 }
 .image-preview {
   max-height: 50px;
@@ -941,7 +1106,7 @@ const sendMessage = async () => {
   width: 20px;
   height: 20px;
   font-size: 0.8em;
-  line-height: 1;
+  line-height: 1; /* Better vertical alignment */
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -954,29 +1119,30 @@ const sendMessage = async () => {
 }
 .input-area {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-end; /* Align buttons and textarea baseline */
   padding: 0.75rem;
   background-color: var(--bg-input-area);
-  flex-shrink: 0;
-  gap: 0.5rem;
-  border-radius: 0;
-  border-top: none;
-  position: relative;
+  flex-shrink: 0; /* Prevent shrinking */
+  gap: 0.5rem; /* Space between buttons/textarea */
+  border-radius: 0; /* Flat top edge */
+  border-top: none; /* Remove top border if image preview is shown */
+  position: relative; /* For loading indicator */
 }
+/* Add top border only if image preview is NOT shown */
 .chat-view:not(:has(.image-preview-area)) .input-area {
   border-top: 1px solid var(--border-color-medium);
 }
 .input-area textarea {
-  flex-grow: 1;
+  flex-grow: 1; /* Take available space */
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-color-medium);
-  border-radius: 15px;
-  resize: none;
+  border-radius: 15px; /* Rounded corners */
+  resize: none; /* Disable manual resize */
   font-family: sans-serif;
   font-size: 1em;
-  min-height: 40px;
-  max-height: 150px;
-  overflow-y: auto;
+  min-height: 40px; /* Minimum height = button height */
+  max-height: 150px; /* Limit excessive growth */
+  overflow-y: auto; /* Scroll if content exceeds max-height */
   line-height: 1.4;
   background-color: var(--bg-input-field);
   color: var(--text-primary);
@@ -986,15 +1152,15 @@ const sendMessage = async () => {
 }
 .input-area textarea::placeholder {
   color: var(--text-placeholder);
-  opacity: 1;
+  opacity: 1; /* Ensure placeholder is visible */
 }
 .input-area textarea:hover:not(:focus):not(:disabled) {
-  border-color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary); /* Highlight on hover */
 }
 .input-area textarea:focus {
   outline: none;
-  border-color: var(--accent-color-primary);
-  box-shadow: var(--input-focus-shadow);
+  border-color: var(--accent-color-primary); /* Highlight on focus */
+  box-shadow: var(--input-focus-shadow); /* Add focus ring/shadow */
 }
 .input-area textarea:disabled {
   background-color: color-mix(in srgb, var(--bg-input-field) 50%, var(--bg-input-area));
@@ -1004,15 +1170,15 @@ const sendMessage = async () => {
 .input-area button {
   padding: 0.5rem;
   border: none;
-  border-radius: 50%;
+  border-radius: 50%; /* Circular buttons */
   cursor: pointer;
-  min-height: 40px;
+  min-height: 40px; /* Match textarea min-height */
   min-width: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2em;
-  flex-shrink: 0;
+  font-size: 1.2em; /* Icon size */
+  flex-shrink: 0; /* Prevent button shrinking */
   transition:
     background-color 0.2s ease,
     opacity 0.2s ease,
@@ -1022,11 +1188,11 @@ const sendMessage = async () => {
 .input-area button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
-  animation: none !important;
+  animation: none !important; /* Disable animations when disabled */
   box-shadow: none !important;
 }
 .input-area button:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.95); /* Click feedback */
 }
 .icon-button {
   background-color: var(--bg-button-secondary);
@@ -1038,14 +1204,14 @@ const sendMessage = async () => {
 .icon-button.listening {
   background-color: var(--bg-button-listening);
   color: var(--text-button-listening);
-  animation: pulse-red 1.5s infinite ease-in-out;
+  animation: pulse-red 1.5s infinite ease-in-out; /* Pulse animation */
 }
 .send-button {
   background-color: var(--bg-button-primary);
   color: var(--text-button-primary);
-  font-size: 1.5em;
-  padding: 0.5rem 0.5rem;
-  line-height: 1;
+  font-size: 1.5em; /* Larger send icon */
+  padding: 0.5rem 0.5rem; /* Adjust padding for icon size */
+  line-height: 1; /* Adjust line height */
 }
 .send-button:hover:not(:disabled) {
   background-color: var(--bg-button-primary-hover);
@@ -1053,22 +1219,24 @@ const sendMessage = async () => {
 .send-button:disabled {
   background-color: color-mix(in srgb, var(--bg-button-primary) 50%, var(--bg-input-area));
 }
+/* Send Button Animation Styles */
 .send-button-plasma:not(:disabled) {
   animation: plasma-arrow-pulse 2s infinite ease-in-out;
   box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
 }
 .send-button-plasma.flash-active {
+  /* Triggered on send */
   animation: plasma-shoot 0.3s ease-out forwards;
 }
 .tts-button {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
   font-size: 1.1em;
-  border: 1px solid transparent;
+  border: 1px solid transparent; /* Add border for spacing/alignment */
 }
 .tts-button.tts-on {
   background-color: var(--accent-color-primary);
-  color: var(--bg-input-area);
+  color: var(--bg-input-area); /* Contrast color */
   border-color: var(--accent-color-primary);
 }
 .tts-button:hover:not(:disabled) {
@@ -1076,8 +1244,40 @@ const sendMessage = async () => {
   border-color: transparent;
 }
 .tts-button.tts-on:hover:not(:disabled) {
-  background-color: color-mix(in srgb, var(--accent-color-primary) 90%, #000000);
+  background-color: color-mix(
+    in srgb,
+    var(--accent-color-primary) 90%,
+    #000000
+  ); /* Darken accent */
   border-color: color-mix(in srgb, var(--accent-color-primary) 90%, #000000);
   color: var(--bg-input-area);
+}
+
+/* Loading Indicator (if you add one) */
+.loading-indicator-visual-container {
+  position: absolute;
+  top: -4px; /* Position above the input area border */
+  left: 0;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  background-color: transparent; /* Or a subtle background */
+}
+.loading-indicator-visual {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent-color-primary), transparent);
+  background-size: 200% 100%;
+  animation: loading-gradient 1.5s linear infinite;
+  border-radius: 2px;
+}
+
+@keyframes loading-gradient {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 </style>
