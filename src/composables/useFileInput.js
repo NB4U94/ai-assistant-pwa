@@ -1,7 +1,7 @@
 // src/composables/useFileInput.js
 import { ref } from 'vue'
 
-// Callback type definitions for clarity
+// Callback type definitions for clarity (optional JSDoc)
 /**
  * @callback AddErrorCallback
  * @param {string} errorMessage - The error message text.
@@ -31,11 +31,15 @@ const readFileAsBase64 = (file) => {
           const base64Data = parts[2]
           resolve({ base64Data, mimeType })
         } else {
+          // Handle cases without proper data URI mime type (fallback)
           const commaIndex = result.indexOf(',')
           if (commaIndex !== -1) {
             const base64Data = result.substring(commaIndex + 1)
-            const mimePart = result.substring(0, commaIndex).match(/:(.*?);/)
-            const mimeType = mimePart ? mimePart[1] : file.type
+            // Try to get mime from file object if not in data URI
+            const mimeType = file.type || 'application/octet-stream' // Provide a default mime
+            console.warn(
+              `[useFileInput] Could not parse mime type from Data URL, using file.type: ${mimeType}`,
+            )
             resolve({ base64Data, mimeType })
           } else {
             reject(new Error('Invalid Data URL format.'))
@@ -53,14 +57,22 @@ const readFileAsBase64 = (file) => {
 /**
  * Composable for handling file input, specifically for images.
  *
- * @param {object} options
- * @param {AddErrorCallback} options.addErrorMessage - Callback function to display errors.
- * @param {UpdatePlaceholderCallback} options.updatePlaceholder - Callback to update input placeholder based on selection.
- * @param {ImageSelectedCallback} [options.onImageSelected] - Optional callback executed when image preview is ready.
+ * @param {object} [dependencies={}] - Optional dependencies object.
+ * @param {AddErrorCallback} [dependencies.addErrorMessage] - Callback function to display errors.
+ * @param {UpdatePlaceholderCallback} [dependencies.updatePlaceholder] - Callback to update input placeholder based on selection.
+ * @param {ImageSelectedCallback} [dependencies.onImageSelected] - Optional callback executed when image preview is ready.
  * @returns {object} - Reactive state and methods for file input.
  */
-export function useFileInput({ addErrorMessage, updatePlaceholder, onImageSelected }) {
-  // Added onImageSelected
+export function useFileInput(dependencies = {}) {
+  // Default to empty object
+  // Destructure with safe defaults
+  const {
+    addErrorMessage = (msg) => console.error('useFileInput: addErrorMessage not provided!', msg),
+    updatePlaceholder = (isSelected) =>
+      console.warn('useFileInput: updatePlaceholder not provided! Selected:', isSelected),
+    onImageSelected = () => {}, // Default to an empty function
+  } = dependencies
+
   const selectedImagePreview = ref(null)
   const selectedFile = ref(null)
   const fileInputRef = ref(null)
@@ -71,7 +83,7 @@ export function useFileInput({ addErrorMessage, updatePlaceholder, onImageSelect
 
   const handleFileSelected = async (event) => {
     const file = event.target.files?.[0]
-    event.target.value = null
+    event.target.value = null // Reset input so same file can be selected again
 
     if (!file) {
       removeSelectedImage()
@@ -84,7 +96,7 @@ export function useFileInput({ addErrorMessage, updatePlaceholder, onImageSelect
       return
     }
 
-    const maxMB = 5
+    const maxMB = 20 // Increased max size based on vision model limits
     if (file.size > maxMB * 1024 * 1024) {
       addErrorMessage(`File "${file.name}" is too large (max ${maxMB}MB).`)
       removeSelectedImage()
@@ -93,16 +105,16 @@ export function useFileInput({ addErrorMessage, updatePlaceholder, onImageSelect
 
     selectedFile.value = file
 
+    // Generate preview
     try {
       const previewReader = new FileReader()
       previewReader.onload = (e) => {
-        selectedImagePreview.value = e.target?.result
+        selectedImagePreview.value = e.target?.result?.toString() || null // Ensure string or null
         updatePlaceholder(true)
-        // *** Call the new callback if provided ***
+        // Call the image selected callback
         if (typeof onImageSelected === 'function') {
           onImageSelected()
         }
-        // ******************************************
       }
       previewReader.onerror = (e) => {
         console.error('[useFileInput] Error reading file for preview:', e)
@@ -120,7 +132,11 @@ export function useFileInput({ addErrorMessage, updatePlaceholder, onImageSelect
   const removeSelectedImage = () => {
     selectedImagePreview.value = null
     selectedFile.value = null
-    updatePlaceholder(false)
+    if (fileInputRef.value) {
+      // Clear the file input value if ref exists
+      fileInputRef.value.value = ''
+    }
+    updatePlaceholder(false) // Notify placeholder update
   }
 
   return {
@@ -130,6 +146,6 @@ export function useFileInput({ addErrorMessage, updatePlaceholder, onImageSelect
     triggerFileInput,
     handleFileSelected,
     removeSelectedImage,
-    readFileAsBase64,
+    readFileAsBase64, // Export the utility function if needed elsewhere, or keep internal
   }
 }

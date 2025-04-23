@@ -1,7 +1,7 @@
 // src/composables/useUIUtils.js
 import { reactive } from 'vue'
 
-// Error callback type definition
+// Error callback type definition (optional JSDoc)
 /**
  * @callback AddErrorCallback
  * @param {string} errorMessage - The error message text.
@@ -9,16 +9,24 @@ import { reactive } from 'vue'
 
 /**
  * Composable providing various UI utility functions for the ChatView.
- * @param {object} options
- * @param {AddErrorCallback} options.addErrorMessage - Callback to display errors (used by copyText).
+ * @param {object} [dependencies={}] - Optional dependencies object.
+ * @param {AddErrorCallback} [dependencies.addErrorMessage] - Callback to display errors. Defaults to console.error.
  * @returns {object} - Utility functions and related state.
  */
-export function useUIUtils({ addErrorMessage }) {
+export function useUIUtils(dependencies = {}) {
+  // Default to empty object if no args passed
+  // Destructure with a default function if addErrorMessage is missing
+  const {
+    addErrorMessage = (msg) =>
+      console.error('useUIUtils: addErrorMessage callback was not provided!', msg),
+  } = dependencies
+
   // --- State for Copy Button Animation ---
   const copiedState = reactive({})
 
   // --- Timestamp Formatting ---
   const formatTimestamp = (ts) => {
+    /* ... function body ... */
     if (!ts) return ''
     try {
       return new Date(ts).toLocaleTimeString([], {
@@ -33,49 +41,37 @@ export function useUIUtils({ addErrorMessage }) {
   }
 
   // --- Copy to Clipboard ---
-  /**
-   * Copies text to clipboard and handles button animation state.
-   * @param {string} text - The text to copy.
-   * @param {string | number} messageId - The unique ID of the message being copied.
-   * @param {Event | null} event - Optional click event for button reference (currently not strictly needed).
-   */
   const copyText = async (text, messageId, event = null) => {
+    /* ... function body ... */
     if (!navigator.clipboard) {
       addErrorMessage('Clipboard API not available.')
       return
     }
     if (!messageId) {
-      console.warn('copyText called without messageId for animation.')
-      // Fallback: just copy without animation state if needed, or do nothing
+      console.warn('copyText called without messageId.')
       try {
         await navigator.clipboard.writeText(text)
       } catch (e) {
-        /* ignore fallback error */
+        /* ignore */
       }
       return
     }
-
     try {
       await navigator.clipboard.writeText(text)
       copiedState[messageId] = true
-      // We don't strictly need the button element ref anymore with reactive state driving the template
-      // const buttonElement = event?.currentTarget;
-      // if (buttonElement) buttonElement.disabled = true;
-
       setTimeout(() => {
         copiedState[messageId] = false
-        // if (buttonElement) buttonElement.disabled = false;
       }, 1500)
     } catch (err) {
       console.error('Copy to clipboard failed:', err)
       addErrorMessage(`Copy failed: ${err.message}`)
-      copiedState[messageId] = false // Reset state on error
-      // if (buttonElement) buttonElement.disabled = false;
+      copiedState[messageId] = false
     }
   }
 
   // --- Link Processing ---
   const processMessageText = (text) => {
+    /* ... function body ... */
     if (!text) return [{ type: 'text', text: '' }]
     const urlRegex =
       /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_.]*[-A-Z0-9+&@#/%=~_|])|(\bwww\.[-A-Z0-9+&@#/%?=~_|!:,.;]*[-A-Z0-9+&@#/%?=~_.]*[-A-Z0-9+&@#/%=~_|])(?![^<]*?>|[^<>]*?<\/(a|button|textarea|input|img)[^<>]*?>)/gi
@@ -105,16 +101,17 @@ export function useUIUtils({ addErrorMessage }) {
 
   // --- Textarea Auto-Grow ---
   function autoGrowTextarea(event) {
+    /* ... function body ... */
     const textarea = event.target
     if (!textarea) return
     textarea.style.height = 'auto'
-    const maxH = 150 // Max height in pixels
+    const maxH = 150
     textarea.style.height = `${Math.min(textarea.scrollHeight, maxH)}px`
   }
 
   // --- Return Utilities & State ---
   return {
-    copiedState, // The reactive state for copy animations
+    copiedState,
     formatTimestamp,
     copyText,
     processMessageText,
