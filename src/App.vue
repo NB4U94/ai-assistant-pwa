@@ -20,6 +20,7 @@
       </div>
 
       <button
+        v-if="showRightSidebarAndToggle"
         @click="toggleRightSidebar"
         class="settings-button header-button"
         aria-label="Toggle Quick Options Panel"
@@ -43,14 +44,19 @@
     <div class="main-layout-wrapper">
       <LeftSidebar id="left-sidebar" :class="{ 'sidebar-closed': !isLeftSidebarOpen }" />
       <main id="main-content"><RouterView /></main>
-      <RightSidebar id="right-sidebar" :class="{ 'sidebar-closed': !isRightSidebarOpen }" />
+      <RightSidebar
+        v-if="showRightSidebarAndToggle"
+        id="right-sidebar"
+        :class="{ 'sidebar-closed': !isRightSidebarOpen }"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
+// Script setup content remains the same as response #49
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import LeftSidebar from './components/LeftSidebar.vue'
 import RightSidebar from './components/RightSidebar.vue'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -59,6 +65,7 @@ import { storeToRefs } from 'pinia'
 
 const settingsStore = useSettingsStore()
 const conversationStore = useConversationStore()
+const route = useRoute()
 
 const { theme, appFontSize } = storeToRefs(settingsStore)
 
@@ -74,11 +81,17 @@ const toggleRightSidebar = () => {
   isRightSidebarOpen.value = !isRightSidebarOpen.value
 }
 
+// Computed property to control Right Sidebar visibility
+const showRightSidebarAndToggle = computed(() => {
+  return route.path !== '/settings'
+})
+
 // Theme Management
 const appContainerClass = computed(() => {
   return {
     'dark-theme': theme.value === 'dark',
     'left-sidebar-closed-app': !isLeftSidebarOpen.value,
+    'right-sidebar-hidden-app': !showRightSidebarAndToggle.value || !isRightSidebarOpen.value,
   }
 })
 
@@ -87,45 +100,27 @@ const appStyle = computed(() => ({
   fontSize: `${appFontSize.value}%`,
 }))
 
-// Header Logo Text (Animation logic removed)
+// Header Logo Text
 const logoText = ref('Nb4U-Ai')
-// *** REMOVED flicker/active state logic ***
-// const isHeaderActive = ref(false)
-// let idleFlickerInterval = null
-// let activeTimeout = null
-// const applyFlicker = (...) => { ... }
-// const startHeaderIdleFlicker = (...) => { ... }
-// const stopHeaderIdleFlicker = (...) => { ... }
-// const triggerHeaderActiveAnimation = (...) => { ... }
-// const handleKeyPress = (...) => { ... }
 
-// Before Unload Handler (Keep this)
+// Before Unload Handler
 const handleBeforeUnload = () => {
   console.log('[App.vue] beforeunload event triggered. Saving conversation...')
-  // Ensure save is still called even without flicker logic
   conversationStore.saveActiveConversationToMemories()
 }
 
 onMounted(() => {
-  // *** REMOVED flicker/active state logic listeners ***
-  // startHeaderIdleFlicker()
-  // window.addEventListener('keydown', handleKeyPress)
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
 onUnmounted(() => {
-  // *** REMOVED flicker/active state logic listeners ***
-  // stopHeaderIdleFlicker()
-  // window.removeEventListener('keydown', handleKeyPress)
-  // if (activeTimeout) clearTimeout(activeTimeout)
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
 
 <style>
-/* Global styles (Variables) */
+/* Global styles (Variables) - Unchanged */
 :root {
-  /* ... (Previous variables unchanged) ... */
   --bg-app-container: #ffffff;
   --bg-sidebar: #f0f0f8;
   --bg-main-content: #ffffff;
@@ -147,7 +142,6 @@ onUnmounted(() => {
   --text-primary: #333333;
   --text-secondary: #555555;
   --text-header: #444444;
-  /* --text-header-active: #111111; // No longer needed */
   --text-light: #ffffff;
   --text-placeholder: #888888;
   --text-link: #1a0dab;
@@ -169,10 +163,7 @@ onUnmounted(() => {
   --accent-color-primary: #1e8449;
   --accent-shadow-primary: rgba(30, 132, 73, 0.8);
   --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-  /* Remove unused shadow variables */
-  /* --header-shadow-idle: none; */
-  /* --header-shadow-active: ...; */
-  /* --header-shadow-flicker: ...; */
+  /* Removed unused shadow variables */
   --sidebar-left-width-open: 250px;
   --sidebar-left-width-closed: 60px;
   --sidebar-right-width-open: 200px;
@@ -180,7 +171,6 @@ onUnmounted(() => {
 }
 
 .dark-theme {
-  /* ... (Previous dark variables unchanged) ... */
   --bg-app-container: #1c1c1c;
   --bg-sidebar: #252525;
   --bg-main-content: #1a1a1a;
@@ -202,7 +192,6 @@ onUnmounted(() => {
   --text-primary: #eee;
   --text-secondary: #aaa;
   --text-header: #aaa;
-  /* --text-header-active: #ddd; // No longer needed */
   --text-light: #ffffff;
   --text-placeholder: #888;
   --text-link: #8ab4f8;
@@ -224,14 +213,10 @@ onUnmounted(() => {
   --accent-color-primary: #0f0;
   --accent-shadow-primary: rgba(0, 255, 100, 0.8);
   --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-  /* Remove unused shadow variables */
-  /* --header-shadow-idle: none; */
-  /* --header-shadow-active: ...; */
-  /* --header-shadow-flicker: ...; */
+  /* Removed unused shadow variables */
 }
 
 /* --- Animations --- */
-/* Glow for icons */
 @keyframes faintGreenPulse {
   0%,
   100% {
@@ -241,23 +226,16 @@ onUnmounted(() => {
     filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-color-primary) 70%, transparent));
   }
 }
-/* Glow for logo text */
 @keyframes faintTextGlow {
   0%,
   100% {
-    /* Use text-shadow for logo */
     text-shadow: 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
   }
   50% {
     text-shadow: 0 0 6px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
   }
 }
-
-/* --- Removed Unused Flicker Keyframes --- */
-/* @keyframes basicFlicker { ... } */
-/* @keyframes slowPartialFlicker { ... } */
-/* @keyframes fastFullFlicker { ... } */
-/* @keyframes slowFadeFlicker { ... } */
+/* Removed unused flicker keyframes */
 </style>
 
 <style scoped>
@@ -326,7 +304,7 @@ onUnmounted(() => {
 .hamburger-button span {
   display: block;
   width: 20px;
-  height: 1.5px; /* Thinner lines */
+  height: 1.5px;
   background-color: currentColor;
   border-radius: 1px;
   transition:
@@ -336,7 +314,7 @@ onUnmounted(() => {
 
 /* Settings button specific styles */
 .settings-button {
-  animation-duration: 3.5s; /* Slightly different timing */
+  animation-duration: 3.5s;
 }
 
 /* Header Logo */
@@ -346,26 +324,26 @@ onUnmounted(() => {
   top: 48%;
   transform: translate(-50%, -50%);
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.6em; /* Increased size */
+  font-size: 1.6em;
   font-weight: 600;
-  color: var(--text-light); /* Use white text */
-  text-shadow: none; /* Remove base text-shadow */
-  transition: none; /* Remove transition if only using CSS animation */
+  color: var(--text-light);
+  text-shadow: none;
+  transition: none;
   user-select: none;
   display: inline-block;
-  /* Apply faint text glow animation */
   animation: faintTextGlow 3.2s infinite alternate ease-in-out;
 }
-/* Character span style (unchanged) */
 .header-char {
   display: inline-block;
-  /* Remove transition from JS flicker */
-  /* transition: opacity 0.5s ease, transform 0.3s ease; */
   color: inherit;
 }
-/* Remove active state styles related to JS flicker */
+/* --- REMOVED OBSOLETE/EMPTY RULES for flicker animation --- */
 /* #header-logo.active { ... } */
-/* Removed Flicker Animation class applications */
+/* #header-logo.active .header-char { ... } */
+/* .animate-flicker-basic { ... } */
+/* .animate-flicker-slow-partial { ... } */
+/* .animate-flicker-fast-full { ... } */
+/* .animate-flicker-slow-fade { ... } */
 
 /* Layout Wrapper and Content (Unchanged) */
 .main-layout-wrapper {
@@ -429,4 +407,7 @@ onUnmounted(() => {
   overflow: hidden;
   opacity: 0;
 }
+
+/* --- REMOVED empty rule --- */
+/* .right-sidebar-hidden-app #main-content { ... } */
 </style>

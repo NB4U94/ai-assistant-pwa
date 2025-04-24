@@ -18,9 +18,9 @@
         <SettingsTabGeneral
           :isDarkMode="isDarkMode"
           :toggleTheme="toggleTheme"
+          :showHelp="showHelp"
           :modelValue="appFontSize"
           @update:modelValue="setAppFontSize"
-          :showHelp="showHelp"
         />
       </div>
 
@@ -57,6 +57,10 @@
       <div v-else-if="activeTab === 'assistants'">
         <SettingsTabAssistants :showHelp="showHelp" />
       </div>
+
+      <div v-else-if="activeTab === 'myAi'">
+        <SettingsTabMyAi :showHelp="showHelp" />
+      </div>
     </div>
 
     <div class="modal-overlay help-modal" v-if="isHelpModalVisible" @click.self="closeHelpModal">
@@ -85,25 +89,21 @@ import SettingsTabGeneral from '@/components/settings/SettingsTabGeneral.vue'
 import SettingsTabChat from '@/components/settings/SettingsTabChat.vue'
 import SettingsTabImageGen from '@/components/settings/SettingsTabImageGen.vue'
 import SettingsTabAssistants from '@/components/settings/SettingsTabAssistants.vue'
+import SettingsTabMyAi from '@/components/settings/SettingsTabMyAi.vue'
 
 // --- Use Composables ---
+// *** REMOVED TABS_CONFIG constant and argument to useSettingsTabs ***
 const { activeTab, tabs, changeTab } = useSettingsTabs()
+
 const { isHelpModalVisible, currentHelpContent, showHelp, closeHelpModal } = useSettingsHelpModal()
-
-// Get state and actions from General Settings composable
-// Assuming useGeneralSettings returns appFontSize (ref) and setAppFontSize (action)
 const { isDarkMode, toggleTheme, appFontSize, setAppFontSize } = useGeneralSettings()
-
-// Get state and actions from Chat Settings composable
-// *** REMOVED Safety Filter items ***
-// *** ADDED handleResetChatDefaults ***
 const {
   isTtsEnabled,
   toggleTtsEnabled,
   availableVoices,
   ttsSupported,
-  selectedVoiceUri, // Use state ref
-  setSelectedVoice, // Use action
+  selectedVoiceUri,
+  setSelectedVoice,
   chatTemperature,
   setChatTemperature,
   chatModel,
@@ -117,12 +117,12 @@ const {
   chatTopP,
   setChatTopP,
   handleClearHistory,
-  handleResetChatDefaults, // Get the reset handler
+  handleResetChatDefaults,
 } = useChatSettings()
 </script>
 
 <style scoped>
-/* Styles remain the same */
+/* Styles remain the same as response #50 */
 .settings-view {
   padding: 1.5rem 2rem;
   height: 100%;
@@ -173,6 +173,8 @@ h2 {
 .settings-tab-content {
   padding-top: 1rem;
 }
+
+/* Modal styles */
 .modal-overlay.help-modal {
   position: fixed;
   top: 0;

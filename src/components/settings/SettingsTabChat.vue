@@ -6,7 +6,8 @@
         <span class="setting-description">Allow the AI to speak responses aloud.</span>
       </label>
       <div
-        :class="['toggle-switch-placeholder', { active: props.isTtsEnabled }]"
+        :class="['toggle-switch', { active: props.isTtsEnabled }]"
+        class="toggle-switch"
         id="tts-master-toggle"
         role="switch"
         :aria-checked="props.isTtsEnabled.toString()"
@@ -15,11 +16,22 @@
         @keydown.space.prevent="props.toggleTtsEnabled"
         tabindex="0"
         :title="`Turn TTS ${props.isTtsEnabled ? 'OFF' : 'ON'}`"
-        :disabled="!props.ttsSupported"
+        :aria-disabled="!props.ttsSupported"
+        :style="{
+          cursor: props.ttsSupported ? 'pointer' : 'not-allowed',
+          opacity: props.ttsSupported ? 1 : 0.5,
+        }"
       >
         <div class="toggle-knob"></div>
       </div>
-      <button class="help-button" @click="showTtsHelp">?</button>
+      <button
+        class="help-button pulsing-help"
+        @click="showTtsHelp"
+        aria-label="Help with TTS"
+        title="Help with TTS"
+      >
+        ?
+      </button>
     </div>
 
     <div class="setting-item">
@@ -30,15 +42,18 @@
       <select
         id="tts-voice-select"
         class="settings-select"
-        :value="props.modelValue"
-        @change="emit('update:modelValue', $event.target.value)"
-        :disabled="!props.ttsSupported || props.availableVoices.length === 0"
+        v-model="ttsVoiceModel"
+        :disabled="!props.isTtsEnabled || !props.ttsSupported || props.availableVoices.length === 0"
+        aria-label="AI Voice Selection"
       >
         <option :value="null">System Default</option>
-        <option v-if="props.ttsSupported && props.availableVoices.length === 0" disabled>
+        <option
+          v-if="props.ttsSupported && props.availableVoices.length === 0 && props.isTtsEnabled"
+          disabled
+        >
           Loading voices...
         </option>
-        <option v-if="!props.ttsSupported" disabled>TTS Not Available</option>
+        <option v-if="!props.ttsSupported" disabled>TTS Not Supported by Browser</option>
         <option
           v-for="voice in props.availableVoices"
           :key="voice.voiceURI"
@@ -47,14 +62,23 @@
           {{ voice.name }} ({{ voice.lang }})
         </option>
       </select>
-      <button class="help-button" @click="showVoiceHelp">?</button>
+      <button
+        class="help-button pulsing-help"
+        @click="showVoiceHelp"
+        aria-label="Help with AI Voice"
+        title="Help with AI Voice"
+      >
+        ?
+      </button>
     </div>
 
     <div class="setting-item">
       <label for="context-length" class="setting-label">
         Conversation Context Length
         <span class="setting-description"
-          >How many past message pairs to send as context (1-10).</span
+          >How many past message pairs to send ({{ settingsStore.MIN_CONTEXT_LENGTH }}-{{
+            settingsStore.MAX_CONTEXT_LENGTH
+          }}).</span
         >
       </label>
       <div class="slider-container">
@@ -62,27 +86,31 @@
           type="range"
           id="context-length"
           class="settings-slider"
-          min="1"
-          max="10"
+          :min="settingsStore.MIN_CONTEXT_LENGTH"
+          :max="settingsStore.MAX_CONTEXT_LENGTH"
           step="1"
-          :value="props.contextLength"
-          @input="emit('update:contextLength', Number($event.target.value))"
+          v-model.number="contextLengthModel"
           aria-label="Conversation Context Length"
         />
-        <span class="slider-value">{{ props.contextLength }}</span>
+        <span class="slider-value">{{ contextLengthModel }}</span>
       </div>
-      <button class="help-button" @click="showContextHelp">?</button>
+      <button
+        class="help-button pulsing-help"
+        @click="showContextHelp"
+        aria-label="Help with Context Length"
+        title="Help with Context Length"
+      >
+        ?
+      </button>
     </div>
 
     <div class="setting-item">
       <label for="send-enter-toggle" class="setting-label">
         Send on Enter Key
-        <span class="setting-description"
-          >Press Enter to send message (Shift+Enter for new line).</span
-        >
+        <span class="setting-description">Press Enter to send (Shift+Enter for new line).</span>
       </label>
       <div
-        :class="['toggle-switch-placeholder', { active: props.sendOnEnter }]"
+        :class="['toggle-switch', { active: props.sendOnEnter }]"
         id="send-enter-toggle"
         role="switch"
         :aria-checked="props.sendOnEnter.toString()"
@@ -94,137 +122,211 @@
       >
         <div class="toggle-knob"></div>
       </div>
-      <button class="help-button" @click="showSendOnEnterHelp">?</button>
+      <button
+        class="help-button pulsing-help"
+        @click="showSendOnEnterHelp"
+        aria-label="Help with Send on Enter"
+        title="Help with Send on Enter"
+      >
+        ?
+      </button>
     </div>
 
-    <div class="advanced-settings-section">
+    <div
+      class="advanced-toggle-header"
+      @click="toggleAdvanced"
+      tabindex="0"
+      @keydown.enter.prevent="toggleAdvanced"
+      @keydown.space.prevent="toggleAdvanced"
+    >
       <h3>Advanced Chat Settings</h3>
-
-      <div class="setting-item">
-        <label for="chat-model-select" class="setting-label">
-          Chat Model
-          <span class="setting-description">Select the base AI model.</span>
-        </label>
-        <select
-          id="chat-model-select"
-          class="settings-select"
-          :value="props.modelId"
-          @change="emit('update:modelId', $event.target.value)"
-          aria-label="Chat Model Selection"
+      <button
+        class="advanced-arrow"
+        :class="{ expanded: isAdvancedVisible }"
+        aria-label="Toggle Advanced Settings"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          width="20px"
+          height="20px"
         >
-          <option value="gpt-4o">GPT-4o (Latest)</option>
-          <option value="gpt-4-turbo">GPT-4 Turbo</option>
-          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-        </select>
-        <button class="help-button" @click="showChatModelHelp">?</button>
-      </div>
-
-      <div class="setting-item">
-        <label for="temperature-slider" class="setting-label">
-          Temperature
-          <span class="setting-description">Controls randomness. Lower is more focused.</span>
-        </label>
-        <div class="slider-container">
-          <input
-            type="range"
-            id="temperature-slider"
-            class="settings-slider"
-            min="0"
-            max="2"
-            step="0.1"
-            :value="props.temperature"
-            @input="emit('update:temperature', Number($event.target.value))"
-            aria-label="Chat Temperature"
-          />
-          <span class="slider-value">{{ props.temperature.toFixed(1) }}</span>
-        </div>
-        <button class="help-button" @click="showTemperatureHelp">?</button>
-      </div>
-
-      <div class="setting-item">
-        <label for="top-p-slider" class="setting-label">
-          Top-P (Nucleus Sampling)
-          <span class="setting-description">Alternative randomness control (0.0 - 1.0).</span>
-        </label>
-        <div class="slider-container">
-          <input
-            type="range"
-            id="top-p-slider"
-            class="settings-slider"
-            min="0"
-            max="1"
-            step="0.01"
-            :value="props.chatTopP"
-            @input="emit('update:chatTopP', Number($event.target.value))"
-            aria-label="Top-P Nucleus Sampling"
-          />
-          <span class="slider-value">{{ props.chatTopP.toFixed(2) }}</span>
-        </div>
-        <button class="help-button" @click="showTopPHelp">?</button>
-      </div>
-
-      <div class="setting-item">
-        <label for="max-tokens-input" class="setting-label">
-          Max Response Tokens
-          <span class="setting-description">Max length of AI response.</span>
-        </label>
-        <input
-          type="number"
-          id="max-tokens-input"
-          class="settings-input"
-          :value="props.maxTokens"
-          @input="
-            emit('update:maxTokens', $event.target.value === '' ? '' : Number($event.target.value))
-          "
-          min="1"
-          step="1"
-          placeholder="e.g., 1024"
-          aria-label="Maximum response tokens"
-        />
-        <button class="help-button" @click="showMaxTokensHelp">?</button>
-      </div>
-
-      <div class="setting-item">
-        <label class="setting-label">
-          Clear Chat History
-          <span class="setting-description"
-            >Permanently delete messages in the current session.</span
-          >
-        </label>
-        <button class="quick-setting-button danger-button" @click="props.handleClearHistory">
-          Clear Now
-        </button>
-        <button class="help-button" @click="showClearHistoryHelp">?</button>
-      </div>
-
-      <div class="setting-item">
-        <label class="setting-label">
-          Reset Chat Settings
-          <span class="setting-description">Reset all settings on this tab to their defaults.</span>
-        </label>
-        <button class="quick-setting-button" @click="props.handleResetChatDefaults">
-          Reset Chat Defaults
-        </button>
-        <button class="help-button" @click="showResetChatHelp">?</button>
-      </div>
+          <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+        </svg>
+      </button>
     </div>
+
+    <transition name="collapse">
+      <div class="advanced-settings-section" v-show="isAdvancedVisible">
+        <div class="setting-item">
+          <label for="chat-model-select" class="setting-label">
+            Chat Model
+            <span class="setting-description">Select the base AI model.</span>
+          </label>
+          <select
+            id="chat-model-select"
+            class="settings-select"
+            v-model="modelIdModel"
+            aria-label="Chat Model Selection"
+          >
+            <option value="gpt-4o">GPT-4o (Latest)</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+          </select>
+          <button
+            class="help-button pulsing-help"
+            @click="showChatModelHelp"
+            aria-label="Help with Chat Model"
+            title="Help with Chat Model"
+          >
+            ?
+          </button>
+        </div>
+
+        <div class="setting-item">
+          <label for="temperature-slider" class="setting-label">
+            Temperature
+            <span class="setting-description"
+              >Controls randomness (0.0-2.0). Lower is more focused.</span
+            >
+          </label>
+          <div class="slider-container">
+            <input
+              type="range"
+              id="temperature-slider"
+              class="settings-slider"
+              min="0"
+              max="2"
+              step="0.1"
+              v-model.number="temperatureModel"
+              aria-label="Chat Temperature"
+            />
+            <span class="slider-value">{{ temperatureModel.toFixed(1) }}</span>
+          </div>
+          <button
+            class="help-button pulsing-help"
+            @click="showTemperatureHelp"
+            aria-label="Help with Temperature"
+            title="Help with Temperature"
+          >
+            ?
+          </button>
+        </div>
+
+        <div class="setting-item">
+          <label for="top-p-slider" class="setting-label">
+            Top-P (Nucleus Sampling)
+            <span class="setting-description">Alternative randomness control (0.0 - 1.0).</span>
+          </label>
+          <div class="slider-container">
+            <input
+              type="range"
+              id="top-p-slider"
+              class="settings-slider"
+              :min="settingsStore.MIN_TOP_P"
+              :max="settingsStore.MAX_TOP_P"
+              step="0.01"
+              v-model.number="chatTopPModel"
+              aria-label="Top-P Nucleus Sampling"
+            />
+            <span class="slider-value">{{ chatTopPModel.toFixed(2) }}</span>
+          </div>
+          <button
+            class="help-button pulsing-help"
+            @click="showTopPHelp"
+            aria-label="Help with Top-P"
+            title="Help with Top-P"
+          >
+            ?
+          </button>
+        </div>
+
+        <div class="setting-item">
+          <label for="max-tokens-input" class="setting-label">
+            Max Response Tokens
+            <span class="setting-description">Max length of AI response (approx words/chars).</span>
+          </label>
+          <input
+            type="number"
+            id="max-tokens-input"
+            class="settings-input number-input"
+            v-model="maxTokensModel"
+            min="1"
+            step="1"
+            placeholder="e.g., 1024"
+            aria-label="Maximum response tokens"
+          />
+          <button
+            class="help-button pulsing-help"
+            @click="showMaxTokensHelp"
+            aria-label="Help with Max Tokens"
+            title="Help with Max Tokens"
+          >
+            ?
+          </button>
+        </div>
+
+        <div class="setting-item">
+          <label class="setting-label">
+            Clear Chat History (Current Session)
+            <span class="setting-description">Permanently delete messages in the active chat.</span>
+          </label>
+          <button class="quick-setting-button danger-button" @click="props.handleClearHistory">
+            Clear Now
+          </button>
+          <button
+            class="help-button pulsing-help"
+            @click="showClearHistoryHelp"
+            aria-label="Help with Clear History"
+            title="Help with Clear History"
+          >
+            ?
+          </button>
+        </div>
+
+        <div class="setting-item">
+          <label class="setting-label">
+            Reset Chat Settings
+            <span class="setting-description"
+              >Reset all settings on this tab to their defaults.</span
+            >
+          </label>
+          <button class="quick-setting-button" @click="props.handleResetChatDefaults">
+            Reset Chat Defaults
+          </button>
+          <button
+            class="help-button pulsing-help"
+            @click="showResetChatHelp"
+            aria-label="Help with Reset Chat Settings"
+            title="Help with Reset Chat Settings"
+          >
+            ?
+          </button>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup>
-// Script remains the same as the previous version
-import { defineProps, defineEmits } from 'vue'
+import { defineProps, defineEmits, computed, ref } from 'vue'
+// *** Import store for constants ***
+import { useSettingsStore } from '@/stores/settingsStore'
 
+const settingsStore = useSettingsStore() // Get store instance for constants
+
+// --- Props ---
 const props = defineProps({
   isTtsEnabled: { type: Boolean, required: true },
   toggleTtsEnabled: { type: Function, required: true },
   ttsSupported: { type: Boolean, required: true },
-  modelValue: { type: [String, null], default: null },
+  modelValue: { type: [String, null], default: null }, // For TTS Voice v-model
   availableVoices: { type: Array, required: true },
   showHelp: { type: Function, required: true },
   temperature: { type: Number, required: true },
   modelId: { type: String, required: true },
-  maxTokens: { type: [Number, String], required: true },
+  maxTokens: { type: [Number, String, null], required: true }, // Allow null from store
   contextLength: { type: Number, required: true },
   sendOnEnter: { type: Boolean, required: true },
   toggleSendOnEnter: { type: Function, required: true },
@@ -233,8 +335,9 @@ const props = defineProps({
   handleResetChatDefaults: { type: Function, required: true },
 })
 
+// --- Emits ---
 const emit = defineEmits([
-  'update:modelValue',
+  'update:modelValue', // For TTS Voice v-model
   'update:temperature',
   'update:modelId',
   'update:maxTokens',
@@ -242,48 +345,104 @@ const emit = defineEmits([
   'update:chatTopP',
 ])
 
+// --- Computed properties for v-model bindings ---
+const ttsVoiceModel = computed({
+  get: () => props.modelValue,
+  set: (value) => emit('update:modelValue', value),
+})
+const contextLengthModel = computed({
+  get: () => props.contextLength,
+  set: (value) => emit('update:contextLength', Number(value)), // Ensure number
+})
+const modelIdModel = computed({
+  get: () => props.modelId,
+  set: (value) => emit('update:modelId', value),
+})
+const temperatureModel = computed({
+  get: () => props.temperature,
+  set: (value) => emit('update:temperature', Number(value)), // Ensure number
+})
+const chatTopPModel = computed({
+  get: () => props.chatTopP,
+  set: (value) => emit('update:chatTopP', Number(value)), // Ensure number
+})
+const maxTokensModel = computed({
+  get: () => props.maxTokens,
+  set: (value) => {
+    // Emit empty string if input is cleared, otherwise emit number
+    const numValue = value === '' ? '' : Number(value)
+    emit('update:maxTokens', numValue)
+  },
+})
+
+// --- Advanced Section State & Toggle ---
+const isAdvancedVisible = ref(false) // Default collapsed
+const toggleAdvanced = () => {
+  isAdvancedVisible.value = !isAdvancedVisible.value
+}
+
+// --- Help Text Handlers ---
 const showTtsHelp = () =>
-  props.showHelp('Enable TTS', `Allows the AI's chat responses to be spoken aloud...`)
+  props.showHelp(
+    'Enable TTS',
+    `Allows the AI's chat responses to be spoken aloud using your browser's text-to-speech capabilities. Requires browser support.`,
+  )
 const showVoiceHelp = () =>
-  props.showHelp('AI Voice Selection', `Choose from available system voices...`)
+  props.showHelp(
+    'AI Voice Selection',
+    `Choose from the voices available in your browser or operating system. 'System Default' allows the browser to choose.`,
+  )
 const showContextHelp = () =>
-  props.showHelp('Conversation Context Length', 'Determines how many previous message pairs...')
+  props.showHelp(
+    'Conversation Context Length',
+    `Determines how many previous pairs of user/AI messages are sent back to the AI with your new message. More context helps the AI remember the conversation better but uses more tokens (potentially increasing cost/time and hitting limits). Recommended range: 3-7.`,
+  )
 const showSendOnEnterHelp = () =>
-  props.showHelp('Send on Enter', `When enabled, pressing the Enter key...`)
-const showChatModelHelp = () => props.showHelp('Chat Model', 'Selects the underlying AI engine...')
+  props.showHelp(
+    'Send on Enter',
+    `When enabled, pressing the Enter key in the chat input will send the message immediately. Use Shift+Enter to create a new line within the input box. When disabled, Enter creates a new line, and you must click the Send button.`,
+  )
+const showChatModelHelp = () =>
+  props.showHelp(
+    'Chat Model',
+    'Selects the underlying AI language model used for generating chat responses. Different models have varying capabilities, knowledge cutoffs, speeds, and costs (e.g., GPT-4o is generally more capable but potentially slower/more expensive than GPT-3.5 Turbo).',
+  )
 const showTemperatureHelp = () =>
-  props.showHelp('Temperature', `Controls the perceived creativity/randomness...`)
+  props.showHelp(
+    'Temperature (0.0 - 2.0)',
+    `Controls the randomness of the AI's responses. Lower values (e.g., 0.2) make the output more focused, deterministic, and repetitive. Higher values (e.g., 1.0+) make it more creative, diverse, and potentially less coherent. Default is often around 0.7.`,
+  )
 const showMaxTokensHelp = () =>
-  props.showHelp('Max Response Tokens', "Limits the maximum length of the AI's response...")
+  props.showHelp(
+    'Max Response Tokens',
+    "Limits the maximum length (in 'tokens', roughly parts of words) of the AI's generated response. Leave blank or set a high value (e.g., 1024 or more) for longer answers. Setting it too low might cut off responses abruptly.",
+  )
 const showTopPHelp = () =>
-  props.showHelp('Top-P (Nucleus Sampling)', `An alternative way to control randomness...`)
+  props.showHelp(
+    'Top-P (Nucleus Sampling) (0.0 - 1.0)',
+    `An alternative method to control randomness. The AI considers only the most probable words whose cumulative probability exceeds the 'Top-P' value. A value of 1.0 considers all words. A lower value (e.g., 0.9) restricts the choices, making responses less random but potentially more coherent. It's generally recommended to adjust *either* Temperature *or* Top-P, not both simultaneously.`,
+  )
 const showClearHistoryHelp = () =>
-  props.showHelp('Clear Chat History', `WARNING: Immediately and permanently deletes...`)
+  props.showHelp(
+    'Clear Chat History',
+    `WARNING: Immediately and permanently deletes all messages within the *currently active* chat session shown in the main chat view. This does NOT delete saved Memories unless you are currently viewing a loaded Memory (in which case it empties that Memory).`,
+  )
 const showResetChatHelp = () =>
-  props.showHelp('Reset Chat Settings', `Resets all options on this "Chat" tab...`)
+  props.showHelp(
+    'Reset Chat Settings',
+    `Resets all options specifically on this "Chat" settings tab back to their original default values.`,
+  )
 </script>
 
 <style scoped>
-/* --- Toggle active state CSS UPDATED FOR SPECIFICITY --- */
-/* Use element.class.class selector */
-div.toggle-switch-placeholder.active {
-  background-color: var(--accent-color-primary); /* Use theme variable */
-}
-/* Also target knob within active toggle */
-div.toggle-switch-placeholder.active .toggle-knob {
-  transform: translateX(20px);
-}
-/* --- End CSS Update --- */
-
-/* Styles remain the same */
-/* ... all other styles from previous version ... */
+/* Reuse styles from SettingsTabGeneral where possible */
 .setting-item {
   display: grid;
   grid-template-columns: 1fr auto auto; /* Label | Control | Help */
   align-items: center;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border-color-light);
-  gap: 1rem; /* Gap between columns */
+  gap: 1rem;
 }
 .setting-item:last-child {
   border-bottom: none;
@@ -294,70 +453,92 @@ div.toggle-switch-placeholder.active .toggle-knob {
   flex-direction: column;
   font-weight: 500;
   font-family: sans-serif;
-  cursor: default; /* Labels aren't interactive themselves */
-  margin-right: 1rem; /* Space between label and control */
+  cursor: default;
+  margin-right: 1rem;
+  line-height: 1.3;
 }
-
 .setting-description {
   font-size: 0.8em;
   color: var(--text-secondary);
   font-weight: 400;
   margin-top: 0.2rem;
-  white-space: normal; /* Allow description to wrap */
+  white-space: normal;
 }
 
-.slider-container {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem; /* Space between slider and value display */
-  justify-self: end; /* Align container to the right grid column */
-}
-
-.slider-value {
-  font-size: 0.9em;
-  color: var(--text-secondary);
-  min-width: 4ch; /* Ensure space for values like 1.00 or 10 */
-  text-align: right;
-  font-variant-numeric: tabular-nums; /* Keep numbers aligned */
-}
-
-/* Align controls and buttons to the right */
-.toggle-switch-placeholder,
+/* Align controls and help button to the end */
+.toggle-switch, /* Use actual class */
 .settings-select,
-.settings-slider, /* Slider itself within its container */
+.settings-slider,
 .settings-input,
 .quick-setting-button,
-.help-button {
-  justify-self: end; /* Align item itself to the end of its grid cell */
+.help-button,
+.slider-container {
+  justify-self: end;
 }
-/* Override for slider within its container */
 .slider-container .settings-slider {
-  justify-self: initial; /* Slider takes space within the flex container */
+  justify-self: initial;
 }
 
-.toggle-switch-placeholder {
+/* Control base styles */
+.settings-select,
+.settings-slider,
+.settings-input {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color-medium);
+  background-color: var(--bg-input-field);
+  color: var(--text-primary);
+  font-family: sans-serif;
+  font-size: 0.9em;
+  flex-shrink: 0;
+  min-width: 80px;
+  max-width: 250px;
+  box-sizing: border-box;
+}
+.settings-select:focus,
+.settings-slider:focus,
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+.settings-select:disabled,
+.settings-slider:disabled,
+.settings-input:disabled,
+.quick-setting-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
+}
+
+/* Toggle switch */
+.toggle-switch {
   width: 44px;
   height: 24px;
   background-color: var(--bg-button-secondary);
   border-radius: 12px;
   padding: 2px;
   cursor: pointer;
-  display: flex; /* Use flex to align knob */
+  display: flex;
   align-items: center;
   transition: background-color 0.3s ease;
   flex-shrink: 0;
   border: 1px solid var(--border-color-medium);
   outline: none;
+  box-sizing: content-box;
 }
-.toggle-switch-placeholder[disabled] {
+.toggle-switch[aria-disabled='true'] {
+  /* Correct attribute selector */
   opacity: 0.5;
   cursor: not-allowed;
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
 }
-.toggle-switch-placeholder:not([disabled]):focus-visible {
+.toggle-switch:not([aria-disabled='true']):focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
-
+.toggle-switch[aria-checked='true'] {
+  background-color: var(--accent-color-primary);
+}
 .toggle-knob {
   width: 20px;
   height: 20px;
@@ -366,55 +547,35 @@ div.toggle-switch-placeholder.active .toggle-knob {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   transition: transform 0.3s ease;
 }
+.toggle-switch[aria-checked='true'] .toggle-knob {
+  transform: translateX(20px);
+}
 
-/* Select, Input, Buttons Base Styles */
-.settings-select,
-.settings-input,
-.quick-setting-button {
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-color-medium);
-  background-color: var(--bg-input-field);
-  color: var(--text-primary);
-  font-family: sans-serif;
+/* Slider specific styles */
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.slider-value {
   font-size: 0.9em;
-  flex-shrink: 0; /* Prevent shrinking in grid */
-  box-sizing: border-box;
-  min-width: 80px; /* Minimum width */
+  color: var(--text-secondary);
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.settings-select:focus,
-.settings-input:focus {
-  outline: none;
-  border-color: var(--accent-color-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.settings-select:disabled,
-.settings-input:disabled,
-.quick-setting-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
-}
-
-/* Specific Control Styles */
-.settings-select {
-  max-width: 250px; /* Limit dropdown width */
-}
-
 .settings-slider {
   cursor: pointer;
   padding: 0;
-  height: 20px; /* Example height */
+  height: 20px;
   vertical-align: middle;
-  min-width: 120px; /* Ensure slider has decent width */
+  min-width: 120px;
   max-width: 150px;
-  /* Add appearance reset if needed */
   -webkit-appearance: none;
   appearance: none;
-  background: transparent; /* Let track be styled */
-  border: none; /* Remove default border if any */
+  background: transparent;
+  border: none;
 }
-/* Optional: Style slider thumb/track */
 .settings-slider::-webkit-slider-runnable-track {
   height: 6px;
   background: var(--border-color-light);
@@ -426,45 +587,46 @@ div.toggle-switch-placeholder.active .toggle-knob {
   border-radius: 3px;
 }
 .settings-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; /* Override default look */
+  -webkit-appearance: none;
   appearance: none;
-  margin-top: -7px; /* Center thumb on track (tweak as needed) */
+  margin-top: -7px;
   background: var(--accent-color-primary);
   height: 20px;
   width: 20px;
   border-radius: 50%;
   cursor: pointer;
-  border: 2px solid var(--bg-input-field); /* Match background */
+  border: 2px solid var(--bg-input-field);
 }
 .settings-slider::-moz-range-thumb {
   background: var(--accent-color-primary);
-  height: 16px; /* Firefox might size slightly differently */
+  height: 16px;
   width: 16px;
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid var(--bg-input-field);
 }
 .settings-slider:focus::-webkit-slider-thumb {
-  /* Focus style for thumb */
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
 }
 .settings-slider:focus::-moz-range-thumb {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
 }
 
+/* Input number specific styles */
 .settings-input {
   max-width: 150px;
-  text-align: right; /* Align number input text */
+  text-align: right;
 }
 .settings-input[type='number'] {
-  -moz-appearance: textfield; /* Firefox */
+  -moz-appearance: textfield;
 }
 .settings-input[type='number']::-webkit-outer-spin-button,
 .settings-input[type='number']::-webkit-inner-spin-button {
-  -webkit-appearance: none; /* Safari and Chrome */
+  -webkit-appearance: none;
   margin: 0;
 }
 
+/* Button styles */
 .quick-setting-button {
   text-align: center;
   cursor: pointer;
@@ -476,7 +638,7 @@ div.toggle-switch-placeholder.active .toggle-knob {
   background-color: var(--bg-button-secondary-hover);
 }
 .danger-button {
-  background-color: var(--bg-error, #a04040); /* Use a variable or fallback */
+  background-color: var(--bg-error, #a04040);
   color: var(--text-light, white);
   border-color: var(--bg-error, #a04040);
 }
@@ -484,7 +646,17 @@ div.toggle-switch-placeholder.active .toggle-knob {
   background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
 }
+.setting-item:has(.quick-setting-button:not(.danger-button)) .quick-setting-button {
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
+  border-color: var(--border-color-medium);
+}
+.setting-item:has(.quick-setting-button:not(.danger-button))
+  .quick-setting-button:not(:disabled):hover {
+  background-color: var(--bg-button-secondary-hover);
+}
 
+/* Help button */
 .help-button {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
@@ -510,26 +682,88 @@ div.toggle-switch-placeholder.active .toggle-knob {
 .help-button:hover {
   background-color: var(--bg-button-secondary-hover);
 }
-
-.advanced-settings-section {
-  margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid var(--border-color-medium);
+.help-button.pulsing-help {
+  animation: faintGreenPulse 3s infinite alternate ease-in-out;
 }
-.advanced-settings-section h3 {
-  margin-bottom: 1rem;
+
+/* Advanced Section */
+.advanced-toggle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 0.5rem;
+  margin-top: 2rem;
+  background-color: var(--bg-input-area);
+  border: 1px solid var(--border-color-light);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  outline: none;
+}
+.advanced-toggle-header:hover {
+  background-color: var(--bg-button-secondary-hover);
+}
+.advanced-toggle-header:focus-visible {
+  border-color: var(--accent-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+.advanced-toggle-header h3 {
+  margin: 0;
   color: var(--text-secondary);
   font-weight: 600;
+  font-size: 0.95em;
+  user-select: none;
+}
+.advanced-arrow {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    transform 0.3s ease,
+    color 0.2s ease;
+  animation: faintGreenPulse 3.5s infinite alternate ease-in-out;
+}
+.advanced-arrow:hover {
+  color: var(--text-primary);
+}
+.advanced-arrow svg {
+  display: block;
+}
+.advanced-arrow.expanded {
+  transform: rotate(180deg);
+}
+.advanced-settings-section {
+  padding: 1rem 1rem 0 1rem;
+  border: 1px solid var(--border-color-light);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  margin-bottom: 1rem;
+  background-color: var(--bg-main-content);
+  overflow: hidden;
 }
 
-/* Style for the new reset button - can be adjusted */
-.setting-item:has(.quick-setting-button:not(.danger-button)) .quick-setting-button {
-  background-color: var(--bg-button-secondary); /* Default secondary style */
-  color: var(--text-button-secondary);
-  border-color: var(--border-color-medium);
+/* Collapse Transition */
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.3s ease-in-out;
+  max-height: 600px;
+  overflow: hidden;
 }
-.setting-item:has(.quick-setting-button:not(.danger-button))
-  .quick-setting-button:not(:disabled):hover {
-  background-color: var(--bg-button-secondary-hover);
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  margin-top: 0;
+}
+.collapse-enter-to,
+.collapse-leave-from {
+  opacity: 1;
+  max-height: 600px;
 }
 </style>

@@ -6,24 +6,24 @@
         <span class="setting-description">Switch between light and dark mode.</span>
       </label>
       <div
-        class="toggle-switch-placeholder"
+        class="toggle-switch"
         id="theme-toggle"
         role="switch"
-        :aria-checked="isDarkMode.toString()"
-        @click="toggleTheme"
-        @keydown.enter="toggleTheme"
-        @keydown.space.prevent="toggleTheme"
+        :aria-checked="props.isDarkMode.toString()"
+        @click="props.toggleTheme"
+        @keydown.enter="props.toggleTheme"
+        @keydown.space.prevent="props.toggleTheme"
         tabindex="0"
-        :title="`Switch to ${isDarkMode ? 'light' : 'dark'} mode`"
+        :title="`Switch to ${props.isDarkMode ? 'light' : 'dark'} mode`"
       >
         <div class="toggle-knob"></div>
       </div>
       <button
-        class="help-button"
+        class="help-button pulsing-help"
         @click="
           showHelp(
             'Theme Setting',
-            'This setting controls the overall appearance of the application. \'Dark\' mode uses a darker color scheme, which can be easier on the eyes in low light. \'Light\' mode uses a brighter scheme, which some users prefer during the day. Your choice is saved automatically.',
+            'Controls the overall appearance. \'Dark\' mode uses a darker scheme, good for low light. \'Light\' mode uses a brighter scheme. Your choice is saved automatically.',
           )
         "
         aria-label="Help with Theme Setting"
@@ -43,19 +43,19 @@
           type="range"
           id="font-size-slider"
           class="settings-slider"
-          min="80"
-          max="120"
+          :min="settingsStore.MIN_FONT_SIZE"
+          :max="settingsStore.MAX_FONT_SIZE"
           v-model="fontSizeModel"
           aria-label="App Font Size"
         />
         <span class="slider-value">{{ fontSizeModel }}%</span>
       </div>
       <button
-        class="help-button"
+        class="help-button pulsing-help"
         @click="
           showHelp(
             'App Font Size',
-            'Increases or decreases the size of most text within the application (as a percentage of the default size) for better readability. Affects menus, chat bubbles, settings descriptions, etc.',
+            'Increases or decreases the size of most text (as a percentage of default) for better readability.',
           )
         "
       >
@@ -64,26 +64,31 @@
     </div>
 
     <div class="setting-item">
-      <label for="notification-toggle" class="setting-label">
-        Enable Notifications (Placeholder)
-        <span class="setting-description">Allow the app to send browser notifications.</span>
+      <label for="sound-toggle" class="setting-label">
+        UI Sound Effects
+        <span class="setting-description"
+          >Enable sounds for actions like message send/receive.</span
+        >
       </label>
       <div
-        class="toggle-switch-placeholder"
-        id="notification-toggle"
+        class="toggle-switch"
+        id="sound-toggle"
         role="switch"
-        aria-checked="false"
+        :aria-checked="uiSoundEffectsEnabled.toString()"
+        @click="settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled)"
+        @keydown.enter="settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled)"
+        @keydown.space.prevent="settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled)"
         tabindex="0"
-        title="Toggle Notifications (Placeholder)"
+        :title="`Turn UI sounds ${uiSoundEffectsEnabled ? 'off' : 'on'}`"
       >
         <div class="toggle-knob"></div>
       </div>
       <button
-        class="help-button"
+        class="help-button pulsing-help"
         @click="
           showHelp(
-            'Enable Notifications',
-            'Allows the application to show pop-up notifications through your browser, for example, when a long process finishes. You may need to grant permission in your browser settings. (Setting not yet active)',
+            'UI Sound Effects',
+            'Plays short sounds to provide feedback for certain actions within the application, like sending a message or receiving a response.',
           )
         "
       >
@@ -91,92 +96,276 @@
       </button>
     </div>
 
-    <div class="advanced-settings-section">
-      <h3>Advanced General Settings</h3>
-      <div class="setting-item">
-        <label class="setting-label"
-          >Export Settings
-          <span class="setting-description">Save your current app settings to a file.</span>
-        </label>
-        <button class="quick-setting-button" disabled>Export...</button>
-        <button
-          class="help-button"
-          @click="
-            showHelp(
-              'Export Settings',
-              'Creates a file containing all your current application settings (theme, chat preferences, etc.) that you can save as a backup or transfer to another device. (Action not yet active)',
-            )
-          "
+    <div
+      class="advanced-toggle-header"
+      @click="toggleAdvanced"
+      tabindex="0"
+      @keydown.enter.prevent="toggleAdvanced"
+      @keydown.space.prevent="toggleAdvanced"
+    >
+      <h3>Advanced Settings</h3>
+      <button
+        class="advanced-arrow"
+        :class="{ expanded: isAdvancedVisible }"
+        aria-label="Toggle Advanced Settings"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          width="20px"
+          height="20px"
         >
-          ?
-        </button>
-      </div>
-      <div class="setting-item">
-        <label class="setting-label"
-          >Import Settings
-          <span class="setting-description"
-            >Load app settings from a previously exported file.</span
-          >
-        </label>
-        <button class="quick-setting-button" disabled>Import...</button>
-        <button
-          class="help-button"
-          @click="
-            showHelp(
-              'Import Settings',
-              'Loads settings from a file you previously exported. This will overwrite your current settings. (Action not yet active)',
-            )
-          "
-        >
-          ?
-        </button>
-      </div>
-      <div class="setting-item">
-        <label class="setting-label"
-          >Reset All Settings
-          <span class="setting-description"
-            >Restore all application settings to their defaults.</span
-          >
-        </label>
-        <button class="quick-setting-button danger-button" disabled>Reset Now</button>
-        <button
-          class="help-button"
-          @click="
-            showHelp(
-              'Reset All Settings',
-              'WARNING: This will immediately reset all settings across all tabs (General, Chat, Image Gen, Assistants) back to their original default values. This action cannot be undone. (Action not yet active)',
-            )
-          "
-        >
-          ?
-        </button>
-      </div>
+          <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+        </svg>
+      </button>
     </div>
+
+    <transition name="collapse">
+      <div class="advanced-settings-section" v-show="isAdvancedVisible">
+        <div class="setting-item">
+          <label class="setting-label"
+            >Export Settings
+            <span class="setting-description">Save your current app settings to a file.</span>
+          </label>
+          <button
+            class="quick-setting-button"
+            @click="exportSettings"
+            title="Export settings as JSON file"
+          >
+            Export...
+          </button>
+          <button
+            class="help-button pulsing-help"
+            @click="
+              showHelp(
+                'Export Settings',
+                'Creates a JSON file containing all your current application settings (theme, chat preferences, etc.) that you can save as a backup or transfer to another device.',
+              )
+            "
+          >
+            ?
+          </button>
+        </div>
+        <div class="setting-item">
+          <label class="setting-label"
+            >Import Settings
+            <span class="setting-description"
+              >Load app settings from a previously exported file.</span
+            >
+          </label>
+          <input
+            type="file"
+            ref="importFileRef"
+            @change="handleFileImport"
+            accept=".json"
+            style="display: none"
+          />
+          <button
+            class="quick-setting-button"
+            @click="triggerImport"
+            title="Import settings from JSON file"
+          >
+            Import...
+          </button>
+          <button
+            class="help-button pulsing-help"
+            @click="
+              showHelp(
+                'Import Settings',
+                'Loads settings from a JSON file you previously exported. This will overwrite your current settings.',
+              )
+            "
+          >
+            ?
+          </button>
+        </div>
+        <div class="setting-item">
+          <label class="setting-label"
+            >Reset All Settings
+            <span class="setting-description"
+              >Restore all application settings to their defaults.</span
+            >
+          </label>
+          <button
+            class="quick-setting-button danger-button"
+            @click="handleResetSettings"
+            title="Reset all settings to default"
+          >
+            Reset Now
+          </button>
+          <button
+            class="help-button pulsing-help"
+            @click="
+              showHelp(
+                'Reset All Settings',
+                'WARNING: This will immediately reset all settings across all tabs (General, Chat, Image Gen, Assistants) back to their original default values. This action cannot be undone.',
+              )
+            "
+          >
+            ?
+          </button>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup>
-import { defineProps, defineEmits, computed } from 'vue'
+import { defineProps, computed, ref } from 'vue'
+// *** Import store and utilities ***
+import { useSettingsStore } from '@/stores/settingsStore'
+import { storeToRefs } from 'pinia'
 
-// Define the props this component expects from its parent
+// --- Props ---
+// Keep existing props passed down from SettingsView
 const props = defineProps({
   isDarkMode: { type: Boolean, required: true },
   toggleTheme: { type: Function, required: true },
   showHelp: { type: Function, required: true },
-  modelValue: { type: Number, required: true }, // Use modelValue for font size (v-model)
+  modelValue: { type: Number, required: true }, // For font size v-model
 })
 
-// Define the event for v-model updates
+// --- Emits ---
+// Keep existing emit for font size v-model
 const emit = defineEmits(['update:modelValue'])
 
-// Internal computed property for v-model on the range slider
+// --- Store Access ---
+const settingsStore = useSettingsStore()
+// Get needed state and actions using storeToRefs for reactivity
+const { uiSoundEffectsEnabled } = storeToRefs(settingsStore)
+
+// --- Computed for v-model ---
+// Keep existing computed for font size slider
 const fontSizeModel = computed({
   get: () => props.modelValue,
   set: (value) => {
-    // Ensure value is treated as a number when emitting
     emit('update:modelValue', Number(value))
   },
 })
+
+// --- Advanced Section State & Toggle ---
+const isAdvancedVisible = ref(false) // Default collapsed
+const toggleAdvanced = () => {
+  isAdvancedVisible.value = !isAdvancedVisible.value
+}
+
+// --- Action Handlers ---
+const handleResetSettings = () => {
+  // Confirmation is handled within the store action now
+  settingsStore.resetAllSettingsToDefaults()
+  // Font size is handled via props/v-model, need to emit update if reset changes it
+  // This assumes reset in store *also* resets the prop source if needed, or we might need to emit differently.
+  // For now, assume the source value updates reactively.
+}
+
+// --- Import/Export (Basic Implementation) ---
+const importFileRef = ref(null)
+
+const triggerImport = () => {
+  importFileRef.value?.click() // Trigger hidden file input
+}
+
+const handleFileImport = (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const importedSettings = JSON.parse(e.target.result)
+      console.log('Imported settings data:', importedSettings)
+      // TODO: Add validation logic here to ensure importedSettings format is correct
+      if (window.confirm('Importing settings will overwrite your current settings. Continue?')) {
+        // Directly update store refs - this bypasses validation in loadSettings
+        // A more robust approach would be a dedicated import action in the store
+        // that includes validation.
+        settingsStore.theme = importedSettings.theme ?? settingsStore.theme
+        settingsStore.appFontSize = importedSettings.appFontSize ?? settingsStore.appFontSize
+        settingsStore.uiSoundEffectsEnabled =
+          importedSettings.uiSoundEffectsEnabled ?? settingsStore.uiSoundEffectsEnabled
+        settingsStore.isTtsEnabled = importedSettings.isTtsEnabled ?? settingsStore.isTtsEnabled
+        settingsStore.selectedVoiceUri =
+          importedSettings.selectedVoiceUri ?? settingsStore.selectedVoiceUri
+        settingsStore.chatModel = importedSettings.chatModel ?? settingsStore.chatModel
+        settingsStore.chatTemperature =
+          importedSettings.chatTemperature ?? settingsStore.chatTemperature
+        settingsStore.chatMaxTokens = importedSettings.chatMaxTokens ?? settingsStore.chatMaxTokens
+        settingsStore.chatContextLength =
+          importedSettings.chatContextLength ?? settingsStore.chatContextLength
+        settingsStore.sendOnEnter = importedSettings.sendOnEnter ?? settingsStore.sendOnEnter
+        settingsStore.chatTopP = importedSettings.chatTopP ?? settingsStore.chatTopP
+        settingsStore.imageGenDefaultAspectRatio =
+          importedSettings.imageGenDefaultAspectRatio ?? settingsStore.imageGenDefaultAspectRatio
+        settingsStore.imageGenDefaultStyle =
+          importedSettings.imageGenDefaultStyle ?? settingsStore.imageGenDefaultStyle
+        settingsStore.imageGenDefaultNegativePrompt =
+          importedSettings.imageGenDefaultNegativePrompt ??
+          settingsStore.imageGenDefaultNegativePrompt
+        settingsStore.imageGenDefaultNumImages =
+          importedSettings.imageGenDefaultNumImages ?? settingsStore.imageGenDefaultNumImages
+        settingsStore.assistantsDefaultInstructions =
+          importedSettings.assistantsDefaultInstructions ??
+          settingsStore.assistantsDefaultInstructions
+
+        alert('Settings imported successfully!')
+        // Force save after import
+        settingsStore.saveSettingsToLocalStorage() // Manually trigger save
+      }
+    } catch (error) {
+      console.error('Error reading or parsing settings file:', error)
+      alert('Failed to import settings. Ensure the file is a valid JSON exported from this app.')
+    } finally {
+      // Reset file input value to allow importing the same file again
+      if (importFileRef.value) importFileRef.value.value = ''
+    }
+  }
+  reader.onerror = (error) => {
+    console.error('Error reading file:', error)
+    alert('Failed to read the settings file.')
+    if (importFileRef.value) importFileRef.value.value = ''
+  }
+  reader.readAsText(file)
+}
+
+const exportSettings = () => {
+  try {
+    // Create object with current settings values
+    const settingsToExport = {
+      theme: settingsStore.theme,
+      appFontSize: settingsStore.appFontSize,
+      uiSoundEffectsEnabled: settingsStore.uiSoundEffectsEnabled,
+      isTtsEnabled: settingsStore.isTtsEnabled,
+      selectedVoiceUri: settingsStore.selectedVoiceUri,
+      chatModel: settingsStore.chatModel,
+      chatTemperature: settingsStore.chatTemperature,
+      chatMaxTokens: settingsStore.chatMaxTokens,
+      chatContextLength: settingsStore.chatContextLength,
+      sendOnEnter: settingsStore.sendOnEnter,
+      chatTopP: settingsStore.chatTopP,
+      imageGenDefaultAspectRatio: settingsStore.imageGenDefaultAspectRatio,
+      imageGenDefaultStyle: settingsStore.imageGenDefaultStyle,
+      imageGenDefaultNegativePrompt: settingsStore.imageGenDefaultNegativePrompt,
+      imageGenDefaultNumImages: settingsStore.imageGenDefaultNumImages,
+      assistantsDefaultInstructions: settingsStore.assistantsDefaultInstructions,
+    }
+    const jsonString = JSON.stringify(settingsToExport, null, 2) // Pretty print JSON
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const timestamp = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    link.download = `nb4u-ai-settings-${timestamp}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    alert('Settings exported successfully!')
+  } catch (error) {
+    console.error('Error exporting settings:', error)
+    alert('Failed to export settings.')
+  }
+}
 </script>
 
 <style scoped>
@@ -184,11 +373,11 @@ const fontSizeModel = computed({
 .setting-item {
   display: grid;
   /* Adjust grid for potential value display next to slider */
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto; /* Label | Control | Help */
   align-items: center;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border-color-light);
-  gap: 1rem;
+  gap: 1rem; /* Gap between columns */
 }
 .setting-item:last-child {
   border-bottom: none;
@@ -200,7 +389,8 @@ const fontSizeModel = computed({
   font-weight: 500;
   font-family: sans-serif;
   cursor: default;
-  margin-right: 1rem;
+  margin-right: 1rem; /* Space between label and control */
+  line-height: 1.3;
 }
 .setting-description {
   font-size: 0.8em;
@@ -210,40 +400,50 @@ const fontSizeModel = computed({
   white-space: normal;
 }
 
-/* NEW: Container for slider and its value */
-.slider-container {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem; /* Space between slider and value */
-  justify-self: end; /* Align the container to the end */
-}
-
-/* NEW: Style for the value display */
-.slider-value {
-  font-size: 0.9em;
-  color: var(--text-secondary);
-  min-width: 4ch; /* Ensure space for '100%' */
-  text-align: right;
-  font-variant-numeric: tabular-nums; /* Keep numbers aligned */
-}
-
-.toggle-switch-placeholder,
+/* Align controls and help button to the end of the grid cell */
+.toggle-switch, /* Renamed from placeholder */
 .settings-slider,
 .quick-setting-button,
-.help-button {
-  justify-self: end; /* Align control to the end */
-}
-/* Remove justify-self from slider-container itself if its children handle alignment */
+.help-button,
 .slider-container {
+  /* Align the container too */
   justify-self: end;
 }
 
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.slider-value {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .settings-slider {
-  justify-self: initial; /* Let slider take space within flex container */
+  cursor: pointer;
+  padding: 0;
+  height: 20px;
+  vertical-align: middle;
+  min-width: 120px;
+  max-width: 150px;
+  /* Allow slider to take space within its flex container */
+  /* justify-self: initial; */ /* No longer needed directly on slider */
+}
+.settings-slider:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.settings-slider:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 
 /* Toggle switch styles */
-.toggle-switch-placeholder {
+.toggle-switch {
+  /* Renamed from placeholder */
   width: 44px;
   height: 24px;
   background-color: var(--bg-button-secondary);
@@ -256,16 +456,17 @@ const fontSizeModel = computed({
   flex-shrink: 0;
   border: 1px solid var(--border-color-medium);
   outline: none;
+  box-sizing: content-box; /* Ensure padding doesn't affect size */
 }
-.toggle-switch-placeholder[disabled] {
+.toggle-switch[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
 }
-.toggle-switch-placeholder:not([disabled]):focus-visible {
+.toggle-switch:not([disabled]):focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
-.toggle-switch-placeholder[aria-checked='true'] {
+.toggle-switch[aria-checked='true'] {
   background-color: var(--accent-color-primary);
 }
 .toggle-knob {
@@ -276,14 +477,13 @@ const fontSizeModel = computed({
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   transition: transform 0.3s ease;
 }
-.toggle-switch-placeholder[aria-checked='true'] .toggle-knob {
+.toggle-switch[aria-checked='true'] .toggle-knob {
   transform: translateX(20px);
 }
 
-/* Slider, Button base styles */
-.settings-slider,
+/* Quick action buttons */
 .quick-setting-button {
-  padding: 0.4rem 0.6rem;
+  padding: 0.5rem 1rem;
   border-radius: 6px;
   border: 1px solid var(--border-color-medium);
   background-color: var(--bg-input-field);
@@ -292,22 +492,9 @@ const fontSizeModel = computed({
   font-size: 0.9em;
   flex-shrink: 0;
   box-sizing: border-box;
-}
-
-.settings-slider {
-  cursor: pointer;
-  padding: 0; /* Remove padding for range input */
-  height: 20px; /* Consistent height */
-  vertical-align: middle;
-  min-width: 120px;
-  max-width: 150px;
-}
-
-.quick-setting-button {
   text-align: center;
   cursor: pointer;
   transition: background-color 0.2s ease;
-  padding: 0.5rem 1rem; /* Keep padding for buttons */
   min-width: 100px;
   max-width: 200px;
 }
@@ -323,17 +510,10 @@ const fontSizeModel = computed({
   background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
 }
-
-.settings-slider:disabled,
 .quick-setting-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
-}
-.settings-slider:focus {
-  outline: none;
-  border-color: var(--accent-color-primary); /* Might not show on range */
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent); /* Might not show on range */
 }
 
 /* Help button style */
@@ -355,7 +535,7 @@ const fontSizeModel = computed({
   padding: 0;
   transition: background-color 0.2s ease;
   outline: none;
-  justify-self: end; /* Ensure it aligns right */
+  justify-self: end;
 }
 .help-button:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
@@ -363,16 +543,98 @@ const fontSizeModel = computed({
 .help-button:hover {
   background-color: var(--bg-button-secondary-hover);
 }
-
-/* Advanced section */
-.advanced-settings-section {
-  margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid var(--border-color-medium);
+/* Apply faint pulse animation */
+.help-button.pulsing-help {
+  /* Use animation defined globally in App.vue */
+  animation: faintGreenPulse 3s infinite alternate ease-in-out;
 }
-.advanced-settings-section h3 {
-  margin-bottom: 1rem;
+
+/* --- Advanced Section --- */
+/* Style for the clickable header that toggles the section */
+.advanced-toggle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 0.5rem;
+  margin-top: 2rem;
+  background-color: var(--bg-input-area); /* Subtle background */
+  border: 1px solid var(--border-color-light);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  outline: none;
+}
+.advanced-toggle-header:hover {
+  background-color: var(--bg-button-secondary-hover);
+}
+.advanced-toggle-header:focus-visible {
+  border-color: var(--accent-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+.advanced-toggle-header h3 {
+  margin: 0;
   color: var(--text-secondary);
   font-weight: 600;
+  font-size: 0.95em;
+  user-select: none; /* Prevent text selection on click */
+}
+
+/* Arrow button styles */
+.advanced-arrow {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    transform 0.3s ease,
+    color 0.2s ease;
+  /* Apply glow animation */
+  animation: faintGreenPulse 3.5s infinite alternate ease-in-out;
+}
+.advanced-arrow:hover {
+  color: var(--text-primary);
+}
+.advanced-arrow svg {
+  display: block; /* Prevent extra space below SVG */
+}
+.advanced-arrow.expanded {
+  transform: rotate(180deg); /* Point arrow up when expanded */
+}
+
+/* Styles for the collapsible content area */
+.advanced-settings-section {
+  /* margin-top: 0rem; Remove top margin */
+  padding: 1rem 1rem 0 1rem; /* Add padding inside */
+  border: 1px solid var(--border-color-light); /* Keep border consistent */
+  border-top: none; /* Remove top border as header has one */
+  border-radius: 0 0 6px 6px; /* Round bottom corners */
+  margin-bottom: 1rem; /* Space below */
+  background-color: var(--bg-main-content); /* Match page bg or slight variant */
+  overflow: hidden; /* Needed for smooth transition */
+}
+
+/* --- Transition for Collapse --- */
+/* Define enter/leave transitions for smooth collapse/expand */
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.3s ease-in-out;
+  max-height: 500px; /* Adjust max-height if content is taller */
+  overflow: hidden;
+}
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0; /* Animate border smoothly */
+  margin-top: 0; /* Animate margin smoothly */
+}
+.collapse-enter-to,
+.collapse-leave-from {
+  opacity: 1;
+  max-height: 500px; /* Should match enter-active max-height */
 }
 </style>
