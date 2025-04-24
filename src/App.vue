@@ -26,16 +26,17 @@
 </template>
 
 <script setup>
-// Removed unused 'watch' import
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import LeftSidebar from './components/LeftSidebar.vue'
 import RightSidebar from './components/RightSidebar.vue'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { storeToRefs } from 'pinia' // Import storeToRefs
+import { useConversationStore } from '@/stores/conversationStore' // *** NEW: Import Conversation Store ***
+import { storeToRefs } from 'pinia'
 
 const settingsStore = useSettingsStore()
-// Get reactive state using storeToRefs
+const conversationStore = useConversationStore() // *** NEW: Get Conversation Store instance ***
+
 const { theme, appFontSize } = storeToRefs(settingsStore)
 
 // *** Sidebar State ***
@@ -45,7 +46,6 @@ const toggleSidebar = () => {
 }
 
 // --- Theme Management ---
-// Use 'theme' ref directly from storeToRefs
 const appContainerClass = computed(() => {
   return {
     'dark-theme': theme.value === 'dark',
@@ -53,11 +53,10 @@ const appContainerClass = computed(() => {
   }
 })
 
-// *** NEW: Dynamic App Style for Font Size ***
+// --- Dynamic App Style for Font Size ---
 const appStyle = computed(() => ({
-  fontSize: `${appFontSize.value}%`, // Apply font size as percentage
+  fontSize: `${appFontSize.value}%`,
 }))
-// *** END NEW ***
 
 // --- Header Logo Animation Logic ---
 const logoText = ref('Nb4U-Ai')
@@ -142,9 +141,19 @@ const handleKeyPress = (event) => {
   }
 }
 
+// *** NEW: Handler for beforeunload event ***
+const handleBeforeUnload = () => {
+  console.log('[App.vue] beforeunload event triggered. Saving conversation...')
+  conversationStore.saveActiveConversationToMemories()
+  // Note: You cannot prevent the user from leaving the page here in most modern browsers.
+  // This just ensures the save action is called.
+}
+
 onMounted(() => {
   startHeaderIdleFlicker()
   window.addEventListener('keydown', handleKeyPress)
+  // *** NEW: Add beforeunload listener ***
+  window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
 onUnmounted(() => {
@@ -153,12 +162,14 @@ onUnmounted(() => {
   if (activeTimeout) {
     clearTimeout(activeTimeout)
   }
+  // *** NEW: Remove beforeunload listener ***
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 // --- End Header Logo Animation Logic ---
 </script>
 
 <style>
-/* Global styles (Variables, Keyframes) remain the same */
+/* Global styles (Variables, Keyframes) */
 :root {
   --bg-app-container: #ffffff;
   --bg-sidebar: #f0f0f8;
@@ -420,25 +431,11 @@ onUnmounted(() => {
   transition:
     background-color 0.3s ease,
     color 0.3s ease;
-  /* Removed overflow: hidden; let's see if content scrolls naturally */
-  /* If scrolling breaks, add overflow-y: auto here */
   overflow-y: auto; /* Let's try adding scroll handling here */
 }
 
-/* === COMMENTED OUT THIS BLOCK === */
-/*
-#main-content > :deep(div),
-#main-content > :deep(section) {
-  height: 100%;
-  width: 100%;
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-*/
-/* ================================ */
-
 #right-sidebar {
-  width: 200px;
+  width: 200px; /* Consider making this a CSS variable */
   border-left: 1px solid var(--border-color-medium);
 }
 </style>

@@ -2,48 +2,44 @@
   <div class="memories-view">
     <h1>Conversation Memories</h1>
     <p>
-      Review, reload, or delete your past conversation sessions. Sessions are sorted by the most
-      recently updated.
+      Review, reload, or delete your past conversation memories. Memories are sorted by the most
+      recently saved time.
     </p>
 
-    <div v-if="sessionsList && sessionsList.length > 0" class="session-list">
+    <div v-if="memoryList && memoryList.length > 0" class="memory-list">
       <ul>
-        <li v-for="session in sessionsList" :key="session.id" class="session-item">
-          <div class="session-info">
-            <span class="session-name">{{ session.name }}</span>
-            <span class="session-meta">
-              {{ session.messageCount }} message(s) - Last updated:
-              {{ formatSessionTimestamp(session.lastUpdatedAt) }}
+        <li v-for="memory in memoryList" :key="memory.id" class="memory-item">
+          <div class="memory-info">
+            <span class="memory-name">{{ memory.name }}</span>
+            <span class="memory-meta">
+              {{ memory.messageCount }} message(s) - Saved:
+              {{ formatMemoryTimestamp(memory.timestamp) }}
             </span>
           </div>
-          <div class="session-actions">
+          <div class="memory-actions">
             <button
-              @click="loadSession(session.id)"
+              @click="loadMemoryHandler(memory.id)"
               class="action-button load-button"
-              title="Load this session"
+              title="Load this memory into the chat view"
             >
               Load
             </button>
             <button
-              v-if="session.id !== 'main_chat'"
-              @click="deleteSessionHandler(session.id, session.name)"
+              @click="deleteMemoryHandler(memory.id, memory.name)"
               class="action-button delete-button"
-              title="Delete this session"
+              title="Delete this memory permanently"
             >
               Delete
             </button>
-            <span v-else class="main-chat-note" title="Main chat cannot be deleted"
-              >(Main Chat)</span
-            >
           </div>
         </li>
       </ul>
     </div>
-    <div v-else class="session-list-placeholder">
-      <p>No saved sessions found yet.</p>
+    <div v-else class="memory-list-placeholder">
+      <p>No saved memories found yet.</p>
       <p>
-        Your conversations with the default AI and specific assistants will appear here once you
-        start chatting.
+        Your conversations will be automatically saved as memories here when you close or refresh
+        the app.
       </p>
     </div>
   </div>
@@ -51,24 +47,23 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router' // Import router for navigation
+import { useRouter } from 'vue-router'
 import { useConversationStore } from '@/stores/conversationStore'
 
 const conversationStore = useConversationStore()
-const router = useRouter() // Get router instance
+const router = useRouter()
 
-// Get the formatted session list using the new getter
-const sessionsList = computed(() => conversationStore.getSessionListForDisplay)
+// Get the formatted memory list using the new getter
+const memoryList = computed(() => conversationStore.memoryListForDisplay)
 
 /**
  * Formats a timestamp into a readable date/time string.
  * @param {number} timestamp - The timestamp number (e.g., Date.now()).
  * @returns {string} - Formatted date/time string.
  */
-const formatSessionTimestamp = (timestamp) => {
+const formatMemoryTimestamp = (timestamp) => {
+  // Renamed parameter for clarity
   if (!timestamp) return 'N/A'
-  // Use current locale and sensible options. Adjust format as needed.
-  // Current time is: Wednesday, April 23, 2025 12:22 PM AEST
   try {
     const options = {
       year: 'numeric',
@@ -76,9 +71,10 @@ const formatSessionTimestamp = (timestamp) => {
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true,
+      hour12: true, // Use 12-hour format
     }
-    return new Date(timestamp).toLocaleString(undefined, options) // Use browser's default locale
+    // Use 'en-AU' locale for Australian date format, fallback to browser default
+    return new Date(timestamp).toLocaleString(['en-AU', undefined], options)
   } catch (e) {
     console.error('Error formatting timestamp:', e)
     return new Date(timestamp).toLocaleDateString() // Fallback to date only
@@ -86,42 +82,39 @@ const formatSessionTimestamp = (timestamp) => {
 }
 
 /**
- * Sets the selected session as active and navigates to the chat view.
- * @param {string} sessionId - The ID of the session to load.
+ * Loads the selected memory into the active chat view and navigates there.
+ * @param {string} memoryId - The ID of the memory to load.
  */
-const loadSession = (sessionId) => {
-  console.log(`[MemoriesView] Loading session: ${sessionId}`)
-  conversationStore.setActiveSession(sessionId)
+const loadMemoryHandler = (memoryId) => {
+  // Renamed function
+  console.log(`[MemoriesView] Loading memory: ${memoryId}`)
+  conversationStore.loadMemory(memoryId) // Use the new store action
   router.push('/') // Navigate to the main chat view route
 }
 
 /**
  * Handles the delete button click, shows confirmation, and calls store action.
- * @param {string} sessionId - The ID of the session to delete.
- * @param {string} sessionName - The name of the session for the confirmation dialog.
+ * @param {string} memoryId - The ID of the memory to delete.
+ * @param {string} memoryName - The name of the memory for the confirmation dialog.
  */
-const deleteSessionHandler = (sessionId, sessionName) => {
-  // Double-check prevention for main_chat (already handled by v-if, but good practice)
-  if (sessionId === 'main_chat') {
-    alert('The main chat session cannot be deleted.')
-    return
-  }
-
+const deleteMemoryHandler = (memoryId, memoryName) => {
+  // Renamed function
+  // Confirmation dialog
   if (
     window.confirm(
-      `Are you sure you want to permanently delete the session "${sessionName}"? This cannot be undone.`,
+      `Are you sure you want to permanently delete the memory "${memoryName}"? This cannot be undone.`,
     )
   ) {
-    console.log(`[MemoriesView] Deleting session: ${sessionId}`)
-    conversationStore.deleteSession(sessionId)
-    // The list will update automatically because it's a computed property based on the store state.
+    console.log(`[MemoriesView] Deleting memory: ${memoryId}`)
+    conversationStore.deleteMemory(memoryId) // Use the new store action
+    // The list will update automatically because it's a computed property.
   }
 }
 </script>
 
 <style scoped>
 .memories-view {
-  padding: 1.5rem 2rem; /* Match settings view padding */
+  padding: 1.5rem 2rem;
   height: 100%;
   overflow-y: auto;
   color: var(--text-primary);
@@ -129,7 +122,7 @@ const deleteSessionHandler = (sessionId, sessionName) => {
 }
 
 h1 {
-  color: var(--text-primary); /* Standard text color */
+  color: var(--text-primary);
   margin-bottom: 1rem;
   text-align: center;
   border-bottom: 1px solid var(--border-color-medium);
@@ -137,7 +130,8 @@ h1 {
   font-weight: 600;
 }
 
-.session-list-placeholder {
+/* Updated class name */
+.memory-list-placeholder {
   margin-top: 2rem;
   padding: 1.5rem;
   border: 1px dashed var(--border-color-medium);
@@ -146,14 +140,14 @@ h1 {
   color: var(--text-secondary);
   text-align: center;
 }
-
-.session-list ul {
+/* Updated class name */
+.memory-list ul {
   list-style: none;
   padding: 0;
   margin: 1rem 0 0 0;
 }
-
-.session-item {
+/* Updated class name */
+.memory-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -161,34 +155,34 @@ h1 {
   border-bottom: 1px solid var(--border-color-light);
   gap: 1rem;
 }
-.session-item:last-child {
+.memory-item:last-child {
   border-bottom: none;
 }
-
-.session-info {
+/* Updated class name */
+.memory-info {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   overflow: hidden; /* Prevent long names breaking layout */
 }
-
-.session-name {
+/* Updated class name */
+.memory-name {
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.session-meta {
+/* Updated class name */
+.memory-meta {
   font-size: 0.8em;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.session-actions {
+/* Updated class name */
+.memory-actions {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0; /* Prevent buttons shrinking */
@@ -214,7 +208,6 @@ h1 {
 }
 
 .load-button {
-  /* Optional: Slightly different style for load? */
   background-color: var(--bg-button-primary);
   border-color: var(--bg-button-primary);
   color: var(--text-button-primary);
@@ -234,13 +227,5 @@ h1 {
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
 }
 
-.main-chat-note {
-  font-size: 0.8em;
-  color: var(--text-secondary);
-  font-style: italic;
-  padding: 0.4rem 0.8rem; /* Match button padding for alignment */
-  display: inline-block;
-  text-align: center;
-  min-width: 60px; /* Approx width of delete button */
-}
+/* Removed .main-chat-note styles as the element is gone */
 </style>

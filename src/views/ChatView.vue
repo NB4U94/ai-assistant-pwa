@@ -6,7 +6,7 @@
           :class="[
             'assistant-selector-item',
             !activeSessionId || activeSessionId === 'main_chat' ? 'selected' : '',
-            'nb4u-ai-selector', // Class for targeting
+            'nb4u-ai-selector',
           ]"
           @click="selectAssistant(null)"
           title="Select Nb4U-Ai (Default)"
@@ -112,8 +112,8 @@
           </button>
         </div>
       </div>
-      <p v-if="displayMessages.length === 0 && !isLoading" class="placeholder-message">
-        No messages in '{{ activeSession?.name || 'Current Chat' }}'. Start the conversation!
+      <p v-if="displayMessages.length === 0 && !isSending" class="placeholder-message">
+        No messages in this chat yet. Start the conversation!
       </p>
     </div>
 
@@ -125,7 +125,7 @@
     </div>
 
     <div class="input-area">
-      <div class="loading-indicator-visual-container" v-if="isLoading">
+      <div class="loading-indicator-visual-container" v-if="isSending">
         <div class="loading-indicator-visual"></div>
       </div>
       <input
@@ -140,7 +140,7 @@
         class="icon-button"
         aria-label="Attach file"
         title="Attach file"
-        :disabled="isLoading"
+        :disabled="isSending"
       >
         📁
       </button>
@@ -149,7 +149,7 @@
         :class="['icon-button', isListening ? 'listening' : '']"
         aria-label="Use voice input"
         title="Use voice input"
-        :disabled="isLoading || !speechSupported"
+        :disabled="isSending || !speechSupported"
       >
         <span v-if="!isListening">🎙️</span><span v-else>🔘</span>
       </button>
@@ -160,13 +160,13 @@
         rows="1"
         @input="autoGrowTextarea"
         @keydown.enter="handleEnterKey"
-        :disabled="isLoading"
+        :disabled="isSending"
         aria-label="Chat message input"
       ></textarea>
       <button
         ref="sendButtonRef"
-        @click="sendMessage"
-        :disabled="isLoading || (!userInput.trim() && !selectedFile)"
+        @click="handleSendMessage"
+        :disabled="isSending || (!userInput.trim() && !selectedFile)"
         aria-label="Send message"
         class="send-button icon-button send-button-plasma"
         title="Send message"
@@ -178,7 +178,7 @@
         :class="['tts-button', 'icon-button', isTtsEnabled ? 'tts-on' : 'tts-off']"
         :aria-pressed="isTtsEnabled"
         aria-label="Toggle text to speech"
-        :disabled="isLoading || !ttsSupported"
+        :disabled="isSending || !ttsSupported"
       >
         <span v-if="isTtsEnabled" title="Speech ON">🔊</span
         ><span v-else title="Speech OFF">🔇</span>
@@ -193,28 +193,39 @@ import { useAssistantsStore } from '@/stores/assistantsStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { storeToRefs } from 'pinia'
+
+// Import ALL composables used
 import { useSpeechRecognition } from '@/composables/useSpeechRecognition'
 import { useFileInput } from '@/composables/useFileInput'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
-import { useApi } from '@/composables/useApi'
 import { useUIUtils } from '@/composables/useUIUtils'
+import { useChatScroll } from '@/composables/useChatScroll'
+import { useMessageSender } from '@/composables/useMessageSender'
 
+// Define props (unchanged)
 const props = defineProps({ assistantConfig: { type: Object, required: false, default: null } })
+
+// Stores (unchanged)
 const assistantsStore = useAssistantsStore()
 const conversationStore = useConversationStore()
 const settingsStore = useSettingsStore()
 
+// Reactive refs from stores (Removed activeSession)
 const { assistants: availableAssistants } = storeToRefs(assistantsStore)
-const { activeHistory, activeSessionId, activeSession } = storeToRefs(conversationStore)
-const { chatModel, chatTemperature, chatMaxTokens, chatContextLength, sendOnEnter, chatTopP } =
-  storeToRefs(settingsStore)
+// *** REMOVED activeSession from here ***
+const { activeHistory, activeSessionId } = storeToRefs(conversationStore)
+const { sendOnEnter } = storeToRefs(settingsStore)
 
+// Template Refs (unchanged)
 const messageAreaRef = ref(null)
 const inputAreaRef = ref(null)
 const sendButtonRef = ref(null)
 
+// Local State
 const userInput = ref('')
 const uiMessages = ref([])
+
+// --- Instantiate Composables ---
 
 const addUiMessage = (text, isError = false) => {
   const trimmedText = text?.toString().trim() || (isError ? 'An unknown error occurred.' : '')
@@ -228,29 +239,17 @@ const addUiMessage = (text, isError = false) => {
     isError: isError,
   }
   uiMessages.value.push(newUiMessage)
-  scrollToBottom()
 }
 const handleComposableError = (errorMessage) => {
   console.error('[Composable Error Handler]', errorMessage)
   addUiMessage(errorMessage, true)
 }
 
-// --- Scroll function defined earlier ---
-const scrollToBottom = (behavior = 'smooth') => {
-  nextTick(() => {
-    const el = messageAreaRef.value
-    if (el) {
-      // Check if ref is available
-      el.scrollTo({ top: el.scrollHeight, behavior: behavior })
-    } else {
-      console.warn('[ChatView] scrollToBottom called but messageAreaRef is not available yet.')
-    }
-  })
-}
-
 const { copiedState, formatTimestamp, copyText, processMessageText, autoGrowTextarea } = useUIUtils(
   { addErrorMessage: handleComposableError },
 )
+
+// File Input (Placeholder logic updated)
 const {
   selectedImagePreview,
   selectedFile,
@@ -258,17 +257,10 @@ const {
   triggerFileInput,
   handleFileSelected,
   removeSelectedImage,
-  readFileAsBase64,
 } = useFileInput({
   addErrorMessage: handleComposableError,
-  updatePlaceholder: (isSelected) => {
-    if (isSelected) {
-      currentPlaceholder.value = 'Image selected...'
-    } else if (!userInput.value) {
-      currentPlaceholder.value = activeSession.value?.name
-        ? `Ask ${activeSession.value.name}...`
-        : placeholders[0]
-    }
+  updatePlaceholder: () => {
+    currentPlaceholder.value = calculatePlaceholder()
   },
   onImageSelected: () => {
     nextTick(() => {
@@ -276,7 +268,8 @@ const {
     })
   },
 })
-const { isLoading, error: apiError, callApi } = useApi({ readFileAsBase64 })
+
+// Text-to-Speech (unchanged)
 const {
   ttsSupported,
   isTtsEnabled,
@@ -284,14 +277,25 @@ const {
   toggleTts: ttsToggle,
   handleMessageClick: ttsHandleMessageClick,
 } = useTextToSpeech({ addErrorMessage: handleComposableError })
+
+// Speech Recognition (unchanged)
 const { isListening, speechSupported, toggleListening } = useSpeechRecognition({
   userInputRef: userInput,
   inputAreaRef: inputAreaRef,
   autoGrowTextarea: autoGrowTextarea,
   addErrorMessage: handleComposableError,
+  onSpeechStart: () => {},
+  onResult: () => {},
 })
 
-// --- COMPUTED PROPERTY displayMessages ---
+// Chat Scroll Composable (unchanged)
+const { scrollToBottom, instantScrollToBottom } = useChatScroll(messageAreaRef, activeHistory)
+
+// Message Sender Composable (unchanged)
+const { sendMessage: sendChatMessage, isLoading: isSending, error: sendError } = useMessageSender()
+
+// --- Computed Properties ---
+
 const displayMessages = computed(() => {
   const persistedMessages = activeHistory.value.map((msg) => ({
     id: `${conversationStore.activeSessionId || 'default'}-store-${msg.timestamp || Math.random()}`,
@@ -305,6 +309,7 @@ const displayMessages = computed(() => {
   return combined
 })
 
+// Placeholder logic
 const placeholders = [
   'Type message or use mic...',
   'Ask anything...',
@@ -312,94 +317,82 @@ const placeholders = [
   'Write story...',
   'Explain quantum physics...',
 ]
-const currentPlaceholder = ref(placeholders[0])
+
+// *** UPDATED calculatePlaceholder function ***
+const calculatePlaceholder = () => {
+  if (selectedFile.value) return 'Image selected...'
+  if (userInput.value) return 'Continue typing...'
+
+  const currentId = activeSessionId.value
+  if (!currentId || currentId === 'main_chat') {
+    return 'Ask Nb4U-Ai...' // Default for main chat
+  } else {
+    try {
+      const assistant = assistantsStore.getAssistantById(currentId)
+      // Use a generic fallback if assistant name is not available immediately
+      return assistant ? `Ask ${assistant.name}...` : 'Ask selected assistant...'
+    } catch (_e) {
+      console.warn(`Error getting assistant details for placeholder: ${_e}`)
+      return 'Ask selected assistant...' // Fallback on error
+    }
+  }
+}
+const currentPlaceholder = ref(calculatePlaceholder())
 let placeholderInterval = null
 
+// --- Lifecycle Hooks ---
+
 onMounted(() => {
-  // scrollToBottom is now called conditionally within the watcher's nextTick
-  // We can still call it here once on mount if desired, it should be safe now.
-  scrollToBottom('auto')
+  instantScrollToBottom()
 
   let placeholderIndex = 0
   placeholderInterval = setInterval(() => {
     placeholderIndex = (placeholderIndex + 1) % placeholders.length
     if (!userInput.value && !selectedImagePreview.value) {
-      const basePlaceholder = activeSession.value?.name
-        ? `Ask ${activeSession.value.name}...`
-        : placeholders[placeholderIndex]
-      currentPlaceholder.value = basePlaceholder
+      currentPlaceholder.value = calculatePlaceholder() // Use updated function
     }
   }, 5000)
-  apiError.value = null
-  console.log(
-    `[ChatView] Mounted. Session ID: ${activeSessionId.value}, Session Name: ${activeSession.value?.name}`,
-  )
+
+  console.log(`[ChatView] Mounted. Session ID: ${activeSessionId.value}`)
 })
+
 onUnmounted(() => {
   clearInterval(placeholderInterval)
 })
 
-// --- WATCHER for Active Session ID (Refined) ---
-watch(
-  activeSessionId,
-  (newId, oldId) => {
-    console.log(`[ChatView] Watcher triggered. New session ID: ${newId}, Old: ${oldId}`)
+// --- Watchers ---
 
-    // --- Reset state unconditionally on initial run and subsequent changes ---
+watch(sendError, (newError) => {
+  if (newError) {
+    addUiMessage(newError, true)
+    scrollToBottom()
+  }
+})
+
+watch(activeSessionId, (newId, oldId) => {
+  console.log(`[ChatView] Session ID changed to: ${newId}`)
+  if (newId !== oldId) {
     userInput.value = ''
     removeSelectedImage()
     uiMessages.value = []
-    apiError.value = null
-    // Update placeholder based on the *current* active session name
-    currentPlaceholder.value = activeSession.value?.name
-      ? `Ask ${activeSession.value.name}...`
-      : placeholders[0]
-
-    // --- Actions depending on refs - only run if not the initial immediate call OR within nextTick ---
-    // Check if oldId is defined (meaning it's not the first immediate run)
-    if (oldId !== undefined) {
-      console.log(
-        `[ChatView Watcher] Not initial run (oldId: ${oldId}). Calling scrollToBottom directly.`,
-      )
-      scrollToBottom('auto') // Safe to call directly on subsequent changes
-      nextTick(() => {
-        // Still use nextTick for focus after DOM updates
-        if (inputAreaRef.value) {
-          console.log('[ChatView Watcher] Focusing input in nextTick (subsequent run).')
-          inputAreaRef.value.focus()
-        } else {
-          console.warn('[ChatView Watcher] inputAreaRef not ready in nextTick (subsequent run).')
-        }
-      })
-    } else {
-      // This is the initial immediate run. Defer actions relying on refs.
-      console.log(
-        '[ChatView Watcher] Initial run. Deferring scrollToBottom and focus until nextTick.',
-      )
-      nextTick(() => {
-        if (messageAreaRef.value) {
-          console.log('[ChatView Watcher] Calling scrollToBottom in nextTick (initial run).')
-          scrollToBottom('auto') // Call scroll after initial DOM render
-        } else {
-          console.warn('[ChatView Watcher] messageAreaRef not ready in nextTick (initial run).')
-        }
-        if (inputAreaRef.value) {
-          console.log('[ChatView Watcher] Focusing input in nextTick (initial run).')
-          inputAreaRef.value.focus() // Focus after initial DOM render
-        } else {
-          console.warn('[ChatView Watcher] inputAreaRef not ready in nextTick (initial run).')
-        }
-      })
-    }
-  },
-  { immediate: true }, // Run immediately on load/mount AND on changes
-)
-
-watch(apiError, (newError) => {
-  if (newError) {
-    addUiMessage(newError, true)
+    currentPlaceholder.value = calculatePlaceholder()
+    instantScrollToBottom()
+    nextTick(() => {
+      inputAreaRef.value?.focus()
+    })
   }
 })
+
+watch(userInput, () => {
+  if (!userInput.value) {
+    currentPlaceholder.value = calculatePlaceholder()
+  } else {
+    // Optionally set a different placeholder while typing
+    // currentPlaceholder.value = 'Continue typing...';
+  }
+})
+
+// --- Methods ---
 
 const selectAssistant = (assistantId) => {
   if (props.assistantConfig && props.assistantConfig.id !== assistantId) {
@@ -410,19 +403,16 @@ const selectAssistant = (assistantId) => {
   console.log(`[ChatView] UI selecting session: ${targetSessionId}`)
   if (activeSessionId.value !== targetSessionId) {
     conversationStore.setActiveSession(targetSessionId)
-    // Watcher with immediate:true will handle UI updates now
   } else {
     console.log(`[ChatView] Session ${targetSessionId} already active.`)
   }
 }
 
-// Scroll function definition moved higher, before watcher
-
 const triggerSendFlash = () => {
   const btn = sendButtonRef.value
   if (!btn) return
   btn.classList.remove('flash-active')
-  void btn.offsetWidth // Force reflow
+  void btn.offsetWidth
   btn.classList.add('flash-active')
   setTimeout(() => {
     if (btn) btn.classList.remove('flash-active')
@@ -430,231 +420,51 @@ const triggerSendFlash = () => {
 }
 
 const handleEnterKey = (event) => {
-  if (sendOnEnter.value && !event.shiftKey) {
+  if (sendOnEnter.value && !event.shiftKey && !isSending.value) {
     event.preventDefault()
-    sendMessage()
+    handleSendMessage()
   }
 }
 
-const sendMessage = async () => {
-  const textInputRaw = userInput.value
-  const imageFile = selectedFile.value
-  const imagePreviewUrlForStore = selectedImagePreview.value // Capture preview URL for store
-  const trimmedInput = textInputRaw.trim()
+const handleSendMessage = async () => {
+  const textToSend = userInput.value
+  const imageFileToSend = selectedFile.value
+  const imagePreviewUrl = selectedImagePreview.value
 
-  // Prevent sending if loading or if both text and image are empty
-  if (isLoading.value || (trimmedInput === '' && !imageFile)) {
-    console.log('[ChatView] Send blocked: Loading or no content.')
-    return
-  }
+  const currentInputText = userInput.value
+  const currentSelectedFile = selectedFile.value
 
-  // Add user message to the store immediately if there's content
-  if (trimmedInput !== '' || imageFile) {
-    console.log('[ChatView] Adding user message to store:', {
-      role: 'user',
-      content: trimmedInput,
-      imagePreviewUrl: imagePreviewUrlForStore,
-    })
-    conversationStore.addMessageToActiveSession(
-      'user',
-      trimmedInput, // Send trimmed text
-      Date.now(),
-      imagePreviewUrlForStore, // Send the captured preview URL
-    )
-  } else {
-    console.warn('[ChatView] Attempted to send empty message after initial check passed.')
-    return // Should not happen based on initial check, but as a safeguard
-  }
-
-  // Trigger visual feedback
+  userInput.value = ''
+  removeSelectedImage()
   triggerSendFlash()
 
-  // Prepare data for API call (use captured values)
-  const textToSendToApi = trimmedInput
-  const imageFileToSendToApi = imageFile // Use the captured file object
-
-  // Clear input fields AFTER adding message to store and capturing values
-  userInput.value = ''
-  removeSelectedImage() // This clears selectedFile and selectedImagePreview
-
-  // Reset textarea height and placeholder after clearing
   nextTick(() => {
     if (inputAreaRef.value) {
-      inputAreaRef.value.style.height = 'auto' // Reset height before growing
-      autoGrowTextarea({ target: inputAreaRef.value }) // Adjust height if needed (likely shrinks)
+      inputAreaRef.value.style.height = 'auto'
     }
-    // Reset placeholder
-    currentPlaceholder.value = activeSession.value?.name
-      ? `Ask ${activeSession.value.name}...`
-      : placeholders[0]
+    currentPlaceholder.value = calculatePlaceholder()
   })
 
-  // Process image file if it exists
-  let imgData = null
-  if (imageFileToSendToApi && typeof readFileAsBase64 === 'function') {
-    try {
-      console.log('[ChatView] Reading image file as Base64...')
-      imgData = await readFileAsBase64(imageFileToSendToApi)
-      console.log('[ChatView] Image file read successfully.')
-    } catch (e) {
-      console.error('[ChatView] Error processing image file for API:', e)
-      addUiMessage(`Image processing error: ${e.message}`, true)
-      scrollToBottom()
-      return // Stop if image processing fails
-    }
-  } else if (imageFileToSendToApi) {
-    // This case means file exists but readFileAsBase64 is not available (should not happen if composable is imported)
-    console.error('[ChatView] readFileAsBase64 function not available.')
-    addUiMessage('Internal error: Cannot process image file.', true)
-    scrollToBottom()
-    return
-  }
+  const { success, aiResponse } = await sendChatMessage(
+    currentInputText,
+    currentSelectedFile,
+    imagePreviewUrl,
+  )
 
-  // Prepare message history for API
-  const messagesToSend = []
-  if (typeof conversationStore.getFormattedHistoryForAPI !== 'function') {
-    console.error('CRITICAL: getFormattedHistoryForAPI is missing!')
-    addUiMessage('Internal Error: Cannot prepare message history.', true)
-    return
-  }
-  const fullHistory = conversationStore.getFormattedHistoryForAPI()
-
-  // Apply context length limit (excluding the system prompt if present)
-  const contextLimit = chatContextLength.value
-  const historyToConsider = fullHistory.filter((msg) => msg.role !== 'system')
-  const limitedHistory = historyToConsider.slice(-contextLimit) // Get the last 'N' non-system messages
-
-  // Add system prompt first if it exists
-  const systemPrompt = fullHistory.find((msg) => msg.role === 'system')
-  if (systemPrompt) messagesToSend.push(systemPrompt)
-
-  // Add the limited history
-  messagesToSend.push(...limitedHistory)
-
-  // Construct the current user message for the API (potentially multimodal)
-  const currentUserMessageContent = []
-  if (textToSendToApi) {
-    currentUserMessageContent.push({ type: 'text', text: textToSendToApi })
-  }
-  if (imgData) {
-    // Ensure imgData has the expected structure
-    if (imgData.mimeType && imgData.base64Data) {
-      currentUserMessageContent.push({
-        type: 'image_url',
-        image_url: { url: `data:${imgData.mimeType};base64,${imgData.base64Data}` },
-      })
-    } else {
-      console.error('[ChatView] Invalid image data structure from readFileAsBase64:', imgData)
-      addUiMessage('Internal error: Failed to format image data for API.', true)
-      return
-    }
-  }
-
-  // Add the constructed user message to the API payload, ensuring it's not effectively empty
-  if (currentUserMessageContent.length > 0) {
-    // Check if the last message in the prepared history *is* the user message we just added to the store.
-    // This prevents adding it twice to the API call if getFormattedHistoryForAPI includes the latest message.
-    // We compare the content part.
-    const lastApiMessage = messagesToSend[messagesToSend.length - 1]
-    let historyAlreadyIncludesUserMessage = false
-    if (lastApiMessage?.role === 'user') {
-      // Simple comparison assuming structure is consistent
-      // Might need adjustment if content format varies significantly
-      if (JSON.stringify(lastApiMessage.content) === JSON.stringify(currentUserMessageContent)) {
-        historyAlreadyIncludesUserMessage = true
-        console.log(
-          '[ChatView] History already includes the current user message. Not adding duplicate to API payload.',
-        )
-      }
-    }
-
-    if (!historyAlreadyIncludesUserMessage) {
-      console.log('[ChatView] Adding current user message content to API payload.')
-      messagesToSend.push({ role: 'user', content: currentUserMessageContent })
-    }
+  if (success && aiResponse) {
+    ttsSpeakText(aiResponse)
   } else {
-    // This case means we added a message to the store, but couldn't format it for the API? Should be rare.
-    console.warn(
-      '[ChatView] No content (text or image) could be formatted for the current user message for API call.',
-    )
-    // Decide if we should proceed with only history or stop. Let's stop for now.
-    return
+    console.error('[ChatView] Message sending failed.')
   }
 
-  // Final check: ensure there's something meaningful to send
-  if (
-    messagesToSend.length === 0 ||
-    (messagesToSend.length === 1 && messagesToSend[0].role === 'system')
-  ) {
-    console.warn(
-      '[ChatView] Attempted to send API request with no user message content after formatting.',
-    )
-    return
-  }
-
-  console.log('[ChatView] Preparing API payload:', {
-    model: chatModel.value,
-    temp: chatTemperature.value,
-    max_tokens: chatMaxTokens.value,
-    top_p: chatTopP.value,
-    messageCount: messagesToSend.length,
+  nextTick(() => {
+    inputAreaRef.value?.focus()
   })
-
-  // Construct the final payload
-  const payload = {
-    model: chatModel.value || 'gpt-4o', // Fallback model
-    temperature: chatTemperature.value ?? 0.7, // Use nullish coalescing for 0 temp
-    max_tokens: chatMaxTokens.value || 1024, // Fallback max tokens
-    top_p: chatTopP.value ?? 1.0, // Use nullish coalescing
-    messages: messagesToSend,
-  }
-
-  // Define API endpoint
-  const url = '/.netlify/functions/call-openai-gpt-4'
-
-  // Scroll before sending request
-  scrollToBottom()
-
-  // Call the API
-  try {
-    console.log('[ChatView] Calling API...')
-    const responseData = await callApi(url, payload, 'POST')
-    console.log('[ChatView] API call finished. Response:', responseData)
-
-    // Process the response
-    const aiContent = responseData?.aiText // Use optional chaining
-    if (typeof aiContent === 'string' && aiContent.trim() !== '') {
-      console.log('[ChatView] Adding AI response to store.')
-      conversationStore.addMessageToActiveSession('assistant', aiContent.trim(), Date.now())
-      console.log('[ChatView] Attempting TTS for AI response.')
-      ttsSpeakText(aiContent.trim()) // Speak the response if TTS is enabled
-    } else {
-      // Handle cases where response exists but aiText is missing/empty
-      console.warn('[ChatView] API response missing expected AI content (aiText):', responseData)
-      addUiMessage('Received an empty or invalid response from the AI.', true)
-    }
-  } catch (err) {
-    // Errors are now handled by the apiError watcher via useApi composable
-    console.error(
-      '[ChatView] Error caught during sendMessage (should have been handled by watcher):',
-      err,
-    )
-    // Optionally add a generic UI message here if needed, but watcher should cover it.
-    // addUiMessage('An unexpected error occurred communicating with the AI.', true);
-  } finally {
-    console.log('[ChatView] sendMessage finally block.')
-    // Ensure UI is responsive after call completes or fails
-    scrollToBottom()
-    nextTick(() => {
-      inputAreaRef.value?.focus() // Refocus input area
-    })
-  }
 }
 </script>
 
 <style scoped>
-/* Styles are identical to the previous version */
-/* --- Keyframes --- */
+/* Styles are identical to the previous version - No changes needed */
 @keyframes faint-icon-glow {
   0%,
   100% {
@@ -664,7 +474,6 @@ const sendMessage = async () => {
     filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-color-primary) 70%, transparent));
   }
 }
-/* ... other keyframes ... */
 @keyframes subtle-pulse {
   0% {
     transform: scale(1);
@@ -732,8 +541,14 @@ const sendMessage = async () => {
     box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
   }
 }
-
-/* --- Scrollbar Theming --- */
+@keyframes loading-gradient {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
 .message-display-area::-webkit-scrollbar {
   width: 8px;
 }
@@ -774,41 +589,37 @@ const sendMessage = async () => {
   overflow-x: auto;
   overflow-y: hidden;
 }
-
-/* --- Main Layout --- */
 .chat-view {
   height: 100%;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-main-content);
   color: var(--text-primary);
-  overflow: hidden; /* Prevent chat view itself from scrolling */
+  overflow: hidden;
 }
 .message-display-area {
   flex-grow: 1;
-  overflow-y: auto; /* Scroll messages */
+  overflow-y: auto;
   padding: 1rem 1rem 1rem 1rem;
   background-color: var(--bg-main-content);
   display: flex;
   flex-direction: column;
 }
-
-/* --- Assistant Selector --- */
 .assistant-selector-area {
   padding: 0.5rem 0.5rem 0.75rem;
-  background-color: var(--bg-input-area); /* Match input area background */
+  background-color: var(--bg-input-area);
   border-bottom: 1px solid var(--border-color-medium);
   flex-shrink: 0;
-  overflow: hidden; /* Hide potential overflow if needed */
-  position: sticky; /* Keep selector visible */
+  overflow: hidden;
+  position: sticky;
   top: 0;
-  z-index: 10; /* Above message area */
+  z-index: 10;
 }
 .assistant-selector-row {
   display: flex;
   gap: 0.75rem;
-  padding-bottom: 5px; /* Space for scrollbar */
-  -ms-overflow-style: none; /* Hide scrollbar IE/Edge */
+  padding-bottom: 5px;
+  -ms-overflow-style: none;
 }
 .assistant-selector-item {
   display: flex;
@@ -821,15 +632,14 @@ const sendMessage = async () => {
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease;
-  min-width: 70px; /* Ensure items have some base width */
+  min-width: 70px;
   text-align: center;
-  outline: none; /* Remove default focus outline */
+  outline: none;
 }
 .assistant-selector-item:hover {
   background-color: var(--bg-button-secondary-hover);
 }
 .assistant-selector-item:focus-visible {
-  /* Style for keyboard focus */
   border-color: var(--accent-color-secondary, var(--accent-color-primary));
   box-shadow: 0 0 0 1px var(--accent-color-secondary, var(--accent-color-primary));
 }
@@ -878,49 +688,43 @@ const sendMessage = async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 65px; /* Limit name width */
+  max-width: 65px;
 }
 .assistant-selector-item.selected .assistant-selector-name {
   color: var(--text-primary);
   font-weight: 500;
 }
-
-/* --- UPDATED: Apply animation to whole item --- */
 .assistant-selector-item.nb4u-ai-selector {
   animation: faint-icon-glow 2.5s infinite ease-in-out alternate;
-  /* Apply to the whole item div */
 }
 .assistant-selector-item.nb4u-ai-selector.selected {
-  border-color: var(--accent-color-primary); /* Ensure border shows when selected */
-  /* Animation will continue */
+  border-color: var(--accent-color-primary);
 }
-
-/* --- Messages --- */
 .message-container {
   display: flex;
   margin-bottom: 0.75rem;
-  max-width: 85%; /* Max width for messages */
-  opacity: 0; /* Start hidden for animation */
-  transform: translateY(10px); /* Start slightly lower */
-  animation: fadeIn 0.3s ease forwards; /* Fade in animation */
-  position: relative; /* For copy button positioning */
+  max-width: 85%;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeIn 0.3s ease forwards;
+  position: relative;
 }
 .user-container {
   align-self: flex-end;
   margin-left: auto;
-  flex-direction: row-reverse; /* Avatar on the right */
+  flex-direction: row-reverse;
 }
 .ai-container,
 .system-container {
   align-self: flex-start;
   margin-right: auto;
-  flex-direction: row; /* Avatar on the left */
+  flex-direction: row;
 }
 .avatar-placeholder {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background-color: var(--bg-avatar-ai); /* Default AI avatar bg */
+  background-color: var(--bg-avatar-ai);
   color: var(--text-light);
   display: flex;
   align-items: center;
@@ -928,43 +732,41 @@ const sendMessage = async () => {
   font-weight: bold;
   font-size: 0.9em;
   flex-shrink: 0;
-  margin-top: 4px; /* Align slightly lower */
-  margin-right: 0.5rem; /* Space between avatar and message */
+  margin-top: 4px;
+  margin-right: 0.5rem;
   user-select: none;
 }
 .user-container .avatar-placeholder {
   margin-right: 0;
   margin-left: 0.5rem;
-  background-color: var(--bg-avatar-user); /* User avatar bg */
+  background-color: var(--bg-avatar-user);
 }
 .system-container .avatar-placeholder {
-  display: none; /* No avatar for system messages */
+  display: none;
 }
 .message {
   padding: 0.6rem 1rem;
   border-radius: 18px;
-  word-wrap: break-word; /* Break long words */
+  word-wrap: break-word;
   font-family: sans-serif;
   line-height: 1.45;
-  position: relative; /* For timestamp/copy button */
-  min-width: 50px; /* Minimum width for tiny messages */
-  display: flex; /* Use flex for image/text layout */
-  flex-direction: column; /* Stack image above text/timestamp */
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+  position: relative;
+  min-width: 50px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 .user-message {
   background-color: var(--bg-message-user);
   color: var(--text-message-user);
-  border-bottom-right-radius: 6px; /* Tail effect */
+  border-bottom-right-radius: 6px;
 }
 .ai-message {
   background-color: var(--bg-message-ai);
   color: var(--text-message-ai);
-  border-bottom-left-radius: 6px; /* Tail effect */
+  border-bottom-left-radius: 6px;
 }
-/* Style links within message text */
 .message-text :deep(a) {
-  /* Use :deep for slotted/generated content */
   color: var(--text-link);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -975,9 +777,9 @@ const sendMessage = async () => {
   text-decoration: none;
 }
 .system-message {
-  background-color: var(--bg-message-info, #e3f2fd); /* Fallback color */
+  background-color: var(--bg-message-info, #e3f2fd);
   color: var(--text-secondary);
-  width: 100%; /* Span full width */
+  width: 100%;
   text-align: center;
   font-style: italic;
   font-size: 0.9em;
@@ -985,53 +787,53 @@ const sendMessage = async () => {
   border-radius: 8px;
   padding-top: 0.8rem;
   padding-bottom: 0.8rem;
-  margin-left: auto; /* Center if container allows */
+  margin-left: auto;
   margin-right: auto;
   max-width: 90%;
-  box-shadow: none; /* Remove bubble shadow */
+  box-shadow: none;
 }
 .message.error-message-style {
   background-color: var(--bg-message-error);
   color: var(--text-message-error);
   border: 1px solid var(--border-color-error);
-  border-radius: 8px; /* Consistent error style */
+  border-radius: 8px;
 }
 .system-message.error-message-style {
   border-style: solid;
   font-style: normal;
-  background-color: var(--bg-message-error); /* Ensure background matches */
+  background-color: var(--bg-message-error);
   color: var(--text-error);
 }
 .system-container {
-  width: 100%; /* Allow system message to potentially span more width */
+  width: 100%;
   justify-content: center;
   align-self: center;
-  max-width: 100%; /* Override container width limit slightly */
+  max-width: 100%;
 }
 .message-image-thumbnail {
   max-width: 150px;
   max-height: 100px;
   border-radius: 8px;
-  margin-bottom: 0.5rem; /* Space below image */
-  object-fit: contain; /* Show whole image, scaled down */
+  margin-bottom: 0.5rem;
+  object-fit: contain;
   border: 1px solid var(--border-color-light);
-  align-self: flex-start; /* Align image to start */
+  align-self: flex-start;
 }
 .timestamp {
   font-size: 0.7em;
   color: var(--text-timestamp);
-  margin-top: 0.3rem; /* Space above timestamp */
+  margin-top: 0.3rem;
   text-align: right;
   user-select: none;
   -webkit-user-select: none;
-  width: 100%; /* Ensure it takes width for right alignment */
+  width: 100%;
 }
 .placeholder-message {
   color: var(--text-placeholder);
   font-style: italic;
   font-family: sans-serif;
   text-align: center;
-  margin: 2rem auto; /* Center vertically somewhat */
+  margin: 2rem auto;
   padding: 1rem;
   background-color: var(--bg-input-area);
   border-radius: 8px;
@@ -1040,7 +842,7 @@ const sendMessage = async () => {
 .copy-button {
   position: absolute;
   bottom: 2px;
-  right: -30px; /* Position outside the message bubble */
+  right: -30px;
   background-color: transparent;
   border: none;
   color: var(--text-secondary);
@@ -1052,44 +854,39 @@ const sendMessage = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0; /* Hidden by default */
+  opacity: 0;
   transition:
     opacity 0.2s ease,
     color 0.2s ease,
     background-color 0.2s ease;
-  z-index: 1; /* Ensure it's clickable */
+  z-index: 1;
   padding: 0;
 }
 .ai-container:hover .copy-button {
-  /* Show on AI message hover */
   opacity: 0.6;
 }
 .copy-button:hover:not([data-copied='true']) {
-  /* Brighten on hover */
   opacity: 1;
   color: var(--text-primary);
 }
 .copy-button[data-copied='true'] {
-  /* Copied state */
   opacity: 1;
   background-color: var(--accent-color-primary);
   color: var(--bg-input-area);
   cursor: default;
   animation: subtle-pulse 0.5s ease-out;
 }
-
-/* --- Input Area --- */
 .image-preview-area {
   padding: 0.5rem 0.75rem 0.5rem;
-  margin: 0 0.75rem; /* Align with input area padding */
-  background-color: var(--bg-sidebar); /* Darker background */
+  margin: 0 0.75rem;
+  background-color: var(--bg-sidebar);
   border: 1px solid var(--border-color-medium);
-  border-bottom: none; /* Remove bottom border */
-  border-radius: 8px 8px 0 0; /* Rounded top corners */
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .image-preview {
   max-height: 50px;
@@ -1100,13 +897,13 @@ const sendMessage = async () => {
 }
 .remove-image-button {
   background: rgba(0, 0, 0, 0.5);
-  color: white;
+  color: #fff;
   border: none;
   border-radius: 50%;
   width: 20px;
   height: 20px;
   font-size: 0.8em;
-  line-height: 1; /* Better vertical alignment */
+  line-height: 1;
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -1119,30 +916,29 @@ const sendMessage = async () => {
 }
 .input-area {
   display: flex;
-  align-items: flex-end; /* Align buttons and textarea baseline */
+  align-items: flex-end;
   padding: 0.75rem;
   background-color: var(--bg-input-area);
-  flex-shrink: 0; /* Prevent shrinking */
-  gap: 0.5rem; /* Space between buttons/textarea */
-  border-radius: 0; /* Flat top edge */
-  border-top: none; /* Remove top border if image preview is shown */
-  position: relative; /* For loading indicator */
+  flex-shrink: 0;
+  gap: 0.5rem;
+  border-radius: 0;
+  border-top: none;
+  position: relative;
 }
-/* Add top border only if image preview is NOT shown */
 .chat-view:not(:has(.image-preview-area)) .input-area {
   border-top: 1px solid var(--border-color-medium);
 }
 .input-area textarea {
-  flex-grow: 1; /* Take available space */
+  flex-grow: 1;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-color-medium);
-  border-radius: 15px; /* Rounded corners */
-  resize: none; /* Disable manual resize */
+  border-radius: 15px;
+  resize: none;
   font-family: sans-serif;
   font-size: 1em;
-  min-height: 40px; /* Minimum height = button height */
-  max-height: 150px; /* Limit excessive growth */
-  overflow-y: auto; /* Scroll if content exceeds max-height */
+  min-height: 40px;
+  max-height: 150px;
+  overflow-y: auto;
   line-height: 1.4;
   background-color: var(--bg-input-field);
   color: var(--text-primary);
@@ -1152,15 +948,15 @@ const sendMessage = async () => {
 }
 .input-area textarea::placeholder {
   color: var(--text-placeholder);
-  opacity: 1; /* Ensure placeholder is visible */
+  opacity: 1;
 }
 .input-area textarea:hover:not(:focus):not(:disabled) {
-  border-color: var(--accent-color-primary); /* Highlight on hover */
+  border-color: var(--accent-color-primary);
 }
 .input-area textarea:focus {
   outline: none;
-  border-color: var(--accent-color-primary); /* Highlight on focus */
-  box-shadow: var(--input-focus-shadow); /* Add focus ring/shadow */
+  border-color: var(--accent-color-primary);
+  box-shadow: var(--input-focus-shadow);
 }
 .input-area textarea:disabled {
   background-color: color-mix(in srgb, var(--bg-input-field) 50%, var(--bg-input-area));
@@ -1170,15 +966,15 @@ const sendMessage = async () => {
 .input-area button {
   padding: 0.5rem;
   border: none;
-  border-radius: 50%; /* Circular buttons */
+  border-radius: 50%;
   cursor: pointer;
-  min-height: 40px; /* Match textarea min-height */
+  min-height: 40px;
   min-width: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2em; /* Icon size */
-  flex-shrink: 0; /* Prevent button shrinking */
+  font-size: 1.2em;
+  flex-shrink: 0;
   transition:
     background-color 0.2s ease,
     opacity 0.2s ease,
@@ -1188,11 +984,11 @@ const sendMessage = async () => {
 .input-area button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
-  animation: none !important; /* Disable animations when disabled */
+  animation: none !important;
   box-shadow: none !important;
 }
 .input-area button:active:not(:disabled) {
-  transform: scale(0.95); /* Click feedback */
+  transform: scale(0.95);
 }
 .icon-button {
   background-color: var(--bg-button-secondary);
@@ -1204,14 +1000,14 @@ const sendMessage = async () => {
 .icon-button.listening {
   background-color: var(--bg-button-listening);
   color: var(--text-button-listening);
-  animation: pulse-red 1.5s infinite ease-in-out; /* Pulse animation */
+  animation: pulse-red 1.5s infinite ease-in-out;
 }
 .send-button {
   background-color: var(--bg-button-primary);
   color: var(--text-button-primary);
-  font-size: 1.5em; /* Larger send icon */
-  padding: 0.5rem 0.5rem; /* Adjust padding for icon size */
-  line-height: 1; /* Adjust line height */
+  font-size: 1.5em;
+  padding: 0.5rem 0.5rem;
+  line-height: 1;
 }
 .send-button:hover:not(:disabled) {
   background-color: var(--bg-button-primary-hover);
@@ -1219,24 +1015,22 @@ const sendMessage = async () => {
 .send-button:disabled {
   background-color: color-mix(in srgb, var(--bg-button-primary) 50%, var(--bg-input-area));
 }
-/* Send Button Animation Styles */
 .send-button-plasma:not(:disabled) {
   animation: plasma-arrow-pulse 2s infinite ease-in-out;
   box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
 }
 .send-button-plasma.flash-active {
-  /* Triggered on send */
   animation: plasma-shoot 0.3s ease-out forwards;
 }
 .tts-button {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
   font-size: 1.1em;
-  border: 1px solid transparent; /* Add border for spacing/alignment */
+  border: 1px solid transparent;
 }
 .tts-button.tts-on {
   background-color: var(--accent-color-primary);
-  color: var(--bg-input-area); /* Contrast color */
+  color: var(--bg-input-area);
   border-color: var(--accent-color-primary);
 }
 .tts-button:hover:not(:disabled) {
@@ -1244,24 +1038,18 @@ const sendMessage = async () => {
   border-color: transparent;
 }
 .tts-button.tts-on:hover:not(:disabled) {
-  background-color: color-mix(
-    in srgb,
-    var(--accent-color-primary) 90%,
-    #000000
-  ); /* Darken accent */
-  border-color: color-mix(in srgb, var(--accent-color-primary) 90%, #000000);
+  background-color: color-mix(in srgb, var(--accent-color-primary) 90%, #000);
+  border-color: color-mix(in srgb, var(--accent-color-primary) 90%, #000);
   color: var(--bg-input-area);
 }
-
-/* Loading Indicator (if you add one) */
 .loading-indicator-visual-container {
   position: absolute;
-  top: -4px; /* Position above the input area border */
+  top: -4px;
   left: 0;
   width: 100%;
   height: 4px;
   overflow: hidden;
-  background-color: transparent; /* Or a subtle background */
+  background-color: transparent;
 }
 .loading-indicator-visual {
   width: 100%;
@@ -1270,14 +1058,5 @@ const sendMessage = async () => {
   background-size: 200% 100%;
   animation: loading-gradient 1.5s linear infinite;
   border-radius: 2px;
-}
-
-@keyframes loading-gradient {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
 }
 </style>
