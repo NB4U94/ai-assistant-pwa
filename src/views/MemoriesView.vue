@@ -6,31 +6,53 @@
       recently saved time.
     </p>
 
+    <div class="bulk-actions-area" v-if="memoryList && memoryList.length > 0">
+      <button
+        @click="handleDeleteSelected"
+        :disabled="selectedMemoryIds.size === 0"
+        class="action-button delete-button"
+        title="Delete selected memories"
+      >
+        Delete Selected ({{ selectedMemoryIds.size }})
+      </button>
+    </div>
+
     <div v-if="memoryList && memoryList.length > 0" class="memory-list">
       <ul>
         <li v-for="memory in memoryList" :key="memory.id" class="memory-item">
-          <div class="memory-info">
-            <span class="memory-name">{{ memory.name }}</span>
-            <span class="memory-meta">
-              {{ memory.messageCount }} message(s) - Saved:
-              {{ formatMemoryTimestamp(memory.timestamp) }}
-            </span>
-          </div>
-          <div class="memory-actions">
-            <button
-              @click="loadMemoryHandler(memory.id)"
-              class="action-button load-button"
-              title="Load this memory into the chat view"
-            >
-              Load
-            </button>
-            <button
-              @click="deleteMemoryHandler(memory.id, memory.name)"
-              class="action-button delete-button"
-              title="Delete this memory permanently"
-            >
-              Delete
-            </button>
+          <input
+            type="checkbox"
+            :id="'select-memory-' + memory.id"
+            :checked="selectedMemoryIds.has(memory.id)"
+            @change="toggleMemorySelection(memory.id)"
+            class="memory-checkbox"
+            :aria-label="'Select memory: ' + memory.name"
+          />
+
+          <div class="memory-item-content">
+            <div class="memory-info">
+              <span class="memory-name">{{ memory.name }}</span>
+              <span class="memory-meta">
+                {{ memory.messageCount }} message(s) - Saved:
+                {{ formatMemoryTimestamp(memory.timestamp) }}
+              </span>
+            </div>
+            <div class="memory-actions">
+              <button
+                @click="loadMemoryHandler(memory.id)"
+                class="action-button load-button"
+                title="Load this memory into the chat view"
+              >
+                Load
+              </button>
+              <button
+                @click="deleteSingleMemoryHandler(memory.id, memory.name)"
+                class="action-button delete-button single-delete-button"
+                title="Delete this memory permanently"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </li>
       </ul>
@@ -46,23 +68,21 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+// *** Import ref ***
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConversationStore } from '@/stores/conversationStore'
 
 const conversationStore = useConversationStore()
 const router = useRouter()
 
-// Get the formatted memory list using the new getter
+// *** State for selected memory IDs ***
+const selectedMemoryIds = ref(new Set())
+
 const memoryList = computed(() => conversationStore.memoryListForDisplay)
 
-/**
- * Formats a timestamp into a readable date/time string.
- * @param {number} timestamp - The timestamp number (e.g., Date.now()).
- * @returns {string} - Formatted date/time string.
- */
+// --- Timestamp Formatting (Unchanged) ---
 const formatMemoryTimestamp = (timestamp) => {
-  // Renamed parameter for clarity
   if (!timestamp) return 'N/A'
   try {
     const options = {
@@ -71,43 +91,76 @@ const formatMemoryTimestamp = (timestamp) => {
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true, // Use 12-hour format
+      hour12: true,
     }
-    // Use 'en-AU' locale for Australian date format, fallback to browser default
-    return new Date(timestamp).toLocaleString(['en-AU', undefined], options)
+    return new Date(timestamp).toLocaleString('en-AU', options)
   } catch (e) {
     console.error('Error formatting timestamp:', e)
-    return new Date(timestamp).toLocaleDateString() // Fallback to date only
+    try {
+      return new Date(timestamp).toLocaleDateString()
+    } catch {
+      return 'Invalid Date'
+    }
   }
 }
 
-/**
- * Loads the selected memory into the active chat view and navigates there.
- * @param {string} memoryId - The ID of the memory to load.
- */
+// --- Loading (Unchanged) ---
 const loadMemoryHandler = (memoryId) => {
-  // Renamed function
   console.log(`[MemoriesView] Loading memory: ${memoryId}`)
-  conversationStore.loadMemory(memoryId) // Use the new store action
-  router.push('/') // Navigate to the main chat view route
+  conversationStore.loadMemory(memoryId)
+  router.push('/')
 }
 
-/**
- * Handles the delete button click, shows confirmation, and calls store action.
- * @param {string} memoryId - The ID of the memory to delete.
- * @param {string} memoryName - The name of the memory for the confirmation dialog.
- */
-const deleteMemoryHandler = (memoryId, memoryName) => {
-  // Renamed function
-  // Confirmation dialog
+// --- Selection Handling ---
+const toggleMemorySelection = (memoryId) => {
+  if (selectedMemoryIds.value.has(memoryId)) {
+    selectedMemoryIds.value.delete(memoryId)
+  } else {
+    selectedMemoryIds.value.add(memoryId)
+  }
+  console.log('Selected IDs:', Array.from(selectedMemoryIds.value)) // Log selection changes
+}
+
+// --- Deletion Handling ---
+
+// Handler for the single delete button next to each item
+const deleteSingleMemoryHandler = (memoryId, memoryName) => {
   if (
     window.confirm(
       `Are you sure you want to permanently delete the memory "${memoryName}"? This cannot be undone.`,
     )
   ) {
-    console.log(`[MemoriesView] Deleting memory: ${memoryId}`)
-    conversationStore.deleteMemory(memoryId) // Use the new store action
-    // The list will update automatically because it's a computed property.
+    console.log(`[MemoriesView] Deleting single memory: ${memoryId}`)
+    // Use the original single delete action (can be kept or refactored to use multi-delete)
+    conversationStore.deleteMemory(memoryId)
+    // Ensure it's removed from selection if it was selected
+    selectedMemoryIds.value.delete(memoryId)
+  }
+}
+
+// Handler for the "Delete Selected" button
+const handleDeleteSelected = () => {
+  const idsToDelete = Array.from(selectedMemoryIds.value)
+  if (idsToDelete.length === 0) {
+    alert('Please select at least one memory to delete.')
+    return
+  }
+
+  if (
+    window.confirm(
+      `Are you sure you want to permanently delete the ${idsToDelete.length} selected memories? This cannot be undone.`,
+    )
+  ) {
+    console.log(`[MemoriesView] Deleting ${idsToDelete.length} selected memories:`, idsToDelete)
+    try {
+      // Call the new store action
+      conversationStore.deleteMultipleMemories(idsToDelete)
+      // Clear the selection after triggering deletion
+      selectedMemoryIds.value.clear()
+    } catch (error) {
+      console.error('[MemoriesView] Error calling deleteMultipleMemories:', error)
+      alert('An error occurred while trying to delete the selected memories.')
+    }
   }
 }
 </script>
@@ -130,7 +183,15 @@ h1 {
   font-weight: 600;
 }
 
-/* Updated class name */
+/* Style for the bulk actions area */
+.bulk-actions-area {
+  padding: 0.5rem 0.5rem 1rem; /* Padding above/below the button */
+  border-bottom: 1px solid var(--border-color-light);
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: flex-end; /* Position button to the right */
+}
+
 .memory-list-placeholder {
   margin-top: 2rem;
   padding: 1.5rem;
@@ -140,32 +201,50 @@ h1 {
   color: var(--text-secondary);
   text-align: center;
 }
-/* Updated class name */
 .memory-list ul {
   list-style: none;
   padding: 0;
-  margin: 1rem 0 0 0;
+  margin: 0; /* Removed top margin */
 }
-/* Updated class name */
 .memory-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 0.5rem;
+  /* justify-content: space-between; */ /* Let content handle spacing */
+  align-items: center; /* Vertically align checkbox and content */
+  padding: 0.75rem 0.5rem; /* Adjusted padding slightly */
   border-bottom: 1px solid var(--border-color-light);
-  gap: 1rem;
+  gap: 1rem; /* Space between checkbox and content */
 }
 .memory-item:last-child {
   border-bottom: none;
 }
-/* Updated class name */
+
+/* Checkbox style */
+.memory-checkbox {
+  flex-shrink: 0; /* Prevent checkbox from shrinking */
+  /* Add some margin if needed, or rely on gap */
+  accent-color: var(--accent-color-primary); /* Style the check color */
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* New container for the rest of the list item content */
+.memory-item-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-grow: 1; /* Allow content to take remaining space */
+  gap: 1rem;
+  overflow: hidden; /* Prevent content overflow */
+}
+
 .memory-info {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  overflow: hidden; /* Prevent long names breaking layout */
+  overflow: hidden;
+  /* Let flexbox handle width */
 }
-/* Updated class name */
 .memory-name {
   font-weight: 500;
   color: var(--text-primary);
@@ -173,7 +252,6 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Updated class name */
 .memory-meta {
   font-size: 0.8em;
   color: var(--text-secondary);
@@ -181,13 +259,13 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Updated class name */
 .memory-actions {
   display: flex;
   gap: 0.5rem;
-  flex-shrink: 0; /* Prevent buttons shrinking */
+  flex-shrink: 0;
 }
 
+/* Shared button style */
 .action-button {
   padding: 0.4rem 0.8rem;
   border-radius: 6px;
@@ -197,14 +275,17 @@ h1 {
   font-family: sans-serif;
   font-size: 0.85em;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    opacity 0.2s ease;
 }
 .action-button:hover:not(:disabled) {
   background-color: var(--bg-button-secondary-hover);
 }
 .action-button:disabled {
-  opacity: 0.6;
+  opacity: 0.5; /* Make disabled state more obvious */
   cursor: not-allowed;
+  background-color: var(--bg-button-secondary); /* Keep base color */
 }
 
 .load-button {
@@ -217,6 +298,7 @@ h1 {
   border-color: var(--bg-button-primary-hover);
 }
 
+/* Style for ALL delete buttons */
 .delete-button {
   background-color: var(--bg-error, #a04040);
   color: var(--text-light, white);
@@ -226,6 +308,8 @@ h1 {
   background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
 }
-
-/* Removed .main-chat-note styles as the element is gone */
+/* Slightly different padding/margin for single delete? Optional */
+.single-delete-button {
+  /* Add specific styles if needed */
+}
 </style>

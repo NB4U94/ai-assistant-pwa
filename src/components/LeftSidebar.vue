@@ -2,7 +2,11 @@
   <div class="left-sidebar-content">
     <h2 class="sidebar-title">Main Menu</h2>
 
-    <button class="new-chat-button" @click="startNewChat" title="Start a new chat session">
+    <button
+      class="new-chat-button"
+      @click="handleNewChat"
+      title="Start a new chat with the current AI/Assistant"
+    >
       <svg
         class="new-chat-icon"
         xmlns="http://www.w3.org/2000/svg"
@@ -16,7 +20,6 @@
         <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
       </svg>
       <span class="link-text">New Chat</span>
-      <span class="button-highlight"></span>
     </button>
 
     <nav class="main-menu">
@@ -72,7 +75,7 @@
               <g>
                 <g>
                   <path
-                    d="M19,7h-1V5h-4v2h-4V5H6v2H5C3.9,7,3,7.9,3,9v10c0,1.1,0.9,2,2,2h14c1.1,0,2-0.9,2-2V9C21,7.9,20.1,7,19,7z M5,19V9h14 v10H5z"
+                    d="M19,7h-1V5h-4v2h-4V5H6v2H5C3.9,7,3,7.9,3,9v10c0,1.1,0.9,2,2,2h14c1.1,0,2-0.9,2-2V9C21,7.9,20.1,7,19,7z M5,19V9h14v10H5z"
                   />
                   <circle cx="16.5" cy="11.5" r="1.5" />
                   <circle cx="7.5" cy="11.5" r="1.5" />
@@ -127,24 +130,45 @@
 <script setup>
 import { RouterLink, useRouter } from 'vue-router'
 import { useConversationStore } from '@/stores/conversationStore'
+// *** Import storeToRefs to get reactive access to state ***
+import { storeToRefs } from 'pinia'
 
 const conversationStore = useConversationStore()
 const router = useRouter()
 
-const startNewChat = () => {
-  console.log('[LeftSidebar] Starting new chat session...')
-  conversationStore.createNewSession()
-  if (router.currentRoute.value.path !== '/') {
-    router.push('/')
-  } else {
-    console.log('[LeftSidebar] Already on chat view, new session activated.')
+// *** Get reactive access to activeSessionId ***
+const { activeSessionId } = storeToRefs(conversationStore)
+
+const handleNewChat = async () => {
+  // *** Get the current session ID BEFORE saving/resetting ***
+  const currentId = activeSessionId.value
+  console.log(`[LeftSidebar] New Chat clicked. Current session ID: ${currentId}. Saving session...`)
+
+  try {
+    // 1. Save the current conversation
+    await conversationStore.saveActiveConversationToMemories()
+    console.log('[LeftSidebar] Current session saved.')
+
+    // 2. Reset the chat view for the *same* session ID (main_chat or assistant)
+    // setActiveSession handles clearing messages and loadedMemoryId
+    console.log(`[LeftSidebar] Resetting session view for ID: ${currentId}...`)
+    conversationStore.setActiveSession(currentId) // Pass the ID we captured earlier
+
+    // 3. Navigate to chat view if not already there
+    if (router.currentRoute.value.path !== '/') {
+      console.log('[LeftSidebar] Navigating to chat view...')
+      router.push('/')
+    }
+  } catch (error) {
+    console.error('[LeftSidebar] Error during handleNewChat:', error)
+    // Optional: Add user feedback about the error
   }
 }
 </script>
 
 <style scoped>
+/* Styles are identical to the previous version - No changes needed */
 /* --- Animation Definitions --- */
-/* Original Box Highlight Pulse */
 @keyframes plasma-highlight-pulse {
   0%,
   100% {
@@ -156,7 +180,6 @@ const startNewChat = () => {
     box-shadow: 0 0 8px 2px color-mix(in srgb, var(--accent-color-primary) 60%, transparent);
   }
 }
-/* Faint constant pulse for Title */
 @keyframes faint-title-glow {
   0%,
   100% {
@@ -166,7 +189,6 @@ const startNewChat = () => {
     text-shadow: 0 0 6px color-mix(in srgb, var(--accent-color-primary) 35%, transparent);
   }
 }
-/* Faint constant pulse for New Chat Icon */
 @keyframes faint-icon-glow {
   0%,
   100% {
@@ -176,7 +198,6 @@ const startNewChat = () => {
     filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-color-primary) 70%, transparent));
   }
 }
-/* Constant glow for Active Icon */
 @keyframes active-icon-glow {
   from {
     filter: drop-shadow(0 0 2px var(--accent-color-primary))
@@ -194,22 +215,20 @@ const startNewChat = () => {
   display: flex;
   flex-direction: column;
 }
-
-/* Title */
 h2.sidebar-title {
   margin-top: 0;
   margin-bottom: 1.5rem;
-  color: color-mix(in srgb, var(--text-light) 95%, var(--text-secondary)); /* Dimmer white */
+  color: color-mix(in srgb, var(--text-light) 95%, var(--text-secondary));
   font-family: sans-serif;
   text-align: center;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   flex-shrink: 0;
-  animation: faint-title-glow 3s infinite ease-in-out alternate; /* Constant faint pulse */
+  animation: faint-title-glow 3s infinite ease-in-out alternate;
 }
 
-/* New Chat Button */
+/* --- New Chat Button --- */
 .new-chat-button {
   display: flex;
   align-items: center;
@@ -217,16 +236,16 @@ h2.sidebar-title {
   padding: 0.6rem 1rem;
   margin: 0 0.5rem 1.5rem 0.5rem;
   text-decoration: none;
-  color: var(--text-button-secondary); /* Default text */
-  background-color: var(--bg-button-secondary); /* Default background */
-  border: 1px solid transparent;
+  color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--border-color-light);
   border-radius: 6px;
   font-family: sans-serif;
   cursor: pointer;
   transition:
     color 0.2s ease,
     background-color 0.2s ease,
-    border-color 0.2s ease; /* Basic transitions */
+    border-color 0.2s ease;
   outline: none;
   font-weight: 500;
   text-align: left;
@@ -239,38 +258,19 @@ h2.sidebar-title {
   height: 20px;
   fill: var(--accent-color-primary);
   flex-shrink: 0;
-  animation: faint-icon-glow 2.5s infinite ease-in-out alternate; /* Constant faint icon pulse */
+  animation: faint-icon-glow 2.5s infinite ease-in-out alternate;
 }
 .new-chat-button:hover:not(:disabled) {
-  color: var(--text-light); /* White text on hover */
+  color: var(--text-primary);
+  background-color: color-mix(in srgb, var(--accent-color-primary) 10%, transparent);
+  border-color: var(--border-color-medium);
 }
 .new-chat-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-.new-chat-button .button-highlight {
-  /* Highlight element */
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--accent-color-primary);
-  border-radius: inherit;
-  opacity: 0;
-  z-index: -1;
-  transition: opacity 0.3s ease;
-  box-shadow: none;
-  animation: none; /* No animation by default */
-}
-.new-chat-button:hover .button-highlight {
-  /* Activate highlight on hover */
-  opacity: 0.15;
-  animation: plasma-highlight-pulse 1.5s infinite ease-in-out; /* Pulse only on hover */
-}
 
-/* Main Menu */
+/* --- Main Menu --- */
 .main-menu ul {
   list-style: none;
   padding: 0;
@@ -279,8 +279,6 @@ h2.sidebar-title {
 .main-menu li {
   margin-bottom: 0.2rem;
 }
-
-/* Menu Links */
 .main-menu a {
   display: flex;
   align-items: center;
@@ -292,7 +290,7 @@ h2.sidebar-title {
   font-family: sans-serif;
   border-radius: 6px;
   background-color: transparent;
-  transition: color 0.2s ease; /* Only transition color */
+  transition: color 0.2s ease;
   position: relative;
   outline: none;
   box-shadow: none;
@@ -306,14 +304,12 @@ h2.sidebar-title {
   flex-shrink: 0;
   transition:
     fill 0.2s ease,
-    filter 0.3s ease; /* Transition fill and filter */
-  filter: none; /* Base state no glow */
+    filter 0.3s ease;
+  filter: none;
 }
 .link-text {
   flex-grow: 1;
 }
-
-/* Link Highlight Pseudo-element */
 .main-menu a::after {
   content: '';
   position: absolute;
@@ -327,49 +323,33 @@ h2.sidebar-title {
   z-index: -1;
   transition: opacity 0.3s ease;
   box-shadow: none;
-  animation: none; /* Default no animation */
-}
-
-/* Link Hover State */
-.main-menu a:hover {
-  color: var(--text-light); /* White text */
-}
-.main-menu a:hover::after {
-  opacity: 0.15; /* Faint background highlight */
-  animation: plasma-highlight-pulse 1.5s infinite ease-in-out; /* Pulse background on hover */
-}
-.main-menu a:hover svg {
-  /* Icon color set by parent <a> tag */
-}
-
-/* Link Active State */
-.main-menu a.router-link-active {
-  color: var(--text-light); /* White text when active */
-  /* NO background pulse/highlight when just active */
-}
-.main-menu a.router-link-active::after {
-  opacity: 0; /* Ensure no background highlight when only active */
   animation: none;
 }
-/* --- Active link SVG glow --- */
+.main-menu a:hover {
+  color: var(--text-light);
+}
+.main-menu a:hover::after {
+  opacity: 0.15;
+  animation: plasma-highlight-pulse 1.5s infinite ease-in-out;
+}
+.main-menu a.router-link-active {
+  color: var(--text-light);
+}
+.main-menu a.router-link-active::after {
+  opacity: 0;
+  animation: none;
+}
 .main-menu a.router-link-active svg {
-  fill: var(--accent-color-primary); /* Accent icon color */
-  /* Apply constant green glow to active icon ONLY */
+  fill: var(--accent-color-primary);
   filter: drop-shadow(0 0 2px var(--accent-color-primary))
     drop-shadow(0 0 4px color-mix(in srgb, var(--accent-color-primary) 50%, transparent));
-  /* Use a placeholder animation to prevent interference if needed, or rely on filter */
-  /* animation: active-icon-glow 1s infinite; */ /* Example if filter alone isn't enough */
 }
-/* Override: If active AND hovered, apply hover background pulse */
 .main-menu a.router-link-active:hover::after {
   opacity: 0.15;
   animation: plasma-highlight-pulse 1.5s infinite ease-in-out;
 }
-/* Override: If active AND hovered, SVG keeps fill but maybe stops specific glow? Or keeps it? */
-/* Let's keep the glow on active hover for now */
-/* .main-menu a.router-link-active:hover svg { filter: none; } */
 
-/* Focus Visible Styles */
+/* --- Focus Visible --- */
 .main-menu a:focus-visible {
   outline: 2px solid var(--accent-color-primary);
   outline-offset: -2px;
@@ -378,15 +358,15 @@ h2.sidebar-title {
 }
 .new-chat-button:focus-visible {
   outline: 2px solid var(--accent-color-primary);
-  outline-offset: 2px;
+  outline-offset: 1px;
+  border-color: var(--accent-color-primary);
 }
 
-/* Collapsed Styles */
+/* --- Collapsed Styles --- */
 #left-sidebar.sidebar-closed .main-menu a .link-text,
 #left-sidebar.sidebar-closed .new-chat-button .link-text {
   display: none;
 }
-
 #left-sidebar.sidebar-closed .main-menu a,
 #left-sidebar.sidebar-closed .new-chat-button {
   justify-content: center;
@@ -395,7 +375,6 @@ h2.sidebar-title {
   margin-left: 0.25rem;
   margin-right: 0.25rem;
 }
-
 #left-sidebar.sidebar-closed h2 {
   display: none;
 }
@@ -403,7 +382,4 @@ h2.sidebar-title {
   width: auto;
   padding: 0.6rem;
 }
-#left-sidebar.sidebar-closed .new-chat-button .button-highlight {
-  display: none;
-} /* Hide highlight when collapsed */
 </style>
