@@ -92,9 +92,7 @@ import SettingsTabAssistants from '@/components/settings/SettingsTabAssistants.v
 import SettingsTabMyAi from '@/components/settings/SettingsTabMyAi.vue'
 
 // --- Use Composables ---
-// *** REMOVED TABS_CONFIG constant and argument to useSettingsTabs ***
 const { activeTab, tabs, changeTab } = useSettingsTabs()
-
 const { isHelpModalVisible, currentHelpContent, showHelp, closeHelpModal } = useSettingsHelpModal()
 const { isDarkMode, toggleTheme, appFontSize, setAppFontSize } = useGeneralSettings()
 const {
@@ -127,7 +125,8 @@ const {
   padding: 1.5rem 2rem;
   height: 100%;
   overflow-y: auto;
-  background-color: var(--bg-main-content);
+  /* *** UPDATED Background Color *** */
+  background-color: #101010; /* Near black */
   color: var(--text-primary);
   position: relative;
 }

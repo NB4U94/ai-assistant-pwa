@@ -19,7 +19,7 @@
         <div class="toggle-knob"></div>
       </div>
       <button
-        class="help-button pulsing-help"
+        class="help-button"
         @click="
           showHelp(
             'Theme Setting',
@@ -51,13 +51,15 @@
         <span class="slider-value">{{ fontSizeModel }}%</span>
       </div>
       <button
-        class="help-button pulsing-help"
+        class="help-button"
         @click="
           showHelp(
             'App Font Size',
             'Increases or decreases the size of most text (as a percentage of default) for better readability.',
           )
         "
+        aria-label="Help with App Font Size"
+        title="Help with App Font Size"
       >
         ?
       </button>
@@ -75,22 +77,91 @@
         id="sound-toggle"
         role="switch"
         :aria-checked="uiSoundEffectsEnabled.toString()"
-        @click="settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled)"
-        @keydown.enter="settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled)"
-        @keydown.space.prevent="settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled)"
+        @click="toggleUiSoundEffects"
+        @keydown.enter="toggleUiSoundEffects"
+        @keydown.space.prevent="toggleUiSoundEffects"
         tabindex="0"
         :title="`Turn UI sounds ${uiSoundEffectsEnabled ? 'off' : 'on'}`"
       >
         <div class="toggle-knob"></div>
       </div>
       <button
-        class="help-button pulsing-help"
+        class="help-button"
         @click="
           showHelp(
             'UI Sound Effects',
             'Plays short sounds to provide feedback for certain actions within the application, like sending a message or receiving a response.',
           )
         "
+        aria-label="Help with UI Sound Effects"
+        title="Help with UI Sound Effects"
+      >
+        ?
+      </button>
+    </div>
+
+    <div class="setting-item">
+      <label for="default-assistant-select" class="setting-label">
+        Default Startup Assistant
+        <span class="setting-description">Choose which assistant loads when the app starts.</span>
+      </label>
+      <select
+        id="default-assistant-select"
+        v-model="defaultAssistantId"
+        class="settings-select"
+        aria-label="Default Startup Assistant"
+      >
+        <option
+          v-for="option in startupAssistantOptions"
+          :key="option.id ?? 'default-option-key'"
+          :value="option.id"
+        >
+          {{ option.name }}
+        </option>
+      </select>
+      <button
+        class="help-button"
+        @click="
+          showHelp(
+            'Default Startup Assistant',
+            'Select the Assistant that should be active by default when you open the application. \'Nb4U-Ai\' is the main default.',
+          )
+        "
+        aria-label="Help with Default Startup Assistant"
+        title="Help with Default Startup Assistant"
+      >
+        ?
+      </button>
+    </div>
+
+    <div class="setting-item">
+      <label for="show-selector-toggle" class="setting-label">
+        Show Assistant Selector Bar
+        <span class="setting-description">Show/hide the assistant selection bar in Chat view.</span>
+      </label>
+      <div
+        class="toggle-switch"
+        id="show-selector-toggle"
+        role="switch"
+        :aria-checked="showAssistantSelectorBar.toString()"
+        @click="toggleShowAssistantSelectorBar"
+        @keydown.enter="toggleShowAssistantSelectorBar"
+        @keydown.space.prevent="toggleShowAssistantSelectorBar"
+        tabindex="0"
+        :title="`Turn Assistant Selector Bar ${showAssistantSelectorBar ? 'off' : 'on'}`"
+      >
+        <div class="toggle-knob"></div>
+      </div>
+      <button
+        class="help-button"
+        @click="
+          showHelp(
+            'Show Assistant Selector Bar',
+            'Controls whether the horizontal bar allowing quick selection between Assistants is visible at the top of the main Chat view.',
+          )
+        "
+        aria-label="Help with Show Assistant Selector Bar"
+        title="Help with Show Assistant Selector Bar"
       >
         ?
       </button>
@@ -105,7 +176,7 @@
     >
       <h3>Advanced Settings</h3>
       <button
-        class="advanced-arrow"
+        class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
         aria-label="Toggle Advanced Settings"
       >
@@ -136,13 +207,15 @@
             Export...
           </button>
           <button
-            class="help-button pulsing-help"
+            class="help-button"
             @click="
               showHelp(
                 'Export Settings',
                 'Creates a JSON file containing all your current application settings (theme, chat preferences, etc.) that you can save as a backup or transfer to another device.',
               )
             "
+            aria-label="Help with Export Settings"
+            title="Help with Export Settings"
           >
             ?
           </button>
@@ -169,13 +242,15 @@
             Import...
           </button>
           <button
-            class="help-button pulsing-help"
+            class="help-button"
             @click="
               showHelp(
                 'Import Settings',
                 'Loads settings from a JSON file you previously exported. This will overwrite your current settings.',
               )
             "
+            aria-label="Help with Import Settings"
+            title="Help with Import Settings"
           >
             ?
           </button>
@@ -195,13 +270,15 @@
             Reset Now
           </button>
           <button
-            class="help-button pulsing-help"
+            class="help-button"
             @click="
               showHelp(
                 'Reset All Settings',
                 'WARNING: This will immediately reset all settings across all tabs (General, Chat, Image Gen, Assistants) back to their original default values. This action cannot be undone.',
               )
             "
+            aria-label="Help with Reset All Settings"
+            title="Help with Reset All Settings"
           >
             ?
           </button>
@@ -212,13 +289,14 @@
 </template>
 
 <script setup>
-import { defineProps, computed, ref } from 'vue'
-// *** Import store and utilities ***
+// Script setup remains the same as previous correct version
+import { defineProps, defineEmits, computed, ref } from 'vue'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useAssistantsStore } from '@/stores/assistantsStore'
 import { storeToRefs } from 'pinia'
+import { useGeneralSettings } from '@/composables/useGeneralSettings'
 
 // --- Props ---
-// Keep existing props passed down from SettingsView
 const props = defineProps({
   isDarkMode: { type: Boolean, required: true },
   toggleTheme: { type: Function, required: true },
@@ -227,16 +305,27 @@ const props = defineProps({
 })
 
 // --- Emits ---
-// Keep existing emit for font size v-model
 const emit = defineEmits(['update:modelValue'])
 
 // --- Store Access ---
 const settingsStore = useSettingsStore()
-// Get needed state and actions using storeToRefs for reactivity
-const { uiSoundEffectsEnabled } = storeToRefs(settingsStore)
+const assistantsStore = useAssistantsStore()
+// Get needed state directly for binding using storeToRefs
+const {
+  uiSoundEffectsEnabled, // Keep for binding :aria-checked, :title
+  defaultAssistantId,
+  showAssistantSelectorBar, // Keep for binding :aria-checked, :title
+} = storeToRefs(settingsStore)
+const { assistants } = storeToRefs(assistantsStore)
+
+// --- Use General Settings Composable ---
+const {
+  // No need to get state refs again, already have them above
+  toggleUiSoundEffects, // Get the toggle function
+  toggleShowAssistantSelectorBar, // Get the toggle function
+} = useGeneralSettings()
 
 // --- Computed for v-model ---
-// Keep existing computed for font size slider
 const fontSizeModel = computed({
   get: () => props.modelValue,
   set: (value) => {
@@ -244,46 +333,76 @@ const fontSizeModel = computed({
   },
 })
 
+// --- Computed property for startup assistant dropdown options ---
+const startupAssistantOptions = computed(() => {
+  const options = [{ id: null, name: 'Nb4U-Ai (Default)' }]
+  if (Array.isArray(assistants.value)) {
+    assistants.value.forEach((assistant) => {
+      if (assistant && assistant.id && assistant.name) {
+        options.push({ id: assistant.id, name: assistant.name })
+      } else {
+        console.warn('Skipping invalid assistant object in dropdown:', assistant)
+      }
+    })
+  }
+  return options
+})
+
 // --- Advanced Section State & Toggle ---
-const isAdvancedVisible = ref(false) // Default collapsed
+const isAdvancedVisible = ref(false)
 const toggleAdvanced = () => {
   isAdvancedVisible.value = !isAdvancedVisible.value
 }
 
 // --- Action Handlers ---
 const handleResetSettings = () => {
-  // Confirmation is handled within the store action now
   settingsStore.resetAllSettingsToDefaults()
-  // Font size is handled via props/v-model, need to emit update if reset changes it
-  // This assumes reset in store *also* resets the prop source if needed, or we might need to emit differently.
-  // For now, assume the source value updates reactively.
+  // Reset font size v-model via emit
+  emit('update:modelValue', settingsStore.DEFAULT_FONT_SIZE)
 }
 
-// --- Import/Export (Basic Implementation) ---
+// --- Import/Export ---
 const importFileRef = ref(null)
-
 const triggerImport = () => {
-  importFileRef.value?.click() // Trigger hidden file input
+  importFileRef.value?.click()
 }
 
 const handleFileImport = (event) => {
   const file = event.target.files?.[0]
   if (!file) return
-
   const reader = new FileReader()
   reader.onload = (e) => {
     try {
       const importedSettings = JSON.parse(e.target.result)
       console.log('Imported settings data:', importedSettings)
-      // TODO: Add validation logic here to ensure importedSettings format is correct
+      if (typeof importedSettings !== 'object' || importedSettings === null) {
+        throw new Error('Imported data is not a valid settings object.')
+      }
       if (window.confirm('Importing settings will overwrite your current settings. Continue?')) {
-        // Directly update store refs - this bypasses validation in loadSettings
-        // A more robust approach would be a dedicated import action in the store
-        // that includes validation.
-        settingsStore.theme = importedSettings.theme ?? settingsStore.theme
-        settingsStore.appFontSize = importedSettings.appFontSize ?? settingsStore.appFontSize
-        settingsStore.uiSoundEffectsEnabled =
-          importedSettings.uiSoundEffectsEnabled ?? settingsStore.uiSoundEffectsEnabled
+        // Use store actions where available, otherwise direct assignment (needs review)
+        if (settingsStore.setTheme) settingsStore.setTheme(importedSettings.theme)
+        else settingsStore.theme = importedSettings.theme ?? settingsStore.theme
+
+        // Emit font size update correctly
+        fontSizeModel.value = importedSettings.appFontSize ?? settingsStore.appFontSize
+
+        if (settingsStore.setUiSoundEffectsEnabled)
+          settingsStore.setUiSoundEffectsEnabled(importedSettings.uiSoundEffectsEnabled)
+        else
+          settingsStore.uiSoundEffectsEnabled =
+            importedSettings.uiSoundEffectsEnabled ?? settingsStore.uiSoundEffectsEnabled
+
+        if (settingsStore.setShowAssistantSelectorBar)
+          settingsStore.setShowAssistantSelectorBar(importedSettings.showAssistantSelectorBar)
+        else
+          settingsStore.showAssistantSelectorBar =
+            importedSettings.showAssistantSelectorBar ?? settingsStore.showAssistantSelectorBar
+
+        // Assign other settings (consider adding specific actions for these in store later)
+        settingsStore.defaultAssistantId =
+          importedSettings.defaultAssistantId === undefined
+            ? settingsStore.defaultAssistantId
+            : importedSettings.defaultAssistantId
         settingsStore.isTtsEnabled = importedSettings.isTtsEnabled ?? settingsStore.isTtsEnabled
         settingsStore.selectedVoiceUri =
           importedSettings.selectedVoiceUri ?? settingsStore.selectedVoiceUri
@@ -308,15 +427,23 @@ const handleFileImport = (event) => {
           importedSettings.assistantsDefaultInstructions ??
           settingsStore.assistantsDefaultInstructions
 
+        // My AI Settings
+        if (importedSettings.myAiContextSegments)
+          settingsStore.myAiContextSegments = importedSettings.myAiContextSegments
+        if (importedSettings.myAiContextApplyToAll !== undefined)
+          settingsStore.myAiContextApplyToAll = importedSettings.myAiContextApplyToAll
+        if (importedSettings.myAiContextAllowedAssistantIds)
+          settingsStore.myAiContextAllowedAssistantIds = new Set(
+            importedSettings.myAiContextAllowedAssistantIds,
+          )
+
         alert('Settings imported successfully!')
-        // Force save after import
-        settingsStore.saveSettingsToLocalStorage() // Manually trigger save
+        // Watcher in store triggers save
       }
     } catch (error) {
       console.error('Error reading or parsing settings file:', error)
       alert('Failed to import settings. Ensure the file is a valid JSON exported from this app.')
     } finally {
-      // Reset file input value to allow importing the same file again
       if (importFileRef.value) importFileRef.value.value = ''
     }
   }
@@ -330,11 +457,13 @@ const handleFileImport = (event) => {
 
 const exportSettings = () => {
   try {
-    // Create object with current settings values
+    // Use store state directly for export
     const settingsToExport = {
       theme: settingsStore.theme,
       appFontSize: settingsStore.appFontSize,
       uiSoundEffectsEnabled: settingsStore.uiSoundEffectsEnabled,
+      defaultAssistantId: settingsStore.defaultAssistantId,
+      showAssistantSelectorBar: settingsStore.showAssistantSelectorBar,
       isTtsEnabled: settingsStore.isTtsEnabled,
       selectedVoiceUri: settingsStore.selectedVoiceUri,
       chatModel: settingsStore.chatModel,
@@ -348,19 +477,21 @@ const exportSettings = () => {
       imageGenDefaultNegativePrompt: settingsStore.imageGenDefaultNegativePrompt,
       imageGenDefaultNumImages: settingsStore.imageGenDefaultNumImages,
       assistantsDefaultInstructions: settingsStore.assistantsDefaultInstructions,
+      myAiContextSegments: settingsStore.myAiContextSegments,
+      myAiContextApplyToAll: settingsStore.myAiContextApplyToAll,
+      myAiContextAllowedAssistantIds: Array.from(settingsStore.myAiContextAllowedAssistantIds),
     }
-    const jsonString = JSON.stringify(settingsToExport, null, 2) // Pretty print JSON
+    const jsonString = JSON.stringify(settingsToExport, null, 2)
     const blob = new Blob([jsonString], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    const timestamp = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    const timestamp = new Date().toISOString().slice(0, 10) // yyyy-MM-dd format
     link.download = `nb4u-ai-settings-${timestamp}.json`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-    alert('Settings exported successfully!')
   } catch (error) {
     console.error('Error exporting settings:', error)
     alert('Failed to export settings.')
@@ -369,15 +500,14 @@ const exportSettings = () => {
 </script>
 
 <style scoped>
-/* Include styles consistent with other tabs */
+/* Styles consistent with other tabs */
 .setting-item {
   display: grid;
-  /* Adjust grid for potential value display next to slider */
-  grid-template-columns: 1fr auto auto; /* Label | Control | Help */
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border-color-light);
-  gap: 1rem; /* Gap between columns */
+  gap: 1rem;
 }
 .setting-item:last-child {
   border-bottom: none;
@@ -389,7 +519,7 @@ const exportSettings = () => {
   font-weight: 500;
   font-family: sans-serif;
   cursor: default;
-  margin-right: 1rem; /* Space between label and control */
+  margin-right: 1rem;
   line-height: 1.3;
 }
 .setting-description {
@@ -400,13 +530,13 @@ const exportSettings = () => {
   white-space: normal;
 }
 
-/* Align controls and help button to the end of the grid cell */
-.toggle-switch, /* Renamed from placeholder */
+/* Align controls and help button */
+.toggle-switch,
 .settings-slider,
+.settings-select,
 .quick-setting-button,
 .help-button,
 .slider-container {
-  /* Align the container too */
   justify-self: end;
 }
 
@@ -429,8 +559,6 @@ const exportSettings = () => {
   vertical-align: middle;
   min-width: 120px;
   max-width: 150px;
-  /* Allow slider to take space within its flex container */
-  /* justify-self: initial; */ /* No longer needed directly on slider */
 }
 .settings-slider:disabled {
   opacity: 0.6;
@@ -441,44 +569,36 @@ const exportSettings = () => {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 
-/* Toggle switch styles */
-.toggle-switch {
-  /* Renamed from placeholder */
-  width: 44px;
-  height: 24px;
-  background-color: var(--bg-button-secondary);
-  border-radius: 12px;
-  padding: 2px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  transition: background-color 0.3s ease;
-  flex-shrink: 0;
+/* Select Styles */
+.settings-select {
+  padding: 0.5rem 0.75rem;
+  height: 38px;
   border: 1px solid var(--border-color-medium);
+  border-radius: 6px;
+  background-color: var(--bg-input-field);
+  color: var(--text-primary);
+  font-family: sans-serif;
+  font-size: 0.9em;
+  min-width: 150px;
+  max-width: 250px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+.settings-select:hover:not(:disabled) {
+  border-color: var(--accent-color-secondary);
+}
+.settings-select:focus {
   outline: none;
-  box-sizing: content-box; /* Ensure padding doesn't affect size */
+  border-color: var(--accent-color-primary);
+  box-shadow: var(--input-focus-shadow);
 }
-.toggle-switch[disabled] {
-  opacity: 0.5;
+.settings-select:disabled {
+  background-color: color-mix(in srgb, var(--bg-input-field) 50%, var(--bg-main-content));
   cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
-}
-.toggle-switch:not([disabled]):focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.toggle-switch[aria-checked='true'] {
-  background-color: var(--accent-color-primary);
-}
-.toggle-knob {
-  width: 20px;
-  height: 20px;
-  background-color: white;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.3s ease;
-}
-.toggle-switch[aria-checked='true'] .toggle-knob {
-  transform: translateX(20px);
+  opacity: 0.7;
 }
 
 /* Quick action buttons */
@@ -516,48 +636,14 @@ const exportSettings = () => {
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
 }
 
-/* Help button style */
-.help-button {
-  background-color: var(--bg-button-secondary);
-  color: var(--text-button-secondary);
-  border: none;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  font-size: 0.9em;
-  font-weight: bold;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: background-color 0.2s ease;
-  outline: none;
-  justify-self: end;
-}
-.help-button:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.help-button:hover {
-  background-color: var(--bg-button-secondary-hover);
-}
-/* Apply faint pulse animation */
-.help-button.pulsing-help {
-  /* Use animation defined globally in App.vue */
-  animation: faintGreenPulse 3s infinite alternate ease-in-out;
-}
-
 /* --- Advanced Section --- */
-/* Style for the clickable header that toggles the section */
 .advanced-toggle-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0.8rem 0.5rem;
   margin-top: 2rem;
-  background-color: var(--bg-input-area); /* Subtle background */
+  background-color: var(--bg-input-area);
   border: 1px solid var(--border-color-light);
   border-radius: 6px;
   cursor: pointer;
@@ -576,51 +662,38 @@ const exportSettings = () => {
   color: var(--text-secondary);
   font-weight: 600;
   font-size: 0.95em;
-  user-select: none; /* Prevent text selection on click */
+  user-select: none;
 }
 
 /* Arrow button styles */
 .advanced-arrow {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    transform 0.3s ease,
-    color 0.2s ease;
-  /* Apply glow animation */
-  animation: faintGreenPulse 3.5s infinite alternate ease-in-out;
+  /* Base styles are now global in main.css */
+  /* Scoped styles only need hover/focus if different */
 }
-.advanced-arrow:hover {
-  color: var(--text-primary);
-}
+/* SVG color comes from global rule */
 .advanced-arrow svg {
-  display: block; /* Prevent extra space below SVG */
+  display: block;
 }
 .advanced-arrow.expanded {
-  transform: rotate(180deg); /* Point arrow up when expanded */
+  transform: rotate(180deg);
 }
 
 /* Styles for the collapsible content area */
 .advanced-settings-section {
-  /* margin-top: 0rem; Remove top margin */
-  padding: 1rem 1rem 0 1rem; /* Add padding inside */
-  border: 1px solid var(--border-color-light); /* Keep border consistent */
-  border-top: none; /* Remove top border as header has one */
-  border-radius: 0 0 6px 6px; /* Round bottom corners */
-  margin-bottom: 1rem; /* Space below */
-  background-color: var(--bg-main-content); /* Match page bg or slight variant */
-  overflow: hidden; /* Needed for smooth transition */
+  padding: 1rem 1rem 0 1rem;
+  border: 1px solid var(--border-color-light);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  margin-bottom: 1rem;
+  background-color: var(--bg-main-content);
+  overflow: hidden;
 }
 
 /* --- Transition for Collapse --- */
-/* Define enter/leave transitions for smooth collapse/expand */
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
-  max-height: 500px; /* Adjust max-height if content is taller */
+  max-height: 500px; /* Adjust as needed */
   overflow: hidden;
 }
 .collapse-enter-from,
@@ -629,12 +702,12 @@ const exportSettings = () => {
   max-height: 0;
   padding-top: 0;
   padding-bottom: 0;
-  border-width: 0; /* Animate border smoothly */
-  margin-top: 0; /* Animate margin smoothly */
+  border-width: 0;
+  margin-top: 0; /* Adjust if margin is part of transition */
 }
 .collapse-enter-to,
 .collapse-leave-from {
   opacity: 1;
-  max-height: 500px; /* Should match enter-active max-height */
+  max-height: 500px; /* Match enter-active */
 }
 </style>

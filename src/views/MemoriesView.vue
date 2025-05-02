@@ -2,56 +2,113 @@
   <div class="memories-view">
     <h1>Conversation Memories</h1>
     <p>
-      Review, reload, or delete your past conversation memories. Memories are sorted by the most
-      recently saved time.
+      Review, load, pin, rename, or delete your past conversation memories. Pinned memories appear
+      first.
     </p>
-
-    <div class="bulk-actions-area" v-if="memoryList && memoryList.length > 0">
-      <button
-        @click="handleDeleteSelected"
-        :disabled="selectedMemoryIds.size === 0"
-        class="action-button delete-button"
-        title="Delete selected memories"
-      >
-        Delete Selected ({{ selectedMemoryIds.size }})
-      </button>
-    </div>
 
     <div v-if="memoryList && memoryList.length > 0" class="memory-list">
       <ul>
-        <li v-for="memory in memoryList" :key="memory.id" class="memory-item">
-          <input
-            type="checkbox"
-            :id="'select-memory-' + memory.id"
-            :checked="selectedMemoryIds.has(memory.id)"
-            @change="toggleMemorySelection(memory.id)"
-            class="memory-checkbox"
-            :aria-label="'Select memory: ' + memory.name"
-          />
-
+        <li
+          v-for="memory in memoryList"
+          :key="memory.id"
+          class="memory-item"
+          :class="{ 'editing-item': editingMemoryId === memory.id }"
+        >
+          <div class="assistant-avatar-container">
+            <div class="assistant-avatar">
+              <img
+                v-if="memory.assistantImageUrl"
+                :src="memory.assistantImageUrl"
+                :alt="memory.assistantName"
+              />
+              <div v-else class="avatar-placeholder">
+                {{
+                  memory.isMainChat
+                    ? 'N'
+                    : memory.assistantName && memory.assistantName.trim().length > 0
+                      ? memory.assistantName.trim().charAt(0).toUpperCase()
+                      : '?'
+                }}
+              </div>
+            </div>
+          </div>
           <div class="memory-item-content">
             <div class="memory-info">
-              <span class="memory-name">{{ memory.name }}</span>
+              <input
+                v-if="editingMemoryId === memory.id"
+                type="text"
+                v-model="editingMemoryName"
+                :id="'rename-input-' + memory.id"
+                class="rename-input"
+                @keyup.enter="saveRename"
+                @keyup.esc="cancelEditing"
+                @blur="handleBlur"
+                placeholder="Enter new name"
+              />
+              <span
+                v-else
+                class="memory-name"
+                :class="{ 'pinned-name': memory.isPinned }"
+                @dblclick="startEditing(memory)"
+                title="Double-click to rename"
+                >{{ memory.name }}</span
+              >
+
               <span class="memory-meta">
+                <span class="meta-assistant-name">{{ memory.assistantName }}</span> -
                 {{ memory.messageCount }} message(s) - Saved:
                 {{ formatMemoryTimestamp(memory.timestamp) }}
+                <span v-if="memory.isPinned" class="pinned-indicator" title="Pinned">📌</span>
               </span>
             </div>
             <div class="memory-actions">
-              <button
-                @click="loadMemoryHandler(memory.id)"
-                class="action-button load-button"
-                title="Load this memory into the chat view"
-              >
-                Load
-              </button>
-              <button
-                @click="deleteSingleMemoryHandler(memory.id, memory.name)"
-                class="action-button delete-button single-delete-button"
-                title="Delete this memory permanently"
-              >
-                Delete
-              </button>
+              <template v-if="editingMemoryId === memory.id">
+                <button
+                  @click="saveRename"
+                  class="action-button save-button"
+                  title="Save new name (Enter)"
+                >
+                  Save
+                </button>
+                <button
+                  @click="cancelEditing"
+                  class="action-button cancel-button"
+                  title="Cancel rename (Esc)"
+                >
+                  Cancel
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  @click="startEditing(memory)"
+                  class="action-button rename-button"
+                  title="Rename this memory"
+                >
+                  Rename
+                </button>
+                <button
+                  @click="pinMemoryHandler(memory.id)"
+                  class="action-button pin-button"
+                  :class="{ unpin: memory.isPinned }"
+                  :title="memory.isPinned ? 'Unpin this memory' : 'Pin this memory to top'"
+                >
+                  {{ memory.isPinned ? 'Unpin' : 'Pin' }}
+                </button>
+                <button
+                  @click="loadMemoryHandler(memory.id)"
+                  class="action-button load-button"
+                  title="Load this memory into the chat view"
+                >
+                  Load
+                </button>
+                <button
+                  @click="deleteSingleMemoryHandler(memory.id, memory.name)"
+                  class="action-button delete-button"
+                  title="Delete this memory permanently"
+                >
+                  Delete
+                </button>
+              </template>
             </div>
           </div>
         </li>
@@ -60,28 +117,26 @@
     <div v-else class="memory-list-placeholder">
       <p>No saved memories found yet.</p>
       <p>
-        Your conversations will be automatically saved as memories here when you close or refresh
-        the app.
+        Your conversations will be automatically saved as memories here. You can pin or rename
+        important ones!
       </p>
     </div>
   </div>
 </template>
 
 <script setup>
-// *** Import ref ***
-import { computed, ref } from 'vue'
+import { computed, ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConversationStore } from '@/stores/conversationStore'
-
 const conversationStore = useConversationStore()
 const router = useRouter()
-
-// *** State for selected memory IDs ***
-const selectedMemoryIds = ref(new Set())
-
 const memoryList = computed(() => conversationStore.memoryListForDisplay)
 
-// --- Timestamp Formatting (Unchanged) ---
+// --- State for inline editing ---
+const editingMemoryId = ref(null)
+const editingMemoryName = ref('')
+
+// --- Functions ---
 const formatMemoryTimestamp = (timestamp) => {
   if (!timestamp) return 'N/A'
   try {
@@ -94,8 +149,8 @@ const formatMemoryTimestamp = (timestamp) => {
       hour12: true,
     }
     return new Date(timestamp).toLocaleString('en-AU', options)
-  } catch (e) {
-    console.error('Error formatting timestamp:', e)
+  } catch (_e) {
+    console.error('Error formatting timestamp:', _e)
     try {
       return new Date(timestamp).toLocaleDateString()
     } catch {
@@ -103,77 +158,79 @@ const formatMemoryTimestamp = (timestamp) => {
     }
   }
 }
-
-// --- Loading (Unchanged) ---
 const loadMemoryHandler = (memoryId) => {
-  console.log(`[MemoriesView] Loading memory: ${memoryId}`)
   conversationStore.loadMemory(memoryId)
   router.push('/')
 }
-
-// --- Selection Handling ---
-const toggleMemorySelection = (memoryId) => {
-  if (selectedMemoryIds.value.has(memoryId)) {
-    selectedMemoryIds.value.delete(memoryId)
-  } else {
-    selectedMemoryIds.value.add(memoryId)
-  }
-  console.log('Selected IDs:', Array.from(selectedMemoryIds.value)) // Log selection changes
-}
-
-// --- Deletion Handling ---
-
-// Handler for the single delete button next to each item
 const deleteSingleMemoryHandler = (memoryId, memoryName) => {
-  if (
-    window.confirm(
-      `Are you sure you want to permanently delete the memory "${memoryName}"? This cannot be undone.`,
-    )
-  ) {
-    console.log(`[MemoriesView] Deleting single memory: ${memoryId}`)
-    // Use the original single delete action (can be kept or refactored to use multi-delete)
+  if (window.confirm(`Are you sure you want to permanently delete the memory "${memoryName}"?`)) {
     conversationStore.deleteMemory(memoryId)
-    // Ensure it's removed from selection if it was selected
-    selectedMemoryIds.value.delete(memoryId)
+  }
+}
+const pinMemoryHandler = (memoryId) => {
+  try {
+    conversationStore.toggleMemoryPin(memoryId)
+  } catch (error) {
+    console.error('[MemoriesView] Error calling toggleMemoryPin:', error)
+    alert('An error occurred.')
   }
 }
 
-// Handler for the "Delete Selected" button
-const handleDeleteSelected = () => {
-  const idsToDelete = Array.from(selectedMemoryIds.value)
-  if (idsToDelete.length === 0) {
-    alert('Please select at least one memory to delete.')
+// --- Rename Logic Functions ---
+const startEditing = async (memory) => {
+  if (editingMemoryId.value !== null && editingMemoryId.value !== memory.id) return
+  editingMemoryId.value = memory.id
+  editingMemoryName.value = memory.name
+  await nextTick()
+  const inputElement = document.getElementById(`rename-input-${memory.id}`)
+  inputElement?.focus()
+  inputElement?.select()
+}
+const cancelEditing = () => {
+  editingMemoryId.value = null
+  editingMemoryName.value = ''
+}
+const saveRename = () => {
+  const newName = editingMemoryName.value.trim()
+  const currentId = editingMemoryId.value
+  if (!currentId) return
+  const originalMemory = memoryList.value.find((m) => m.id === currentId)
+  const originalName = originalMemory ? originalMemory.name : ''
+  if (newName && newName !== originalName) {
+    try {
+      conversationStore.renameMemory(currentId, newName)
+    } catch (error) {
+      console.error('[MemoriesView] Error calling renameMemory:', error)
+      alert('An error occurred.')
+    }
+  } else if (!newName) {
+    alert('Memory name cannot be empty.')
     return
   }
-
-  if (
-    window.confirm(
-      `Are you sure you want to permanently delete the ${idsToDelete.length} selected memories? This cannot be undone.`,
-    )
-  ) {
-    console.log(`[MemoriesView] Deleting ${idsToDelete.length} selected memories:`, idsToDelete)
-    try {
-      // Call the new store action
-      conversationStore.deleteMultipleMemories(idsToDelete)
-      // Clear the selection after triggering deletion
-      selectedMemoryIds.value.clear()
-    } catch (error) {
-      console.error('[MemoriesView] Error calling deleteMultipleMemories:', error)
-      alert('An error occurred while trying to delete the selected memories.')
+  cancelEditing()
+}
+const handleBlur = (event) => {
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget && relatedTarget.classList.contains('action-button')) return
+  setTimeout(() => {
+    if (editingMemoryId.value !== null && !event.relatedTarget?.closest('.memory-item')) {
+      cancelEditing()
     }
-  }
+  }, 100)
 }
 </script>
 
 <style scoped>
+/* Base styles */
 .memories-view {
   padding: 1.5rem 2rem;
   height: 100%;
   overflow-y: auto;
+  /* *** UPDATED Main Background *** */
+  background-color: #101010; /* Near black */
+  /* Keep text primary bright */
   color: var(--text-primary);
-  background-color: var(--bg-main-content);
 }
-
 h1 {
   color: var(--text-primary);
   margin-bottom: 1rem;
@@ -182,21 +239,12 @@ h1 {
   padding-bottom: 1rem;
   font-weight: 600;
 }
-
-/* Style for the bulk actions area */
-.bulk-actions-area {
-  padding: 0.5rem 0.5rem 1rem; /* Padding above/below the button */
-  border-bottom: 1px solid var(--border-color-light);
-  margin-bottom: 1rem;
-  display: flex;
-  justify-content: flex-end; /* Position button to the right */
-}
-
 .memory-list-placeholder {
   margin-top: 2rem;
   padding: 1.5rem;
   border: 1px dashed var(--border-color-medium);
   border-radius: 8px;
+  /* Make placeholder slightly lighter than pure black */
   background-color: var(--bg-input-area);
   color: var(--text-secondary);
   text-align: center;
@@ -204,46 +252,83 @@ h1 {
 .memory-list ul {
   list-style: none;
   padding: 0;
-  margin: 0; /* Removed top margin */
+  margin: 0;
 }
 .memory-item {
   display: flex;
-  /* justify-content: space-between; */ /* Let content handle spacing */
-  align-items: center; /* Vertically align checkbox and content */
-  padding: 0.75rem 0.5rem; /* Adjusted padding slightly */
+  align-items: center;
+  padding: 0.7rem 0.5rem; /* Keep padding for ripple space */
   border-bottom: 1px solid var(--border-color-light);
-  gap: 1rem; /* Space between checkbox and content */
+  gap: 0.5rem;
+  transition: background-color 0.2s ease;
 }
 .memory-item:last-child {
   border-bottom: none;
 }
-
-/* Checkbox style */
-.memory-checkbox {
-  flex-shrink: 0; /* Prevent checkbox from shrinking */
-  /* Add some margin if needed, or rely on gap */
-  accent-color: var(--accent-color-primary); /* Style the check color */
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
+/* Add hover effect for list items on dark background */
+.memory-item:hover {
+  background-color: var(--bg-main-content-hover, #2a2a2a); /* Use existing hover or a dark grey */
 }
 
-/* New container for the rest of the list item content */
+/* Avatar Styles */
+.assistant-avatar-container {
+  flex-shrink: 0;
+  padding-right: 0.5rem;
+}
+.assistant-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color-light);
+  flex-shrink: 0;
+  /* position: relative; handled globally */
+}
+
+.assistant-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: relative;
+  z-index: 1;
+  border-radius: 50%;
+}
+
+.assistant-avatar .avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3em;
+  font-weight: 600;
+  border-radius: 50%;
+  user-select: none;
+  position: relative;
+  z-index: 1;
+  /* *** UPDATED Background (Grey) and Text Color (White) *** */
+  background-color: var(--bg-sidebar); /* Grey background */
+  color: #dcdcdc; /* Brighter grey/off-white text */
+}
+
+/* Item Content Styles */
 .memory-item-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-grow: 1; /* Allow content to take remaining space */
+  flex-grow: 1;
   gap: 1rem;
-  overflow: hidden; /* Prevent content overflow */
+  overflow: hidden;
 }
-
 .memory-info {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   overflow: hidden;
-  /* Let flexbox handle width */
+  flex-grow: 1;
+  align-self: stretch;
 }
 .memory-name {
   font-weight: 500;
@@ -251,21 +336,56 @@ h1 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  line-height: 1.4;
+  min-height: 1.4em;
+  display: block;
+}
+.memory-name:hover {
+  background-color: var(--bg-input-area); /* Keep hover distinct */
+}
+.memory-name.pinned-name {
+  animation: faintTextGlow 3.2s infinite alternate ease-in-out;
+  color: var(--accent-color-primary);
+  font-weight: 600;
+}
+@keyframes faintTextGlow {
+  0% {
+    text-shadow: 0 0 2px transparent;
+  }
+  100% {
+    text-shadow: 0 0 5px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+  }
 }
 .memory-meta {
   font-size: 0.8em;
-  color: var(--text-secondary);
+  /* *** UPDATED Meta Text Color *** */
+  color: #dcdcdc; /* Brighter grey/off-white */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: 0.1rem;
+}
+/* Ensure assistant name within meta also uses the brighter color */
+.memory-meta .meta-assistant-name {
+  color: inherit; /* Inherit from .memory-meta */
+  font-weight: 500; /* Optional: make slightly bolder */
+}
+.pinned-indicator {
+  margin-left: 0.5em;
+  font-size: 0.9em;
+  display: inline-block;
 }
 .memory-actions {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+  align-items: center;
 }
-
-/* Shared button style */
+/* Button styles remain the same */
 .action-button {
   padding: 0.4rem 0.8rem;
   border-radius: 6px;
@@ -277,17 +397,17 @@ h1 {
   cursor: pointer;
   transition:
     background-color 0.2s ease,
-    opacity 0.2s ease;
+    opacity 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 .action-button:hover:not(:disabled) {
   background-color: var(--bg-button-secondary-hover);
 }
 .action-button:disabled {
-  opacity: 0.5; /* Make disabled state more obvious */
+  opacity: 0.5;
   cursor: not-allowed;
-  background-color: var(--bg-button-secondary); /* Keep base color */
 }
-
 .load-button {
   background-color: var(--bg-button-primary);
   border-color: var(--bg-button-primary);
@@ -297,8 +417,6 @@ h1 {
   background-color: var(--bg-button-primary-hover);
   border-color: var(--bg-button-primary-hover);
 }
-
-/* Style for ALL delete buttons */
 .delete-button {
   background-color: var(--bg-error, #a04040);
   color: var(--text-light, white);
@@ -308,8 +426,65 @@ h1 {
   background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
 }
-/* Slightly different padding/margin for single delete? Optional */
-.single-delete-button {
-  /* Add specific styles if needed */
+.pin-button {
+  min-width: 60px;
+  text-align: center;
+}
+.pin-button.unpin {
+  background-color: var(--bg-button-secondary);
+  border-color: var(--accent-color-primary);
+  color: var(--accent-color-primary);
+  font-weight: 600;
+}
+.pin-button.unpin:hover:not(:disabled) {
+  background-color: var(--bg-button-secondary-hover);
+  border-color: color-mix(in srgb, var(--accent-color-primary) 80%, black);
+  color: var(--accent-color-primary);
+}
+
+/* --- Rename Styles --- */
+.rename-input {
+  padding: 0.2rem 0.4rem;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: sans-serif;
+  border: 1px solid var(--accent-color-primary);
+  border-radius: 4px;
+  background-color: var(--bg-input-field);
+  color: var(--text-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+  flex-grow: 1;
+  min-width: 100px;
+  box-sizing: border-box;
+  line-height: 1.4;
+}
+.memory-item.editing-item .memory-info {
+  overflow: visible;
+}
+.memory-item.editing-item .memory-meta {
+  display: none;
+}
+.save-button {
+  background-color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary);
+  color: var(--text-light);
+  min-width: 60px;
+  text-align: center;
+}
+.save-button:hover {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 85%, black);
+  border-color: color-mix(in srgb, var(--accent-color-primary) 85%, black);
+}
+.cancel-button {
+  min-width: 60px;
+  text-align: center;
+}
+.rename-button {
+  min-width: 60px;
+  text-align: center;
+}
+.rename-input:focus {
+  border-color: color-mix(in srgb, var(--accent-color-primary) 80%, #fff);
 }
 </style>

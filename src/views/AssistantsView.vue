@@ -96,124 +96,68 @@
 </template>
 
 <script setup>
+// Script setup remains the same
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAssistantsStore } from '@/stores/assistantsStore'
-import { useConversationStore } from '@/stores/conversationStore' // Import conversation store
-// Ensure component paths are correct
+import { useConversationStore } from '@/stores/conversationStore'
 import AssistantCreator from '@/components/AssistantCreator.vue'
-import ChatView from '@/views/ChatView.vue' // Assuming ChatView can handle an optional assistant config
+import ChatView from '@/views/ChatView.vue'
 
-// --- Router ---
 const router = useRouter()
-
-// --- Store Setup ---
 const assistantsStore = useAssistantsStore()
 const { assistants } = storeToRefs(assistantsStore)
-const conversationStore = useConversationStore() // Instantiate conversation store
+const conversationStore = useConversationStore()
 
-// --- Component State ---
 const showCreatorModal = ref(false)
 const isTestModalVisible = ref(false)
 const assistantBeingTested = ref(null)
-const isLoading = ref(false) // Assume you might add loading state later
-const error = ref(null) // Assume you might add error handling later
+const isLoading = ref(false)
+const error = ref(null)
 
-// --- Lifecycle Hooks ---
 onMounted(() => {
-  // Optionally fetch assistants if not already loaded, or just log
   console.log('[AssistantsView] Mounted. Displaying assistants from store:', assistants.value)
-  // TODO: Consider adding fetch logic here if assistants aren't loaded automatically
 })
-
-// --- Creator Modal Control ---
 const startCreateAssistant = () => {
   showCreatorModal.value = true
 }
-// This function is now also called when 'assistant-created' event is emitted from AssistantCreator
 const closeCreatorModal = () => {
   showCreatorModal.value = false
-  // Optional: Refetch or update assistant list if needed after creation
 }
-
-// --- Test Chat Modal Control ---
 const openTestModal = (assistant) => {
-  if (!assistant || !assistant.id) {
-    // Add ID check
-    console.error('[AssistantsView] Attempted to open test modal with invalid assistant data.')
-    return
-  }
+  if (!assistant || !assistant.id) return
   console.log('[AssistantsView] Opening test modal for assistant:', assistant.name)
   assistantBeingTested.value = assistant
   isTestModalVisible.value = true
 }
-
 const closeTestModal = () => {
   console.log('[AssistantsView] Closing test modal.')
   isTestModalVisible.value = false
   assistantBeingTested.value = null
 }
-
-// --- Timestamp Formatting ---
 const formatTimestamp = (timestamp) => {
-  if (!timestamp) return 'N/A' // Provide fallback
+  if (!timestamp) return 'N/A'
   try {
     const date = new Date(timestamp)
-    // Check if the date is valid
-    if (isNaN(date.getTime())) {
-      console.warn('[AssistantsView] Invalid timestamp received:', timestamp)
-      return 'Invalid Date'
-    }
-    // Use locale-specific date format
-    return date.toLocaleDateString(undefined, {
-      // Use user's locale
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
+    if (isNaN(date.getTime())) return 'Invalid Date'
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   } catch (e) {
     console.error('[AssistantsView] Error formatting timestamp:', timestamp, e)
-    return 'Date Error' // Indicate an error occurred
+    return 'Date Error'
   }
 }
-
-// --- Assistant Actions ---
-
-// Navigate to the edit route for a specific assistant
 const editAssistant = (assistant) => {
-  if (!assistant || !assistant.id) {
-    console.error('[AssistantsView] Invalid assistant data passed to editAssistant:', assistant)
-    return
-  }
+  if (!assistant || !assistant.id) return
   console.log('[AssistantsView] Navigating to edit assistant:', assistant.name, assistant.id)
-  router.push({ name: 'assistant-edit', params: { id: assistant.id } }) // Ensure route name is correct
-
-  // Close test modal if editing the assistant currently being tested
-  if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) {
-    closeTestModal()
-  }
+  router.push({ name: 'assistant-edit', params: { id: assistant.id } })
+  if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) closeTestModal()
 }
-
-// Edit button action within the test modal
 const editAssistantFromTest = () => {
-  if (assistantBeingTested.value) {
-    editAssistant(assistantBeingTested.value)
-  } else {
-    console.warn('[AssistantsView] Edit from test clicked but no assistant was being tested.')
-  }
+  if (assistantBeingTested.value) editAssistant(assistantBeingTested.value)
 }
-
-// Confirm and delete an assistant
 const confirmDeleteAssistant = (assistant) => {
-  if (!assistant || !assistant.id) {
-    console.error(
-      '[AssistantsView] Invalid assistant data passed to confirmDeleteAssistant:',
-      assistant,
-    )
-    return
-  }
-  // Use a more user-friendly confirmation dialog
+  if (!assistant || !assistant.id) return
   if (
     window.confirm(
       `Are you sure you want to delete the assistant "${assistant.name || 'this assistant'}"? This action cannot be undone.`,
@@ -221,111 +165,78 @@ const confirmDeleteAssistant = (assistant) => {
   ) {
     console.log('[AssistantsView] Attempting to delete assistant:', assistant.name, assistant.id)
     try {
-      // Assuming deleteAssistant potentially throws an error or returns success/failure
-      const success = assistantsStore.deleteAssistant(assistant.id) // Ensure this method exists and handles state update
-      if (!success) {
-        // Provide more specific feedback if possible
+      const success = assistantsStore.deleteAssistant(assistant.id)
+      if (!success)
         alert(
           `Failed to delete assistant "${assistant.name || 'this assistant'}". Please check the console for details.`,
         )
-      } else {
-        console.log(`[AssistantsView] Assistant ${assistant.id} deleted successfully.`)
-        // Optional: Add a user notification confirming deletion
-      }
+      else console.log(`[AssistantsView] Assistant ${assistant.id} deleted successfully.`)
     } catch (err) {
       console.error(`[AssistantsView] Error deleting assistant ${assistant.id}:`, err)
       alert(`An error occurred while trying to delete "${assistant.name || 'this assistant'}".`)
     }
   }
 }
-
-/**
- * Handles errors when loading an assistant's image.
- * Prevents the browser's default broken image icon and shows the placeholder.
- * Stops the event propagation.
- */
 const onImageError = (event, assistantId) => {
-  // event.stopPropagation(); // Handled by .stop modifier now
-
   const imgElement = event.target
   if (!imgElement || imgElement.tagName !== 'IMG') return
-
   console.warn(
     `[AssistantsView] Assistant image failed to load for ID ${assistantId}:`,
     imgElement.src,
   )
-
-  // Hide the broken image element itself
   imgElement.style.display = 'none'
-
-  // Find the parent avatar container
   const avatarContainer = imgElement.closest('.assistant-avatar')
   if (avatarContainer) {
-    // Find the placeholder div within the container
     const placeholder = avatarContainer.querySelector('.assistant-placeholder')
-    if (placeholder) {
-      // Make the placeholder visible (ensure it's styled for display: flex)
-      placeholder.style.display = 'flex'
-    } else {
-      console.warn(
-        '[AssistantsView] Could not find placeholder element for assistant ID:',
-        assistantId,
-      )
-    }
-  } else {
-    console.warn(
-      '[AssistantsView] Could not find avatar container for failed image, ID:',
-      assistantId,
-    )
+    if (placeholder) placeholder.style.display = 'flex'
   }
 }
-
-/**
- * Starts a new chat session with the selected assistant and navigates to the main chat view.
- * This is triggered by clicking the main list item.
- */
 const startChatWithAssistant = (assistant) => {
-  // No need for event.stopPropagation() due to @click.stop on inner buttons
-
   if (!assistant || !assistant.id) {
-    console.error(
-      '[AssistantsView] Invalid assistant data passed to startChatWithAssistant:',
-      assistant,
-    )
-    alert('Could not start chat. Invalid assistant data.') // User feedback
+    alert('Could not start chat. Invalid assistant data.')
     return
   }
   console.log('[AssistantsView] Starting chat with assistant:', assistant.name, assistant.id)
-
   try {
-    // Set the active session in the store
     conversationStore.setActiveSession(assistant.id)
-
-    // *** CORRECTED NAVIGATION ***
-    // Navigate to the chat view using its NAME ('chat') instead of path
     router.push({ name: 'chat' })
   } catch (error) {
-    // Catch potential errors during session activation or navigation
     console.error('[AssistantsView] Error setting active session or navigating:', error)
     alert(
       `Failed to start chat with ${assistant.name || 'assistant'}. Please check the console for errors.`,
-    ) // User feedback
+    )
   }
 }
 </script>
 
 <style scoped>
-/* Styles should be identical to the previous correct version */
+/* --- ADDED Keyframe for Ripple using Pseudo-element (Scoped) --- */
+@keyframes ripplePulse {
+  0%,
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 0%, transparent);
+  }
+  70% {
+    transform: scale(1.4);
+    opacity: 0.6;
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 60%, transparent);
+  }
+}
+
 /* --- Base View --- */
 .assistants-view {
   padding: 1.5rem 2rem;
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto; /* Scroll main view if content overflows */
-  background-color: var(--bg-main-content);
+  overflow-y: auto;
+  background-color: #101010;
   color: var(--text-primary);
-  position: relative; /* For potential absolute positioning of children */
+  position: relative;
 }
 
 /* --- Header --- */
@@ -336,7 +247,7 @@ const startChatWithAssistant = (assistant) => {
   margin-bottom: 1.5rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-color-medium);
-  flex-shrink: 0; /* Prevent header from shrinking */
+  flex-shrink: 0;
 }
 .assistants-header h2 {
   margin: 0;
@@ -355,7 +266,7 @@ const startChatWithAssistant = (assistant) => {
   font-size: 0.9em;
   font-weight: 500;
   transition: background-color 0.2s ease;
-  white-space: nowrap; /* Prevent text wrapping */
+  white-space: nowrap;
 }
 .create-button:hover {
   background-color: var(--bg-button-primary-hover);
@@ -363,14 +274,14 @@ const startChatWithAssistant = (assistant) => {
 
 /* --- List Container --- */
 .assistants-list-container {
-  flex-grow: 1; /* Allow list to take remaining space */
-  overflow-y: auto; /* Enable scrolling for the list only */
-  padding-right: 5px; /* Small space for scrollbar, adjust as needed */
+  flex-grow: 1;
+  overflow-y: auto;
+  padding-right: 5px;
 }
 .assistants-list-container h3 {
   margin-top: 0;
   margin-bottom: 1rem;
-  color: var(--text-secondary);
+  color: #dcdcdc;
   font-size: 1.1em;
   font-weight: 500;
 }
@@ -384,84 +295,96 @@ const startChatWithAssistant = (assistant) => {
 .assistant-item {
   display: flex;
   align-items: center;
-  padding: 0.8rem 1rem;
+  padding: 0.7rem 1rem;
   margin-bottom: 0.75rem;
-  background-color: var(--bg-input-field);
+  background-color: #1c1c1c;
   border: 1px solid var(--border-color-light);
   border-radius: 8px;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease;
-  gap: 1rem; /* Space between avatar, info, actions */
-  cursor: pointer; /* Make the whole item indicate clickability */
+  gap: 1rem;
+  cursor: pointer;
 }
 .assistant-item:hover {
   border-color: var(--accent-color-primary);
-  background-color: color-mix(
-    in srgb,
-    var(--bg-input-field) 90%,
-    var(--bg-app-container)
-  ); /* Subtle hover background */
+  background-color: #2a2a2a;
 }
 
 /* --- Avatar --- */
 .assistant-avatar {
   width: 40px;
   height: 40px;
-  flex-shrink: 0; /* Prevent avatar resizing */
-  border-radius: 50%; /* Circular avatar */
-  overflow: hidden; /* Crucial for image shape */
-  background-color: var(--bg-sidebar); /* Fallback background */
-  display: flex; /* Center placeholder text/icon */
+  flex-shrink: 0;
+  border-radius: 50%;
+  /* REMOVED overflow: hidden; */
+  background-color: var(--bg-sidebar); /* Grey */
+  display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-color-light);
-  position: relative; /* Needed if using absolute positioning inside */
+  position: relative; /* For ::after */
+}
+/* *** ADDED Scoped ::after rule for ripple *** */
+.assistant-avatar::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px; /* Offset */
+  border-radius: 50%;
+  border: 1px solid transparent;
+  opacity: 0;
+  /* Apply ripple animation with linear timing */
+  animation: ripplePulse 2.5s linear infinite;
+  pointer-events: none;
+  z-index: 0;
 }
 .assistant-image {
   width: 100%;
   height: 100%;
-  object-fit: cover; /* Cover the area, might crop image */
-  display: block; /* Remove potential extra space below image */
-}
+  object-fit: cover;
+  display: block;
+  position: relative;
+  z-index: 1;
+  border-radius: 50%;
+} /* Added z-index & radius */
 .assistant-placeholder {
-  /* Styles for when image fails or isn't present */
   width: 100%;
   height: 100%;
-  display: flex; /* Initially shown if no image URL */
+  display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.4em;
   font-weight: 600;
-  color: var(--text-secondary);
-  background-color: var(--bg-sidebar); /* Match avatar background */
-  border-radius: 50%; /* Match avatar shape */
-  user-select: none; /* Prevent text selection */
-  -webkit-user-select: none;
-  /* Ensure this is displayed by default if no image is loaded */
-  /* If image fails, onImageError handler will ensure display:flex */
+  color: #dcdcdc; /* Brighter text */
+  background-color: var(--bg-sidebar); /* Keep grey background */
+  border-radius: 50%;
+  user-select: none;
+  position: relative;
+  z-index: 1; /* Added z-index */
 }
 
 /* --- Info Section --- */
 .assistant-info {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem; /* Small gap between name and detail */
-  flex-grow: 1; /* Allow info section to take up available space */
-  overflow: hidden; /* Prevent text overflow issues */
-  /* Clicks on this area should trigger the main item click */
+  gap: 0.2rem;
+  flex-grow: 1;
+  overflow: hidden;
 }
 .assistant-name {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 1.05em;
-  white-space: nowrap; /* Prevent wrapping */
-  overflow: hidden; /* Hide overflow */
-  text-overflow: ellipsis; /* Add '...' for long names */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .assistant-detail {
   font-size: 0.8em;
-  color: var(--text-secondary);
+  color: #dcdcdc; /* Brighter text */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -470,8 +393,8 @@ const startChatWithAssistant = (assistant) => {
 /* --- Action Buttons --- */
 .assistant-actions {
   display: flex;
-  gap: 0.5rem; /* Space between buttons */
-  flex-shrink: 0; /* Prevent buttons wrapping */
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 .assistant-actions button {
   padding: 0.3rem 0.7rem;
@@ -480,19 +403,19 @@ const startChatWithAssistant = (assistant) => {
   color: var(--text-button-secondary);
   border: none;
   border-radius: 4px;
-  cursor: pointer; /* Keep cursor pointer for buttons */
+  cursor: pointer;
   transition: background-color 0.2s ease;
-  white-space: nowrap; /* Prevent button text wrapping */
+  white-space: nowrap;
 }
 .assistant-actions button:hover {
   background-color: var(--bg-button-secondary-hover);
 }
-.delete-button {
-  background-color: var(--bg-button-danger, #8c1c13); /* Use CSS variable if defined */
-  color: var(--text-button-danger, white);
+.assistant-actions .delete-button {
+  background-color: #a04040;
+  color: white;
 }
-.delete-button:hover {
-  background-color: var(--bg-button-danger-hover, #a82d22);
+.assistant-actions .delete-button:hover {
+  background-color: #8c1c13;
 }
 
 /* --- Placeholders & Messages --- */
@@ -507,7 +430,7 @@ const startChatWithAssistant = (assistant) => {
   padding: 1rem;
   border: 1px dashed var(--border-color-light);
   border-radius: 6px;
-  background-color: color-mix(in srgb, var(--bg-main-content) 50%, var(--bg-input-field));
+  background-color: color-mix(in srgb, #101010 50%, var(--bg-input-field));
 }
 .loading-indicator {
   border: none;
@@ -522,78 +445,69 @@ const startChatWithAssistant = (assistant) => {
   font-style: normal;
 }
 .assistant-item--invalid {
-  /* Style for the div used when assistant data is invalid */
   color: var(--text-error);
   font-style: italic;
-  justify-content: center; /* Center the text */
+  justify-content: center;
   align-items: center;
-  padding: 0.8rem 1rem; /* Match item padding */
-  margin-bottom: 0.75rem; /* Match item margin */
-  border: 1px dashed var(--border-color-error); /* Distinct border */
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.75rem;
+  border: 1px dashed var(--border-color-error);
   background-color: var(--bg-message-error);
   border-radius: 8px;
-  display: flex; /* Needed for justify/align */
-  cursor: default; /* Don't make invalid items clickable */
+  display: flex;
+  cursor: default;
 }
 
 /* --- Modal Styles --- */
-/* Base Overlay */
 .modal-overlay {
-  position: fixed; /* Cover the whole viewport */
+  position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.7); /* Darker semi-transparent background */
+  background-color: rgba(0, 0, 0, 0.7);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000; /* Ensure it's on top of other content */
-  padding: 1rem; /* Padding around the modal content */
+  z-index: 1000;
+  padding: 1rem;
   box-sizing: border-box;
-  cursor: pointer; /* Indicate clicking outside closes */
+  cursor: pointer;
 }
-
-/* Creator Modal Specific Container */
-/* Selects the AssistantCreator component rendered inside .creator-modal */
 .creator-modal > :deep(.assistant-creator) {
-  max-width: 700px; /* Max width for the creator form */
-  width: 100%; /* Responsive width */
-  max-height: 90vh; /* Limit height to avoid overflow */
-  overflow-y: hidden; /* Let internal component handle its own scroll */
-  cursor: default; /* Prevent closing when clicking inside the creator */
+  max-width: 700px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: hidden;
+  cursor: default;
   box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
-  padding: 0; /* Remove padding if AssistantCreator component handles it internally */
-  display: flex; /* Ensure component takes structure */
-  flex-direction: column;
-  background-color: var(--bg-main-content); /* Ensure background matches theme */
-  border-radius: 8px;
-}
-
-/* Test Modal Specific Content Box */
-.test-modal .test-modal-content {
-  max-width: 90vw; /* Responsive max width */
-  width: 800px; /* Default width for test chat */
-  max-height: 90vh; /* Responsive max height */
-  background-color: var(--bg-modal, var(--bg-main-content)); /* Use variable or fallback */
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); /* More prominent shadow */
+  padding: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* CRUCIAL for containing scrolling chat view */
-  cursor: default; /* Override overlay cursor */
+  background-color: var(--bg-main-content);
+  border-radius: 8px;
 }
-
-/* Test Modal Header */
+.test-modal .test-modal-content {
+  max-width: 90vw;
+  width: 800px;
+  max-height: 90vh;
+  background-color: var(--bg-modal, var(--bg-main-content));
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: default;
+}
 .test-modal .test-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1.5rem;
-  background-color: var(--bg-header, #2a2a2a); /* Darker header background */
+  background-color: var(--bg-header, #2a2a2a);
   color: var(--text-light, #fff);
   border-bottom: 1px solid var(--border-color-heavy, #444);
-  flex-shrink: 0; /* Prevent header shrinking */
+  flex-shrink: 0;
 }
 .test-modal .test-modal-header h3 {
   margin: 0;
@@ -601,14 +515,14 @@ const startChatWithAssistant = (assistant) => {
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis; /* Handle long assistant names */
+  text-overflow: ellipsis;
 }
 .test-modal .close-modal-button {
   background: none;
   border: none;
   color: var(--text-secondary);
   font-size: 1.5em;
-  line-height: 1; /* Align '✖' better */
+  line-height: 1;
   padding: 0.2rem;
   cursor: pointer;
   transition: color 0.2s ease;
@@ -616,32 +530,24 @@ const startChatWithAssistant = (assistant) => {
 .test-modal .close-modal-button:hover {
   color: var(--text-primary);
 }
-
-/* Test Modal Chat Area */
 .test-modal .test-modal-chat-area {
-  flex-grow: 1; /* Take available vertical space */
-  overflow-y: hidden; /* Parent handles modal overflow, ChatView should handle its internal scroll */
-  display: flex; /* To make ChatView fill the space */
-  /* Background can be set here if needed, or rely on ChatView's background */
-  /* background-color: var(--bg-main-content); */
+  flex-grow: 1;
+  overflow-y: hidden;
+  display: flex;
 }
-/* Style the ChatView component specifically when it's inside the test modal */
 .test-modal .test-modal-chat-area > :deep(.chat-view) {
-  height: 100%; /* Make ChatView fill the container height */
-  width: 100%; /* Make ChatView fill the container width */
-  border-radius: 0; /* Remove any border-radius it might have */
-  /* Ensure ChatView has appropriate background and overflow handling */
+  height: 100%;
+  width: 100%;
+  border-radius: 0;
 }
-
-/* Test Modal Footer */
 .test-modal .test-modal-footer {
   padding: 0.75rem 1.5rem;
-  background-color: var(--bg-input-area, #1a1a1a); /* Dark footer background */
+  background-color: var(--bg-input-area, #1a1a1a);
   border-top: 1px solid var(--border-color-medium, #333);
   display: flex;
-  justify-content: flex-end; /* Align buttons to the right */
+  justify-content: flex-end;
   gap: 0.75rem;
-  flex-shrink: 0; /* Prevent footer shrinking */
+  flex-shrink: 0;
 }
 .test-modal .test-modal-footer button {
   padding: 0.5rem 1rem;
@@ -656,5 +562,74 @@ const startChatWithAssistant = (assistant) => {
 }
 .test-modal .test-modal-footer button:hover {
   background-color: var(--bg-button-secondary-hover);
+}
+
+/* --- Other Keyframes (Not used in this component directly) --- */
+@keyframes faintGreenPulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 1px color-mix(in srgb, var(--accent-color-primary) 40%, transparent));
+  }
+  50% {
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-color-primary) 70%, transparent));
+  }
+}
+@keyframes subtle-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes pulse-red {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0px color-mix(in srgb, var(--bg-button-listening) 70%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--bg-button-listening) 0%, transparent);
+  }
+}
+@keyframes plasma-arrow-pulse {
+  0% {
+    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px color-mix(in srgb, var(--accent-color-primary) 60%, transparent);
+    transform: scale(1.05);
+  }
+  100% {
+    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+    transform: scale(1);
+  }
+}
+@keyframes plasma-shoot {
+  0% {
+    transform: scale(1.1);
+    box-shadow: 0 0 15px 5px color-mix(in srgb, var(--accent-color-primary) 80%, transparent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+  }
+}
+@keyframes loading-gradient {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+@keyframes fadeIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

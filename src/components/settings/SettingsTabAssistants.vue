@@ -15,7 +15,7 @@
         v-model="assistantsDefaultInstructions"
       ></textarea>
       <button
-        class="help-button pulsing-help"
+        class="help-button neon-glow-effect-primary"
         @click="
           showHelp(
             'Default Instructions (New Assistants)',
@@ -24,29 +24,6 @@
         "
         aria-label="Help with Default Instructions"
         title="Help with Default Instructions"
-      >
-        ?
-      </button>
-    </div>
-
-    <div class="setting-item">
-      <label class="setting-label">
-        Assistant API Keys
-        <span class="setting-description"
-          >Manage API keys if using external models for assistants.</span
-        >
-      </label>
-      <div class="placeholder-text">(Future: Add inputs for OpenAI, Anthropic, etc. keys here)</div>
-      <button
-        class="help-button pulsing-help"
-        @click="
-          showHelp(
-            'Assistant API Keys',
-            'This section will allow you to enter your own API keys for different AI model providers (like OpenAI) if you want custom assistants to use specific external models. This feature is not yet implemented.',
-          )
-        "
-        aria-label="Help with Assistant API Keys"
-        title="Help with Assistant API Keys"
       >
         ?
       </button>
@@ -61,7 +38,7 @@
     >
       <h3>Advanced Assistants Management</h3>
       <button
-        class="advanced-arrow"
+        class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
         aria-label="Toggle Advanced Settings"
       >
@@ -79,106 +56,56 @@
 
     <transition name="collapse">
       <div class="advanced-settings-section" v-show="isAdvancedVisible">
-        <div class="setting-item">
-          <label for="startup-assistant-select" class="setting-label">
-            Default Assistant on Startup
-            <span class="setting-description">Which assistant is active when app opens.</span>
+        <div class="setting-item api-key-item">
+          <label class="setting-label">
+            Assistant API Keys
+            <span class="setting-description">Manage API keys for external models (Optional).</span>
           </label>
-          <select id="startup-assistant-select" class="settings-select" disabled>
-            <option value="main_chat">Default AI (Nb4U-Ai)</option>
-          </select>
-          <button
-            class="help-button pulsing-help"
-            @click="
-              showHelp(
-                'Default Assistant on Startup',
-                'Choose which Assistant (including the Default AI) should be automatically selected in the Chat view every time you open the application. (Setting not yet active)',
-              )
-            "
-          >
-            ?
-          </button>
-        </div>
-
-        <div class="setting-item">
-          <label for="show-selector-toggle" class="setting-label">
-            Show Assistant Selector Bar
-            <span class="setting-description">Display the bar above chat input.</span>
-          </label>
-          <div
-            class="toggle-switch disabled-placeholder"
-            id="show-selector-toggle"
-            role="switch"
-            aria-checked="true"
-            tabindex="-1"
-          >
-            <div class="toggle-knob"></div>
+          <div class="api-key-inputs">
+            <div class="api-key-entry">
+              <label for="openai-key">OpenAI Key:</label>
+              <input
+                type="password"
+                id="openai-key"
+                class="settings-input api-key-input"
+                placeholder="sk-..."
+                disabled
+                title="API Key management not yet implemented"
+              />
+            </div>
+            <div class="api-key-entry">
+              <label for="anthropic-key">Anthropic Key:</label>
+              <input
+                type="password"
+                id="anthropic-key"
+                class="settings-input api-key-input"
+                placeholder="sk-ant-..."
+                disabled
+                title="API Key management not yet implemented"
+              />
+            </div>
+            <div class="api-key-entry">
+              <label for="gemini-key">Google AI Key:</label>
+              <input
+                type="password"
+                id="gemini-key"
+                class="settings-input api-key-input"
+                placeholder="AIzaSy..."
+                disabled
+                title="API Key management not yet implemented"
+              />
+            </div>
           </div>
           <button
-            class="help-button pulsing-help"
+            class="help-button neon-glow-effect-primary"
             @click="
               showHelp(
-                'Show Assistant Selector Bar',
-                'Controls whether the horizontal bar allowing you to switch between Assistants is visible above the chat input area. (Setting not yet active)',
+                'Assistant API Keys',
+                'Optionally enter your personal API keys here if you want your custom assistants to use specific external paid models (like GPT-4 via OpenAI, Claude via Anthropic, or Gemini Pro via Google AI Studio). Ensure keys are kept secure. These keys would be stored locally in your browser. (Feature not yet fully implemented)',
               )
             "
-          >
-            ?
-          </button>
-        </div>
-
-        <div class="setting-item">
-          <label class="setting-label">
-            Export All Assistants
-            <span class="setting-description">Save configurations of all assistants.</span>
-          </label>
-          <button class="quick-setting-button" disabled>Export All...</button>
-          <button
-            class="help-button pulsing-help"
-            @click="
-              showHelp(
-                'Export All Assistants',
-                'Creates a single file containing the configurations for all custom assistants you have created. Useful for backups or transferring. (Action not yet active)',
-              )
-            "
-          >
-            ?
-          </button>
-        </div>
-
-        <div class="setting-item">
-          <label class="setting-label">
-            Import Assistants
-            <span class="setting-description">Load assistant configurations from file.</span>
-          </label>
-          <button class="quick-setting-button" disabled>Import...</button>
-          <button
-            class="help-button pulsing-help"
-            @click="
-              showHelp(
-                'Import Assistants',
-                'Loads assistant configurations from a previously exported file. Imported assistants will be added to your existing list. (Action not yet active)',
-              )
-            "
-          >
-            ?
-          </button>
-        </div>
-
-        <div class="setting-item">
-          <label class="setting-label">
-            Delete All Custom Assistants
-            <span class="setting-description">Permanently remove all created assistants.</span>
-          </label>
-          <button class="quick-setting-button danger-button" disabled>Delete All Now</button>
-          <button
-            class="help-button pulsing-help"
-            @click="
-              showHelp(
-                'Delete All Custom Assistants',
-                'WARNING: This will immediately and permanently delete ALL the custom assistants you have created. This action cannot be undone. (Action not yet active)',
-              )
-            "
+            aria-label="Help with Assistant API Keys"
+            title="Help with Assistant API Keys"
           >
             ?
           </button>
@@ -190,7 +117,6 @@
 
 <script setup>
 import { defineProps, ref } from 'vue'
-// *** Import store and utilities ***
 import { useSettingsStore } from '@/stores/settingsStore'
 import { storeToRefs } from 'pinia'
 
@@ -200,7 +126,6 @@ defineProps({
     type: Function,
     required: true,
   },
-  // Add other props here later if needed
 })
 
 // --- Store Access ---
@@ -216,11 +141,11 @@ const toggleAdvanced = () => {
 </script>
 
 <style scoped>
-/* Reuse styles from other Setting Tab components */
+/* Reuse styles where possible, remove redundant ones */
 .setting-item {
   display: grid;
   grid-template-columns: 1fr auto auto; /* Label | Control | Help */
-  align-items: center; /* Align items vertically */
+  align-items: center;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border-color-light);
   gap: 1rem;
@@ -228,22 +153,24 @@ const toggleAdvanced = () => {
 .setting-item:last-child {
   border-bottom: none;
 }
-/* Special layout for wide items like textareas */
+
+/* Layout for wide items like textareas */
 .setting-item.wide-item {
   grid-template-columns: auto 1fr auto;
   grid-template-areas:
     'label control help'
-    '. description .';
-  align-items: start; /* Align top for multi-line */
+    'label description help'; /* Description below label */
+  align-items: start;
 }
 .setting-item.wide-item .setting-label {
   grid-area: label;
-  align-self: start;
+  align-self: start; /* Align top */
+  padding-top: 0.4rem; /* Align with textarea padding */
 }
 .setting-item.wide-item .setting-description {
   grid-area: description;
+  margin-top: 0; /* Remove default top margin */
   padding-left: 0;
-  padding-top: 0.3rem;
 }
 .setting-item.wide-item .settings-textarea {
   grid-area: control;
@@ -252,7 +179,54 @@ const toggleAdvanced = () => {
 .setting-item.wide-item .help-button {
   grid-area: help;
   justify-self: end;
+  align-self: start; /* Align with top of label/textarea */
+  margin-top: 0.4rem; /* Match label padding */
+}
+
+/* Layout for API Key section */
+.setting-item.api-key-item {
+  grid-template-columns: auto 1fr auto; /* Label | Inputs | Help */
+  grid-template-areas:
+    'label inputs help'
+    'description inputs help'; /* Description below label */
+  align-items: start;
+}
+.setting-item.api-key-item .setting-label {
+  grid-area: label;
   align-self: start;
+}
+.setting-item.api-key-item .setting-description {
+  grid-area: description;
+  margin-top: 0;
+  padding-left: 0;
+}
+.setting-item.api-key-item .api-key-inputs {
+  grid-area: inputs;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem; /* Space between key inputs */
+  justify-self: stretch; /* Take available space */
+  padding: 0.4rem 0; /* Align vertically */
+}
+.setting-item.api-key-item .help-button {
+  grid-area: help;
+  justify-self: end;
+  align-self: start;
+}
+.api-key-entry {
+  display: grid;
+  grid-template-columns: auto 1fr; /* Label | Input */
+  align-items: center;
+  gap: 0.5rem;
+}
+.api-key-entry label {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  text-align: right;
+  min-width: 90px; /* Align labels */
+}
+.api-key-input {
+  max-width: none; /* Allow input to fill grid space */
 }
 
 .setting-label {
@@ -273,19 +247,17 @@ const toggleAdvanced = () => {
 }
 
 /* Align controls and help button to the end */
-.settings-select,
 .settings-textarea,
-.quick-setting-button,
-.help-button,
-.placeholder-text,
-.toggle-switch.disabled-placeholder {
+.help-button, /* Help button is global now, but keep alignment */
+.api-key-inputs {
+  /* Align the container */
   justify-self: end;
 }
 
 /* Control base styles */
-.settings-select,
 .settings-textarea,
-.quick-setting-button {
+.settings-input {
+  /* Added settings-input for API keys */
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   border: 1px solid var(--border-color-medium);
@@ -294,121 +266,25 @@ const toggleAdvanced = () => {
   font-family: sans-serif;
   font-size: 0.9em;
   flex-shrink: 0;
-  min-width: 100px;
-  max-width: 250px; /* Default max width */
   box-sizing: border-box;
 }
-.settings-select:focus,
-.settings-textarea:focus {
+.settings-textarea:focus,
+.settings-input:focus {
   outline: none;
   border-color: var(--accent-color-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
-.settings-select:disabled,
 .settings-textarea:disabled,
-.quick-setting-button:disabled {
+.settings-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
 }
 
 .settings-textarea {
-  max-width: 100%; /* Allow textarea to fill grid area */
+  width: 100%; /* Ensure textarea takes full width in its grid area */
   resize: vertical;
   min-height: calc(1.4em * 4 + 0.8rem); /* Approx 4 rows */
-}
-
-.quick-setting-button {
-  text-align: center;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-  padding: 0.5rem 1rem;
-}
-.quick-setting-button:not(:disabled):hover {
-  background-color: var(--bg-button-secondary-hover);
-}
-.danger-button {
-  background-color: var(--bg-error, #a04040);
-  color: var(--text-light, white);
-  border-color: var(--bg-error, #a04040);
-}
-.danger-button:not(:disabled):hover {
-  background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
-  border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
-}
-
-.placeholder-text {
-  font-style: italic;
-  color: var(--text-secondary);
-  font-size: 0.9em;
-  text-align: right;
-  padding: 0.4rem 0.6rem;
-}
-
-/* Disabled toggle switch styling */
-.toggle-switch {
-  width: 44px;
-  height: 24px;
-  background-color: var(--bg-button-secondary);
-  border-radius: 12px;
-  padding: 2px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  transition: background-color 0.3s ease;
-  flex-shrink: 0;
-  border: 1px solid var(--border-color-medium);
-  outline: none;
-  box-sizing: content-box;
-}
-.toggle-switch.disabled-placeholder {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
-}
-.toggle-switch[aria-checked='true']:not(.disabled-placeholder) {
-  background-color: var(--accent-color-primary);
-}
-.toggle-knob {
-  width: 20px;
-  height: 20px;
-  background-color: white;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.3s ease;
-}
-.toggle-switch[aria-checked='true'] .toggle-knob {
-  transform: translateX(20px);
-}
-
-/* Help button style */
-.help-button {
-  background-color: var(--bg-button-secondary);
-  color: var(--text-button-secondary);
-  border: none;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  font-size: 0.9em;
-  font-weight: bold;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: background-color 0.2s ease;
-  outline: none;
-}
-.help-button:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.help-button:hover {
-  background-color: var(--bg-button-secondary-hover);
-}
-.help-button.pulsing-help {
-  animation: faintGreenPulse 3s infinite alternate ease-in-out;
 }
 
 /* Advanced Section */
@@ -439,27 +315,8 @@ const toggleAdvanced = () => {
   font-size: 0.95em;
   user-select: none;
 }
-.advanced-arrow {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    transform 0.3s ease,
-    color 0.2s ease;
-  animation: faintGreenPulse 3.5s infinite alternate ease-in-out;
-}
-.advanced-arrow:hover {
-  color: var(--text-primary);
-}
-.advanced-arrow svg {
-  display: block;
-}
-.advanced-arrow.expanded {
-  transform: rotate(180deg);
-}
+/* Arrow styles are global */
+
 .advanced-settings-section {
   padding: 1rem 1rem 0 1rem;
   border: 1px solid var(--border-color-light);
@@ -469,12 +326,16 @@ const toggleAdvanced = () => {
   background-color: var(--bg-main-content);
   overflow: hidden;
 }
+.advanced-settings-section .setting-item {
+  padding-left: 0;
+  padding-right: 0;
+}
 
 /* Collapse Transition */
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
-  max-height: 600px;
+  max-height: 600px; /* Adjust if API key section needs more space */
   overflow: hidden;
 }
 .collapse-enter-from,
@@ -491,4 +352,6 @@ const toggleAdvanced = () => {
   opacity: 1;
   max-height: 600px;
 }
+
+/* Scoped CSS is now minimal, mostly layout */
 </style>

@@ -41,12 +41,35 @@
           class="button-primary"
           :disabled="!wizard.selectedLevel.value"
         >
-          Next: Define Assistant
+          Next: Choose Color
         </button>
       </div>
     </div>
 
     <div v-if="wizard.currentStep.value === 2" class="creator-step">
+      <h3>Choose Assistant Avatar Color</h3>
+      <div class="scrollable-content-area">
+        <ColorPaletteSelector :colors="predefinedColors" v-model="wizard.selectedColor.value" />
+        <p
+          style="
+            font-size: 0.8em;
+            text-align: center;
+            margin-top: 15px;
+            color: var(--text-secondary);
+          "
+        >
+          (This color will be used if no image is uploaded)
+        </p>
+      </div>
+      <div class="creator-actions footer-actions">
+        <button @click="wizard.goBack" class="button-secondary back-button">Back</button>
+        <button @click="wizard.confirmColorAndProceed" class="button-primary">
+          Next: Define Assistant
+        </button>
+      </div>
+    </div>
+
+    <div v-if="wizard.currentStep.value === 3" class="creator-step">
       <h3>
         {{ isEditMode ? 'Edit Assistant Definition' : 'Define Assistant' }} (Level
         {{ wizard.selectedLevel.value }}: {{ wizard.currentLevelName.value }})
@@ -97,11 +120,12 @@
       </div>
       <div class="creator-actions footer-actions question-nav">
         <button
-          @click="wizard.goBackToLevelSelection"
+          @click="wizard.goBack"
           v-if="!isEditMode"
-          class="button-tertiary back-button footer-back-button back-to-level-button"
+          class="button-tertiary back-button footer-back-button"
+          :class="{ 'back-to-level-button': !isEditMode }"
         >
-          Back to Level Selection
+          Back
         </button>
         <button
           @click="cancelCreation"
@@ -128,9 +152,8 @@
       </div>
     </div>
 
-    <div v-if="wizard.currentStep.value === 3" class="creator-step">
+    <div v-if="wizard.currentStep.value === 4" class="creator-step">
       <h3>{{ isEditMode ? 'Review & Update Assistant' : 'Review & Save Assistant' }}</h3>
-
       <div class="scrollable-content-area">
         <div class="review-area">
           <div class="review-input-group">
@@ -215,12 +238,12 @@
       <div class="creator-actions footer-actions review-actions">
         <button @click="cancelCreation" class="button-secondary back-button">Cancel</button>
 
-        <button @click="wizard.goBackToQuestions" class="button-secondary">Edit Answers</button>
+        <button @click="wizard.goBack" class="button-secondary">Edit Answers</button>
         <button @click="handleTestAssistantClick" class="button-secondary">
           Test {{ isEditMode ? '(Current Settings)' : '(Not Saved)' }}
         </button>
         <button
-          @click="form.saveOrUpdateAssistant"
+          @click="handleSave"
           class="button-primary"
           :disabled="!form.assistantName.value.trim() || form.isSaving.value"
         >
@@ -270,22 +293,19 @@
 </template>
 
 <script setup>
+// Imports
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAssistantsStore } from '@/stores/assistantsStore'
-import ChatView from '@/views/ChatView.vue' // Ensure path is correct
-
-// Import the data and ALL the composables
-// import { intricacyLevels, questionsByLevel } from '@/data/assistantQuestions.js'; // No longer needed directly here
+import ChatView from '@/views/ChatView.vue'
+import ColorPaletteSelector from '@/components/ColorPaletteSelector.vue' // *** IMPORTED ***
 import { useAssistantWizard } from '@/composables/useAssistantWizard.js'
 import { useAssistantForm } from '@/composables/useAssistantForm.js'
 import { useAssistantNameSuggestion } from '@/composables/useAssistantNameSuggestion.js'
 import { useAssistantTesting } from '@/composables/useAssistantTesting.js'
 
 // --- Props & Emits ---
-const props = defineProps({
-  id: { type: String, required: false, default: null }, // For edit mode
-})
+const props = defineProps({ id: { type: String, required: false, default: null } })
 const emit = defineEmits(['cancel', 'assistant-created'])
 
 // --- Router & Store ---
@@ -293,31 +313,51 @@ const router = useRouter()
 const route = useRoute()
 const assistantsStore = useAssistantsStore()
 
-// --- Component State (Minimal state remains here) ---
-const isEditMode = ref(false) // Tracks if editing an existing assistant
-const assistantIdToEdit = ref(null) // ID of assistant being edited
-const answerTextareaRef = ref(null) // Ref for focusing the textarea
-const visibleHelpIndex = ref(null) // State for toggling help boxes
+// --- Component State ---
+const isEditMode = ref(false)
+const assistantIdToEdit = ref(null)
+const answerTextareaRef = ref(null)
+const visibleHelpIndex = ref(null)
 
-// --- Initialize Composables (Pass reactive refs and functions) ---
+// --- Define Predefined Colors ---
+const predefinedColors = ref([
+  // Now defined here
+  '#FF5733',
+  '#FF8D33',
+  '#FFC133',
+  '#FFE333',
+  '#D7FF33',
+  '#A1FF33',
+  '#33FF57',
+  '#33FFAD',
+  '#33FFFF',
+  '#33A1FF',
+  '#3357FF',
+  '#6E33FF',
+  '#AD33FF',
+  '#FF33F6',
+  '#FF33A1',
+  '#FF3357',
+  '#F87171',
+  '#FBBF24',
+  '#34D399',
+  '#60A5FA',
+  '#A78BFA',
+  '#F472B6',
+  '#C084FC',
+  '#67E8F9',
+])
 
-// 1. Form Composable (manages name, answers, image, instructions, saving)
-const form = useAssistantForm({
-  selectedLevel: computed(() => wizard.selectedLevel.value), // Pass reactive computed from wizard
-  currentQuestions: computed(() => wizard.currentQuestions.value), // Pass reactive computed from wizard
-  isEditMode: isEditMode,
-  assistantIdToEdit: assistantIdToEdit,
-  emit: emit,
-})
+// --- Initialize Composables ---
 
-// 2. Wizard Composable (manages steps, level, question index, navigation)
+// 1. Wizard Composable (Ensure props are passed correctly later)
 const wizard = useAssistantWizard({
   isEditMode: isEditMode,
-  answers: form.answers, // Pass answers ref FROM form
-  resetFormState: form.resetFormState, // Pass reset function FROM form
-  generateFinalInstructions: form.generateFinalInstructions, // Pass function FROM form
+  // Defer passing form refs until 'form' is defined below
+  answers: computed(() => form?.answers?.value || []), // Use optional chaining and default
+  resetFormState: () => form?.resetFormState(),
+  generateFinalInstructions: () => form?.generateFinalInstructions(),
   focusTextarea: (select = false) => {
-    // Pass function to focus textarea
     nextTick(() => {
       answerTextareaRef.value?.focus()
       if (select) answerTextareaRef.value?.select()
@@ -325,16 +365,34 @@ const wizard = useAssistantWizard({
   },
 })
 
-// 3. Name Suggestion Composable (Needs refs from form)
+// 2. Form Composable (Pass wizard's selectedColor ref)
+const form = useAssistantForm({
+  selectedLevel: wizard.selectedLevel,
+  currentQuestions: wizard.currentQuestions,
+  isEditMode: isEditMode,
+  assistantIdToEdit: assistantIdToEdit,
+  emit: emit,
+  selectedColor: wizard.selectedColor, // *** PASSING COLOR REF ***
+})
+
+// 3. Name Suggestion Composable
 const nameSuggestion = useAssistantNameSuggestion({
   answers: form.answers,
   assistantName: form.assistantName,
 })
 
-// 4. Testing Modal Composable (Needs store & functions/data from form)
+// 4. Testing Modal Composable
 const testing = useAssistantTesting({
   assistantsStore: assistantsStore,
-  generateFinalInstructions: form.generateFinalInstructions,
+  generateFinalInstructions: form.generateFinalInstructions, // Pass generate function
+  // Pass necessary form state for testing modal
+  getAssistantTestData: () => ({
+    name: form.assistantName.value,
+    level: wizard.selectedLevel.value,
+    imageUrl: form.assistantImageUrl.value,
+    instructions: form.finalInstructions.value,
+    color: wizard.selectedColor.value,
+  }),
 })
 
 // --- Methods specific to this component ---
@@ -347,42 +405,48 @@ const isHelpVisible = (index) => {
   return visibleHelpIndex.value === index
 }
 
-// Cancel Action (Handles routing or emitting)
+// Cancel Action
 const cancelCreation = () => {
   if (isEditMode.value) {
     console.log('[CreatorComponent] Edit cancelled. Navigating back.')
-    router.push({ name: 'assistants' }) // Navigate back to list on cancel edit
+    router.push({ name: 'assistants' })
   } else {
     console.log('[CreatorComponent] Creation cancelled.')
-    wizard.resetWizard() // Reset wizard state
-    form.resetFormState() // Reset form state
-    emit('cancel') // Emit cancel event for modal parent
+    wizard.resetWizard()
+    form.resetFormState()
+    emit('cancel')
   }
 }
 
-// Prepare data and open test modal using data from Form Composable
+// Test Assistant Click (Modified slightly to use testing composable better)
 const handleTestAssistantClick = () => {
-  // Validation now implicitly handled by the button's disabled state using form.assistantName
   if (!form.assistantName.value.trim()) {
     form.saveError.value = 'Please enter a name for the assistant before testing.'
-    // Add shake animation if possible/needed via class binding?
     return
   }
-  form.saveError.value = null // Clear previous save errors
-  // Gather data needed by the testing composable's open function
-  const currentAssistantFormData = {
-    name: form.assistantName.value,
-    level: wizard.selectedLevel.value,
-    imageUrl: form.assistantImageUrl.value,
-    instructions: form.finalInstructions.value, // Use potentially updated instructions
+  form.saveError.value = null
+  // generateFinalInstructions might need to be called if answers changed since last review step
+  form.generateFinalInstructions()
+  // Pass the ID being edited if applicable
+  testing.openTestModal(assistantIdToEdit.value)
+}
+
+// Wrapper for Save/Update action
+const handleSave = async () => {
+  const success = await form.saveOrUpdateAssistant()
+  if (success && !isEditMode.value) {
+    // Reset wizard only after successful *creation*
+    // The parent component might handle closing the modal via 'assistant-created' emit
+    wizard.resetWizard()
+    // Maybe call cancelCreation logic here if modal should close?
+    // emit('cancel'); // Example if this closes a modal
   }
-  testing.openTestModal(currentAssistantFormData, assistantIdToEdit.value)
+  // Navigation on successful update is handled within form.saveOrUpdateAssistant via router
 }
 
 // --- Lifecycle & Watchers ---
 
-// Load data if ID prop is present (Edit Mode)
-// This function now coordinates setting state in Wizard and Form composables
+// Load data for edit mode
 const loadAssistantForEdit = (id) => {
   console.log(`[CreatorComponent] Attempting to load assistant ID: ${id} for edit.`)
   const assistantToEdit = assistantsStore.getAssistantById(id)
@@ -390,19 +454,12 @@ const loadAssistantForEdit = (id) => {
   if (assistantToEdit) {
     assistantIdToEdit.value = assistantToEdit.id
     isEditMode.value = true
-
-    // 1. Set Wizard State (Level)
     wizard.selectedLevel.value = assistantToEdit.level
+    form.loadAssistantData(assistantToEdit) // Loads name, instructions, image, color
 
-    // 2. Set Form State (Name, Image, Instructions)
-    // Make sure form composable's load function is robust
-    form.loadAssistantData(assistantToEdit)
-
-    // 3. Repopulate answers ref in Form Composable based on loaded instructions
-    // Wait for wizard's currentQuestions to update based on selectedLevel
     nextTick(() => {
       const instructionLines = assistantToEdit.instructions?.split('\n\n') || []
-      const loadedAnswers = new Array(wizard.currentQuestions.value.length).fill('')
+      const loadedAnswers = new Array(wizard.currentQuestions.value?.length || 0).fill('')
       const keyToAnswerMap = new Map()
       instructionLines.forEach((line) => {
         const match = line.match(/^\*\*(.*?):\*\*\s*\n([\s\S]*)/)
@@ -410,40 +467,35 @@ const loadAssistantForEdit = (id) => {
           keyToAnswerMap.set(match[1].trim(), match[2].trim())
         }
       })
-      // Use the correct 'currentQuestions' from the wizard
       wizard.currentQuestions.value.forEach((question, index) => {
         const answer = keyToAnswerMap.get(question.promptKey)
         loadedAnswers[index] = answer && answer !== '(Not specified)' ? answer : ''
       })
-      form.answers.value = loadedAnswers // Update the ref inside useAssistantForm
+      form.answers.value = loadedAnswers
 
-      // 4. Set Wizard Step & Focus
-      wizard.currentStep.value = 2 // Start editing at questions
-      wizard.currentQuestionIndex.value = 0 // Start at first question
+      wizard.currentStep.value = 3 // Start editing at Questions (Step 3)
+      wizard.currentQuestionIndex.value = 0
       console.log('[CreatorComponent] Edit mode activated and state populated.')
       nextTick(() => {
-        // Focus after state is set
         answerTextareaRef.value?.focus()
       })
     })
   } else {
     console.error(`[CreatorComponent] Assistant ID ${id} not found. Redirecting.`)
     form.saveError.value = `Error: Assistant with ID ${id} not found. Cannot edit.`
-    isEditMode.value = false // Ensure not stuck in edit mode
-    assistantIdToEdit.value = null // Clear the invalid ID
-    wizard.resetWizard() // Reset wizard to step 1
-    form.resetFormState() // Reset form
-    // Consider navigating away or showing a persistent error message
-    router.push({ name: 'assistants' }).catch((err) => console.error('Navigation failed:', err)) // Redirect with error catch
+    isEditMode.value = false
+    assistantIdToEdit.value = null
+    wizard.resetWizard()
+    form.resetFormState()
+    router.push({ name: 'assistants' }).catch((err) => console.error('Navigation failed:', err))
   }
 }
 
-// Handle initial load or route changes for editing
+// Handle initial load or route changes
 onMounted(() => {
   if (props.id) {
     loadAssistantForEdit(props.id)
   } else {
-    // Ensure clean state for creation mode
     isEditMode.value = false
     assistantIdToEdit.value = null
     wizard.resetWizard()
@@ -460,7 +512,6 @@ watch(
       console.log(`[CreatorComponent] Route ID changed to: ${newId}. Reloading for edit.`)
       loadAssistantForEdit(newId)
     } else if (!newId && isEditMode.value) {
-      // Navigated away from edit (e.g., to create view or list)
       console.log('[CreatorComponent] Navigated away from edit. Resetting state.')
       isEditMode.value = false
       assistantIdToEdit.value = null
@@ -468,25 +519,26 @@ watch(
       form.resetFormState()
     }
   },
-  { immediate: false }, // Don't run on initial mount if props.id handles it
+  { immediate: false },
 )
 
-// Watch for level changes in CREATE mode to reset answers array length
+// Watch level changes
 watch(
   () => wizard.selectedLevel.value,
   (newLevel, oldLevel) => {
     if (!isEditMode.value && newLevel !== oldLevel) {
       console.log('[CreatorComponent] Level changed in create mode, resetting answers array.')
-      // Ensure answers array length matches new questions
       form.answers.value = new Array(wizard.currentQuestions.value?.length || 0).fill('')
     }
   },
   { immediate: false },
-) // Don't run on initial mount
+)
 </script>
 
 <style scoped>
-/* Use the SAME styles as the original component */
+/* Paste the FULL styles from your original 1200-line file here */
+/* Make sure to include .assistant-creator, .creator-step, etc. */
+/* Also include styles for .color-palette-container if needed */
 .assistant-creator {
   padding: 1.5rem 2rem;
   background-color: var(--bg-input-field); /* Or appropriate background */
@@ -502,16 +554,13 @@ watch(
   overflow: hidden; /* Prevent creator itself from scrolling */
   position: relative;
 }
-
-/* Class for each step's container */
 .creator-step {
   display: flex;
   flex-direction: column;
-  height: 100%; /* Allow step content to fill */
-  overflow: hidden; /* Prevent step itself from scrolling */
-  flex-grow: 1; /* Ensure step takes full height */
+  height: 100%;
+  overflow: hidden;
+  flex-grow: 1;
 }
-
 h3 {
   margin-top: 0;
   margin-bottom: 1.5rem;
@@ -519,9 +568,8 @@ h3 {
   color: var(--text-primary);
   font-weight: 600;
   font-size: 1.25em;
-  flex-shrink: 0; /* Keep header fixed */
+  flex-shrink: 0;
 }
-
 .intro-text {
   margin-bottom: 1.5rem;
   color: var(--text-secondary);
@@ -530,18 +578,13 @@ h3 {
   text-align: left;
   flex-shrink: 0;
 }
-
 .level-selection {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
-  flex-shrink: 0; /* Keep fixed unless step needs scroll */
-  /* Add overflow if levels might exceed space */
-  /* overflow-y: auto; */
+  flex-shrink: 0;
 }
-
-/* Level Option Styles */
 .level-option {
   padding: 1rem 1.25rem;
   border: 1px solid var(--border-color-light);
@@ -596,14 +639,12 @@ h3 {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
-
-/* Step 2 & 3 Structure for Scrolling */
 .scrollable-content-area {
-  flex-grow: 1; /* Allow content to take available space */
-  overflow-y: auto; /* Enable vertical scrolling ONLY for this area */
-  padding: 0.5rem 0.5rem 0 0.5rem; /* Add some padding inside scroll area, less at bottom */
-  margin-bottom: 1rem; /* Space before footer actions */
-  min-height: 0; /* Crucial for flex children in overflow containers */
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0.5rem 0 0.5rem;
+  margin-bottom: 1rem;
+  min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-color-primary) var(--bg-sidebar);
 }
@@ -622,15 +663,10 @@ h3 {
 .scrollable-content-area::-webkit-scrollbar-thumb:hover {
   background-color: var(--accent-color-secondary);
 }
-
-/* Question Area (Step 2) - Now inside scrollable-content-area */
 .question-area {
-  /* Contains header, help, textarea */
   display: flex;
   flex-direction: column;
-  /* Removed height: 100% - let content define size */
 }
-
 .question-header {
   display: flex;
   justify-content: space-between;
@@ -713,9 +749,9 @@ h3 {
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
-  min-height: 100px; /* Keep a minimum size */
+  min-height: 100px;
   box-sizing: border-box;
-  flex-shrink: 0; /* Prevent shrinking, let scroll container handle overflow */
+  flex-shrink: 0;
 }
 .answer-input:focus {
   outline: none;
@@ -727,10 +763,7 @@ h3 {
   font-style: italic;
   font-size: 0.9em;
 }
-
-/* Review Area (Step 3) - Now inside scrollable-content-area */
 .review-area {
-  /* Contains name, image, errors, instructions */
   display: flex;
   flex-direction: column;
 }
@@ -753,7 +786,7 @@ h3 {
 }
 .name-input-area input[type='text'] {
   flex-grow: 1;
-  height: 38px; /* Match button height approx */
+  height: 38px;
   padding: 0.5rem 0.8rem;
   border: 1px solid var(--border-color-medium);
   border-radius: 6px;
@@ -766,14 +799,12 @@ h3 {
   border-color: var(--accent-color-primary);
   box-shadow: var(--input-focus-shadow);
 }
-
 .suggest-button {
-  padding: 0.5rem 0.8rem !important; /* Ensure padding is applied */
+  padding: 0.5rem 0.8rem !important;
   font-size: 0.85em !important;
-  height: 38px; /* Match input height */
+  height: 38px;
   flex-shrink: 0;
-  /* Add width to fit spinner/icon */
-  min-width: 38px; /* Ensure it's roughly square if just icon */
+  min-width: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -782,26 +813,24 @@ h3 {
   cursor: not-allowed;
   opacity: 0.6;
 }
-
-/* Image Upload Styles */
 .image-upload-controls {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 .upload-button {
-  padding: 0.5rem 1rem !important; /* Override general button padding if needed */
+  padding: 0.5rem 1rem !important;
   font-size: 0.85em !important;
-  height: 40px; /* Match preview height */
+  height: 40px;
 }
 .image-preview-container {
   position: relative;
-  width: 40px; /* Explicit size */
+  width: 40px;
   height: 40px;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .image-url-preview {
-  width: 100%; /* Fill container */
+  width: 100%;
   height: 100%;
   border-radius: 4px;
   object-fit: cover;
@@ -835,32 +864,28 @@ h3 {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s ease;
-  z-index: 1; /* Ensure it's above preview */
+  z-index: 1;
 }
 .remove-image-button:hover {
   background: rgba(0, 0, 0, 0.8);
 }
 .image-error {
-  margin-top: 0.3rem; /* Space below controls */
+  margin-top: 0.3rem;
 }
-
 .error-text {
   font-size: 0.8em;
   color: var(--text-error);
-  min-height: 1.2em; /* Reserve space */
+  min-height: 1.2em;
 }
 .suggest-error {
   margin: 0.2rem 0 0.5rem 0;
-  /* padding-left: 105px; /* Align roughly under suggest button if name input wraps - might need adjustment */
 }
 .save-error {
   margin-top: 0.5rem;
-  /* text-align: right; /* Align with save button if needed */
 }
 .image-error {
   margin-top: 0.3rem;
 }
-
 .review-label {
   font-weight: 600;
   margin-bottom: 0.5rem;
@@ -880,9 +905,6 @@ h3 {
   font-size: 0.85em;
   margin-bottom: 1rem;
   color: var(--text-primary);
-  /* FIX: Remove flex-shrink to allow it to be contained by scrollable parent */
-  /* flex-shrink: 0; */
-  /* Allow natural height, scrolling handled by parent */
 }
 .additional-instructions {
   font-size: 0.85em;
@@ -893,7 +915,7 @@ h3 {
   margin-bottom: 1.5rem;
   line-height: 1.4;
   border: 1px dashed var(--border-color-light);
-  flex-shrink: 0; /* Keep this fixed relative to generated instructions */
+  flex-shrink: 0;
 }
 .additional-instructions strong {
   display: block;
@@ -903,50 +925,38 @@ h3 {
 .additional-instructions p {
   margin: 0;
 }
-
-/* Footer Actions (Common) */
 .creator-actions.footer-actions {
   display: flex;
-  flex-wrap: wrap; /* Allow buttons to wrap */
-  /* justify-content: flex-end; /* Default alignment */
-  gap: 0.75rem; /* Space between buttons */
-  margin-top: auto; /* Push to bottom */
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid var(--border-color-light);
-  flex-shrink: 0; /* Keep footer fixed */
-  background-color: var(--bg-input-field); /* Match creator background */
-  /* FIX: Simplify padding/margin - Use component's padding */
-  padding: 1rem; /* Consistent padding */
-  /* Removed negative margins */
-  align-items: center; /* Align items vertically if they wrap */
+  flex-shrink: 0;
+  background-color: var(--bg-input-field);
+  padding: 1rem;
+  align-items: center;
 }
-/* Specific justifications */
 .footer-actions.question-nav,
 .footer-actions.review-actions {
-  justify-content: space-between; /* Space out first/last groups */
+  justify-content: space-between;
 }
-
-/* Special handling for the first button if it's a 'back' type */
 .footer-actions > .back-button:first-child {
-  margin-right: auto; /* Pushes subsequent items/groups to the right */
+  margin-right: auto;
 }
-
-/* Group buttons that should stay together */
-.footer-actions span, /* Question counter */
+.footer-actions span,
 .footer-actions .button-secondary,
 .footer-actions .button-primary {
-  margin-left: 0.5rem; /* Add space between right-aligned buttons/items */
+  margin-left: 0.5rem;
 }
 .footer-actions > .back-button:first-child + * {
-  margin-left: 0; /* Remove margin from item immediately after back button */
+  margin-left: 0;
 }
-
-/* Buttons (Base Styles) */
 .button-primary,
 .button-secondary,
 .button-tertiary {
   padding: 0.6rem 1.2rem;
-  border: 1px solid transparent; /* Base border */
+  border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
   font-family: sans-serif;
@@ -957,14 +967,11 @@ h3 {
     opacity 0.2s ease,
     color 0.2s ease,
     border-color 0.2s ease;
-  /* FIX: Ensure buttons don't shrink too small and text doesn't wrap */
   flex-shrink: 0;
   white-space: nowrap;
-  /* min-width: 80px; /* Avoid fixed min-width if possible, let padding define size */
   text-align: center;
-  line-height: 1.2; /* Prevent text descenders causing height jumps */
+  line-height: 1.2;
 }
-/* Primary Button */
 .button-primary {
   background-color: var(--bg-button-primary);
   color: var(--text-button-primary);
@@ -980,7 +987,6 @@ h3 {
   cursor: not-allowed;
   opacity: 0.7;
 }
-/* Secondary Button */
 .button-secondary {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
@@ -996,7 +1002,6 @@ h3 {
   cursor: not-allowed;
   opacity: 0.7;
 }
-/* Tertiary Button */
 .button-tertiary {
   background-color: transparent;
   color: var(--text-secondary);
@@ -1007,11 +1012,9 @@ h3 {
   border-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
 }
-
-/* FIX: Specific style for the "Back to Level" button */
 .back-to-level-button {
-  background-color: var(--bg-error, #a04040) !important; /* Use error background */
-  color: var(--text-light, white) !important; /* Ensure text is readable */
+  background-color: var(--bg-error, #a04040) !important;
+  color: var(--text-light, white) !important;
   border: 1px solid var(--bg-error, #a04040) !important;
 }
 .back-to-level-button:hover {
@@ -1019,16 +1022,13 @@ h3 {
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black) !important;
   color: var(--text-light, white) !important;
 }
-
 .question-counter {
   color: var(--text-secondary);
   font-size: 0.9em;
-  margin: 0 0.5rem; /* Adjust spacing */
+  margin: 0 0.5rem;
   flex-shrink: 0;
   white-space: nowrap;
 }
-
-/* Shake animation */
 @keyframes shake {
   10%,
   90% {
@@ -1052,8 +1052,6 @@ h3 {
   animation: shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
   border-color: var(--text-error) !important;
 }
-
-/* Modal styles */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1071,7 +1069,7 @@ h3 {
 }
 .test-modal .test-modal-content {
   max-width: 90vw;
-  width: 800px; /* Or your preferred max width */
+  width: 800px;
   max-height: 90vh;
   background-color: var(--bg-modal, var(--bg-main-content));
   border-radius: 8px;
@@ -1111,19 +1109,16 @@ h3 {
 }
 .test-modal .test-modal-chat-area {
   flex-grow: 1;
-  overflow-y: hidden; /* ChatView handles its own scrolling */
-  display: flex; /* Required for flex child */
-  background-color: var(--bg-main-content); /* Ensure background consistency */
+  overflow-y: hidden;
+  display: flex;
+  background-color: var(--bg-main-content);
 }
-/* Target ChatView specifically if needed */
 .test-modal .test-modal-chat-area > :deep(.chat-view) {
   height: 100%;
   width: 100%;
-  border-radius: 0; /* Remove border-radius if ChatView has one */
-  border: none; /* Remove border if ChatView has one */
-  /* Add any overrides if ChatView styles conflict */
+  border-radius: 0;
+  border: none;
 }
-
 .test-modal .test-modal-footer {
   padding: 0.75rem 1.5rem;
   background-color: var(--bg-input-area, #1a1a1a);
@@ -1147,49 +1142,39 @@ h3 {
 .test-modal .test-modal-footer button:hover {
   background-color: var(--bg-button-secondary-hover);
 }
-
-/* --- ADDED STYLES for Spinner and Green Plasma --- */
-
 /* Spinner for Suggest Button */
 .button-spinner {
-  width: 16px; /* Adjust size as needed */
+  width: 16px;
   height: 16px;
-  border: 2px solid var(--text-button-secondary); /* Spinner color */
+  border: 2px solid var(--text-button-secondary);
   border-top-color: transparent;
   border-radius: 50%;
   animation: button-spin 0.8s linear infinite;
-  margin: auto; /* Center it if button padding allows */
+  margin: auto;
 }
-
 @keyframes button-spin {
   to {
     transform: rotate(360deg);
   }
 }
-
 /* Green Plasma Effect for Suggest Button */
-/* Define green plasma color variables (or use existing if suitable) */
-/* These could be moved to a global CSS file like main.css */
 :root {
   --plasma-color-green-bright: hsl(120, 80%, 70%);
   --plasma-color-green-mid: hsl(120, 70%, 50%);
   --plasma-color-green-dim: hsl(120, 60%, 30%);
 }
-
 .suggest-button-plasma:not(:disabled) {
-  position: relative; /* Needed for pseudo-element */
-  overflow: hidden; /* Keep effect contained */
-  /* Add a subtle base shadow */
+  position: relative;
+  overflow: hidden;
   box-shadow: 0 0 3px 1px color-mix(in srgb, var(--plasma-color-green-mid) 20%, transparent);
 }
-
 .suggest-button-plasma:not(:disabled)::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 150%; /* Make it larger than the button */
-  padding-bottom: 150%; /* Make it square */
+  width: 150%;
+  padding-bottom: 150%;
   background: radial-gradient(
     circle at center,
     color-mix(in srgb, var(--plasma-color-green-bright) 60%, transparent) 0%,
@@ -1203,21 +1188,13 @@ h3 {
   opacity: 0;
   transition: opacity 0.5s ease-out;
   animation: suggest-plasma-pulse 2.5s infinite ease-in-out;
-  z-index: 0; /* Behind button content */
+  z-index: 0;
 }
-
-.suggest-button-plasma:not(:disabled):hover::before {
-  /* Optional: Enhance effect on hover */
-  /* animation-duration: 1.5s; */
-}
-
-/* Ensure button content stays above pseudo-element */
 .suggest-button-plasma span,
 .suggest-button-plasma .button-spinner {
   position: relative;
   z-index: 1;
 }
-
 @keyframes suggest-plasma-pulse {
   0% {
     transform: translate(-50%, -50%) scale(0.7);
@@ -1232,15 +1209,13 @@ h3 {
     opacity: 0.4;
   }
 }
-
-/* Override tertiary button styles slightly for better effect visibility */
 .suggest-button-plasma.button-tertiary {
-  background-color: color-mix(in srgb, var(--bg-sidebar) 50%, black); /* Darker base */
-  border-color: var(--plasma-color-green-dim); /* Hint of color */
-  color: var(--plasma-color-green-bright); /* Text color */
-  font-size: 1.2em !important; /* Make dice slightly larger */
-  padding: 0 !important; /* Remove padding if only icon */
-  width: 38px; /* Make it square */
+  background-color: color-mix(in srgb, var(--bg-sidebar) 50%, black);
+  border-color: var(--plasma-color-green-dim);
+  color: var(--plasma-color-green-bright);
+  font-size: 1.2em !important;
+  padding: 0 !important;
+  width: 38px;
 }
 .suggest-button-plasma.button-tertiary:hover:not(:disabled) {
   background-color: color-mix(in srgb, var(--bg-sidebar) 30%, black);

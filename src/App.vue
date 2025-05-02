@@ -8,17 +8,14 @@
       >
         <span></span> <span></span> <span></span>
       </button>
-
       <div id="header-logo">
         <span
           v-for="(char, index) in logoText"
           :key="index"
           :class="['header-char', `char-${index}`]"
+          >{{ char }}</span
         >
-          {{ char }}
-        </span>
       </div>
-
       <button
         v-if="showRightSidebarAndToggle"
         @click="toggleRightSidebar"
@@ -40,7 +37,6 @@
         </svg>
       </button>
     </header>
-
     <div class="main-layout-wrapper">
       <LeftSidebar id="left-sidebar" :class="{ 'sidebar-closed': !isLeftSidebarOpen }" />
       <main id="main-content"><RouterView /></main>
@@ -54,7 +50,7 @@
 </template>
 
 <script setup>
-// Script setup content remains the same as response #49
+// Script setup remains the same as response #49
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import LeftSidebar from './components/LeftSidebar.vue'
@@ -62,31 +58,21 @@ import RightSidebar from './components/RightSidebar.vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import { storeToRefs } from 'pinia'
-
 const settingsStore = useSettingsStore()
 const conversationStore = useConversationStore()
 const route = useRoute()
-
 const { theme, appFontSize } = storeToRefs(settingsStore)
-
-// Left Sidebar State
 const isLeftSidebarOpen = ref(true)
 const toggleLeftSidebar = () => {
   isLeftSidebarOpen.value = !isLeftSidebarOpen.value
 }
-
-// Right Sidebar State
 const isRightSidebarOpen = ref(true)
 const toggleRightSidebar = () => {
   isRightSidebarOpen.value = !isRightSidebarOpen.value
 }
-
-// Computed property to control Right Sidebar visibility
 const showRightSidebarAndToggle = computed(() => {
   return route.path !== '/settings'
 })
-
-// Theme Management
 const appContainerClass = computed(() => {
   return {
     'dark-theme': theme.value === 'dark',
@@ -94,25 +80,14 @@ const appContainerClass = computed(() => {
     'right-sidebar-hidden-app': !showRightSidebarAndToggle.value || !isRightSidebarOpen.value,
   }
 })
-
-// Dynamic App Style for Font Size
-const appStyle = computed(() => ({
-  fontSize: `${appFontSize.value}%`,
-}))
-
-// Header Logo Text
+const appStyle = computed(() => ({ fontSize: `${appFontSize.value}%` }))
 const logoText = ref('Nb4U-Ai')
-
-// Before Unload Handler
 const handleBeforeUnload = () => {
-  console.log('[App.vue] beforeunload event triggered. Saving conversation...')
   conversationStore.saveActiveConversationToMemories()
 }
-
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
-
 onUnmounted(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
@@ -121,11 +96,12 @@ onUnmounted(() => {
 <style>
 /* Global styles (Variables) - Unchanged */
 :root {
-  --bg-app-container: #ffffff;
+  /* ... */
+  --bg-app-container: #fff;
   --bg-sidebar: #f0f0f8;
-  --bg-main-content: #ffffff;
+  --bg-main-content: #fff;
   --bg-input-area: #f5f5f5;
-  --bg-input-field: #ffffff;
+  --bg-input-field: #fff;
   --bg-header: #ededf0;
   --bg-message-user: #0b57d0;
   --bg-message-ai: #e9e9eb;
@@ -139,22 +115,22 @@ onUnmounted(() => {
   --bg-button-tts-on: #66bb6a;
   --bg-avatar-user: #0b57d0;
   --bg-avatar-ai: #757575;
-  --text-primary: #333333;
-  --text-secondary: #555555;
-  --text-header: #444444;
-  --text-light: #ffffff;
-  --text-placeholder: #888888;
+  --text-primary: #333;
+  --text-secondary: #555;
+  --text-header: #444;
+  --text-light: #fff;
+  --text-placeholder: #888;
   --text-link: #1a0dab;
   --text-link-hover: #60076a;
   --text-error: #c62828;
-  --text-message-user: #ffffff;
-  --text-message-ai: #333333;
+  --text-message-user: #fff;
+  --text-message-ai: #333;
   --text-message-error: #c62828;
-  --text-timestamp: #777777;
-  --text-button-primary: #ffffff;
-  --text-button-secondary: #333333;
-  --text-button-listening: #ffffff;
-  --text-button-tts-on: #ffffff;
+  --text-timestamp: #777;
+  --text-button-primary: #fff;
+  --text-button-secondary: #333;
+  --text-button-listening: #fff;
+  --text-button-tts-on: #fff;
   --border-color-light: #ccc;
   --border-color-medium: #aaa;
   --border-color-dark: #3a3a3a;
@@ -163,14 +139,13 @@ onUnmounted(() => {
   --accent-color-primary: #1e8449;
   --accent-shadow-primary: rgba(30, 132, 73, 0.8);
   --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-  /* Removed unused shadow variables */
   --sidebar-left-width-open: 250px;
   --sidebar-left-width-closed: 60px;
   --sidebar-right-width-open: 200px;
   --sidebar-right-width-closed: 0px;
 }
-
 .dark-theme {
+  /* ... */
   --bg-app-container: #1c1c1c;
   --bg-sidebar: #252525;
   --bg-main-content: #1a1a1a;
@@ -192,7 +167,7 @@ onUnmounted(() => {
   --text-primary: #eee;
   --text-secondary: #aaa;
   --text-header: #aaa;
-  --text-light: #ffffff;
+  --text-light: #fff;
   --text-placeholder: #888;
   --text-link: #8ab4f8;
   --text-link-hover: #aecbfa;
@@ -201,10 +176,10 @@ onUnmounted(() => {
   --text-message-ai: #eee;
   --text-message-error: #fcc;
   --text-timestamp: #888;
-  --text-button-primary: #ffffff;
-  --text-button-secondary: #ffffff;
+  --text-button-primary: #fff;
+  --text-button-secondary: #fff;
   --text-button-listening: #fff;
-  --text-button-tts-on: #ffffff;
+  --text-button-tts-on: #fff;
   --border-color-light: #555;
   --border-color-medium: #3a3a3a;
   --border-color-dark: #222;
@@ -213,11 +188,11 @@ onUnmounted(() => {
   --accent-color-primary: #0f0;
   --accent-shadow-primary: rgba(0, 255, 100, 0.8);
   --input-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-  /* Removed unused shadow variables */
 }
 
 /* --- Animations --- */
 @keyframes faintGreenPulse {
+  /* For icons */
   0%,
   100% {
     filter: drop-shadow(0 0 1px color-mix(in srgb, var(--accent-color-primary) 50%, transparent));
@@ -227,6 +202,7 @@ onUnmounted(() => {
   }
 }
 @keyframes faintTextGlow {
+  /* For logo/pinned name */
   0%,
   100% {
     text-shadow: 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
@@ -235,11 +211,28 @@ onUnmounted(() => {
     text-shadow: 0 0 6px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
   }
 }
-/* Removed unused flicker keyframes */
+/* *** UPDATED: Ripple using box-shadow *** */
+@keyframes ripplePulseShadow {
+  0% {
+    transform: scale(1); /* Start at normal size */
+    opacity: 0.6;
+    box-shadow: 0 0 4px 2px color-mix(in srgb, var(--accent-color-primary) 60%, transparent);
+  }
+  70% {
+    transform: scale(1.5); /* Expand */
+    opacity: 0;
+    box-shadow: 0 0 8px 4px color-mix(in srgb, var(--accent-color-primary) 40%, transparent);
+  }
+  100% {
+    /* Reset for next loop */
+    transform: scale(1);
+    opacity: 0;
+  }
+}
 </style>
 
 <style scoped>
-/* Scoped styles */
+/* Scoped styles remain the same as response #105 */
 #app-container {
   display: flex;
   flex-direction: column;
@@ -254,7 +247,6 @@ onUnmounted(() => {
     background-color 0.3s ease,
     color 0.3s ease;
 }
-
 #main-header {
   height: 50px;
   background-color: var(--bg-header);
@@ -270,8 +262,6 @@ onUnmounted(() => {
     border-color 0.3s ease;
   justify-content: space-between;
 }
-
-/* Shared style for header buttons */
 .header-button {
   background: none;
   border: none;
@@ -295,8 +285,6 @@ onUnmounted(() => {
   width: 22px;
   height: 22px;
 }
-
-/* Hamburger specific styles */
 .hamburger-button {
   flex-direction: column;
   justify-content: space-around;
@@ -311,13 +299,9 @@ onUnmounted(() => {
     transform 0.3s ease,
     opacity 0.3s ease;
 }
-
-/* Settings button specific styles */
 .settings-button {
   animation-duration: 3.5s;
 }
-
-/* Header Logo */
 #header-logo {
   position: absolute;
   left: 50%;
@@ -337,15 +321,6 @@ onUnmounted(() => {
   display: inline-block;
   color: inherit;
 }
-/* --- REMOVED OBSOLETE/EMPTY RULES for flicker animation --- */
-/* #header-logo.active { ... } */
-/* #header-logo.active .header-char { ... } */
-/* .animate-flicker-basic { ... } */
-/* .animate-flicker-slow-partial { ... } */
-/* .animate-flicker-fast-full { ... } */
-/* .animate-flicker-slow-fade { ... } */
-
-/* Layout Wrapper and Content (Unchanged) */
 .main-layout-wrapper {
   display: flex;
   flex-grow: 1;
@@ -362,8 +337,6 @@ onUnmounted(() => {
     color 0.3s ease;
   overflow-y: auto;
 }
-
-/* Sidebars Base Styles (Unchanged) */
 #left-sidebar,
 #right-sidebar {
   overflow-y: auto;
@@ -383,8 +356,6 @@ onUnmounted(() => {
   box-sizing: border-box;
   opacity: 1;
 }
-
-/* Left Sidebar Specifics (Unchanged) */
 #left-sidebar {
   width: var(--sidebar-left-width-open);
   border-right: 1px solid var(--border-color-medium);
@@ -393,8 +364,6 @@ onUnmounted(() => {
   width: var(--sidebar-left-width-closed);
   padding: 1rem 0.5rem;
 }
-
-/* Right Sidebar Specifics (Unchanged) */
 #right-sidebar {
   width: var(--sidebar-right-width-open);
   border-left: 1px solid var(--border-color-medium);
@@ -407,7 +376,4 @@ onUnmounted(() => {
   overflow: hidden;
   opacity: 0;
 }
-
-/* --- REMOVED empty rule --- */
-/* .right-sidebar-hidden-app #main-content { ... } */
 </style>

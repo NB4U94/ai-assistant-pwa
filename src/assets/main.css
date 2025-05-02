@@ -37,10 +37,213 @@ body {
   -moz-osx-font-smoothing: grayscale;
 
   /* --- Core Style Updates based on Corestyle.txt --- */
-  background-color: #121212; /* Base Body: Very dark grey [cite: 4] */
-  color: #ccc; /* Default Text: Light grey [cite: 7] */
+  background-color: #121212; /* Base Body: Very dark grey */
+  color: #ccc; /* Default Text: Light grey */
   overflow: hidden; /* Prevents body scrollbars when app container manages height */
   /* --- End Core Style Updates --- */
 }
 
 /* Add any other project-wide global styles below if needed */
+
+/* === Global Ripple Animation (Avatars AND Help Buttons) === */
+
+@keyframes ripplePulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.6;
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 60%, transparent);
+  }
+  70% {
+    transform: scale(1.4);
+    opacity: 0;
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 40%, transparent);
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+/* Apply ripple to Assistant Avatars */
+.assistant-avatar::after {
+  content: '';
+  position: absolute;
+  top: -3px; /* Adjust offset based on avatar size if needed */
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent-color-primary, #42b983) 50%, transparent);
+  opacity: 0;
+  animation: ripplePulse 2.5s infinite ease-out;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.assistant-avatar {
+  position: relative; /* Needed for ::after */
+}
+
+/* Apply IDENTICAL ripple to Help Buttons */
+.help-button::after {
+  content: '';
+  position: absolute;
+  top: -3px; /* Using same offsets */
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%; /* Match button shape */
+  border: 1px solid color-mix(in srgb, var(--accent-color-primary, #42b983) 50%, transparent);
+  opacity: 0;
+  animation: ripplePulse 2.5s infinite ease-out; /* Same animation */
+  pointer-events: none;
+  z-index: 0; /* Same z-index as avatar ripple */
+}
+
+/* === End Global Ripple Animation === */
+
+/* === Global Toggle Switch Styles (Slimmer) === */
+
+.toggle-switch {
+  width: 40px;
+  height: 20px;
+  background-color: var(--bg-button-secondary);
+  border-radius: 10px;
+  padding: 2px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.3s ease;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color-medium);
+  outline: none;
+  box-sizing: content-box;
+  vertical-align: middle;
+}
+
+.toggle-switch[aria-checked='true'] {
+  background-color: var(--accent-color-primary);
+}
+
+.toggle-knob {
+  width: 16px;
+  height: 16px;
+  background-color: white;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.3s ease;
+}
+
+.toggle-switch[aria-checked='true'] .toggle-knob {
+  transform: translateX(20px);
+}
+
+.toggle-switch:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+
+.toggle-switch[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
+}
+
+/* === End Global Toggle Switch Styles === */
+
+/* === Global Help Button Styles === */
+
+.help-button {
+  background-color: var(--bg-button-secondary);
+  color: var(--text-light, white);
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 1.1em;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 0.2s ease;
+  outline: none;
+  vertical-align: middle;
+  position: relative; /* Needed for ::after */
+  z-index: 1; /* Keep '?' text above ::after */
+}
+
+.help-button:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+
+.help-button:hover {
+  background-color: var(--bg-button-secondary-hover);
+}
+
+/* Ripple effect added via ::after rule above */
+
+/* === End Global Help Button Styles === */
+
+/* === Global Glow Effects === */
+
+/* REMOVED: @keyframes neonPulse and .neon-glow-effect-primary */
+
+/* Solid subtle glow effect (for arrows) */
+.solid-glow-effect-primary {
+  filter: drop-shadow(0 0 2px var(--accent-color-primary))
+    drop-shadow(0 0 4px color-mix(in srgb, var(--accent-color-primary) 60%, transparent));
+  transition: filter 0.3s ease;
+}
+.solid-glow-effect-primary:hover {
+  filter: drop-shadow(0 0 3px var(--accent-color-primary))
+    drop-shadow(0 0 6px color-mix(in srgb, var(--accent-color-primary) 70%, transparent));
+}
+
+/* === End Global Glow Effects === */
+
+/* === Global Arrow Styles === */
+
+/* Style for arrows (Settings advanced, ChatView dropdown) */
+.advanced-arrow,
+.assistant-selector-toggle-arrow {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  /* Set arrow color to neon green */
+  color: var(--accent-color-primary);
+  cursor: pointer;
+  transition:
+    transform 0.3s ease,
+    color 0.2s ease; /* Keep existing transitions */
+  display: flex;
+  align-items: center;
+}
+
+/* Keep hover effect */
+.advanced-arrow:hover,
+.assistant-selector-toggle-arrow:hover {
+  color: color-mix(in srgb, var(--accent-color-primary) 80%, white);
+}
+
+/* Keep SVG display rule */
+.advanced-arrow svg,
+.assistant-selector-toggle-arrow svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+/* Keep expanded state transform */
+.advanced-arrow.expanded,
+.assistant-selector-toggle-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+/* === End Global Arrow Styles === */

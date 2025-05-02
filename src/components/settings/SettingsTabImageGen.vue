@@ -14,7 +14,7 @@
         </option>
       </select>
       <button
-        class="help-button pulsing-help"
+        class="help-button neon-glow-effect-primary"
         @click="
           showHelp(
             'Default Aspect Ratio',
@@ -39,7 +39,7 @@
         </option>
       </select>
       <button
-        class="help-button pulsing-help"
+        class="help-button neon-glow-effect-primary"
         @click="
           showHelp(
             'Default Style Preset',
@@ -55,7 +55,7 @@
 
     <div class="setting-item">
       <label for="img-num-images" class="setting-label">
-        Number of Images
+        Default Number of Images
         <span class="setting-description">How many images to generate per prompt.</span>
       </label>
       <div class="input-container">
@@ -67,19 +67,19 @@
           :max="settingsStore.MAX_NUM_IMAGES"
           step="1"
           v-model.number="imageGenDefaultNumImages"
-          aria-label="Number of Images"
+          aria-label="Default Number of Images"
         />
       </div>
       <button
-        class="help-button pulsing-help"
+        class="help-button neon-glow-effect-primary"
         @click="
           showHelp(
-            'Number of Images',
-            `Determines how many image variations are generated each time you submit a prompt (between ${settingsStore.MIN_NUM_IMAGES} and ${settingsStore.MAX_NUM_IMAGES}). Some AI models may have limitations.`,
+            'Default Number of Images',
+            `Determines the default number of image variations generated each time you submit a prompt (between ${settingsStore.MIN_NUM_IMAGES} and ${settingsStore.MAX_NUM_IMAGES}). Some AI models may have limitations. This applies when starting a new generation session.`,
           )
         "
-        aria-label="Help with Number of Images"
-        title="Help with Number of Images"
+        aria-label="Help with Default Number of Images"
+        title="Help with Default Number of Images"
       >
         ?
       </button>
@@ -98,15 +98,38 @@
         v-model="imageGenDefaultNegativePrompt"
       ></textarea>
       <button
-        class="help-button pulsing-help"
+        class="help-button neon-glow-effect-primary"
         @click="
           showHelp(
             'Default Negative Prompt',
-            'Enter keywords or phrases describing elements you want the AI to avoid in generated images (e.g., low quality, extra fingers, text). This helps refine the output.',
+            'Enter keywords or phrases describing elements you want the AI to avoid by default in generated images (e.g., low quality, extra fingers, text). This helps refine the output and will pre-fill the negative prompt field in the Image Generation view.',
           )
         "
         aria-label="Help with Default Negative Prompt"
         title="Help with Default Negative Prompt"
+      >
+        ?
+      </button>
+    </div>
+
+    <div class="setting-item">
+      <label class="setting-label">
+        Reset Image Defaults
+        <span class="setting-description">Reset all settings on this tab to defaults.</span>
+      </label>
+      <button class="quick-setting-button" @click="handleResetImageDefaults">
+        Reset Image Defaults
+      </button>
+      <button
+        class="help-button neon-glow-effect-primary"
+        @click="
+          showHelp(
+            'Reset Image Defaults',
+            'Resets Aspect Ratio, Style, Number of Images, and Negative Prompt back to their original default values.',
+          )
+        "
+        aria-label="Help with Reset Image Defaults"
+        title="Help with Reset Image Defaults"
       >
         ?
       </button>
@@ -121,7 +144,7 @@
     >
       <h3>Advanced Image Settings</h3>
       <button
-        class="advanced-arrow"
+        class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
         aria-label="Toggle Advanced Settings"
       >
@@ -149,13 +172,15 @@
             <option value="1024">1024x1792</option>
           </select>
           <button
-            class="help-button pulsing-help"
+            class="help-button neon-glow-effect-primary"
             @click="
               showHelp(
                 'Default Resolution',
                 'Sets the default width/height (pixels). Availability depends on model (e.g., DALL-E 3 prefers 1024x1024, 1792x1024, or 1024x1792). (Setting not yet active)',
               )
             "
+            aria-label="Help with Default Resolution"
+            title="Help with Default Resolution"
           >
             ?
           </button>
@@ -173,13 +198,15 @@
             disabled
           />
           <button
-            class="help-button pulsing-help"
+            class="help-button neon-glow-effect-primary"
             @click="
               showHelp(
                 'Seed',
                 'Specific number to initialize generation. Same seed + prompt ≈ same result. Blank = random. (Setting not yet active)',
               )
             "
+            aria-label="Help with Seed"
+            title="Help with Seed"
           >
             ?
           </button>
@@ -204,13 +231,15 @@
             <span class="slider-value">7</span>
           </div>
           <button
-            class="help-button pulsing-help"
+            class="help-button neon-glow-effect-primary"
             @click="
               showHelp(
                 'Guidance Scale (CFG)',
                 'Controls prompt adherence. Lower = more creative, Higher = stricter. Common: 5-15. (Not standard in all models). (Setting not yet active)',
               )
             "
+            aria-label="Help with Guidance Scale (CFG)"
+            title="Help with Guidance Scale (CFG)"
           >
             ?
           </button>
@@ -225,13 +254,15 @@
             <option value="auto">Automatic</option>
           </select>
           <button
-            class="help-button pulsing-help"
+            class="help-button neon-glow-effect-primary"
             @click="
               showHelp(
                 'Sampler Method',
                 'Specific algorithm used. Different samplers can affect style/detail. (Not usually user-controlled in simple APIs). (Setting not yet active)',
               )
             "
+            aria-label="Help with Sampler Method"
+            title="Help with Sampler Method"
           >
             ?
           </button>
@@ -243,7 +274,6 @@
 
 <script setup>
 import { defineProps, ref } from 'vue'
-// *** Import store and utilities ***
 import { useSettingsStore } from '@/stores/settingsStore'
 import { storeToRefs } from 'pinia'
 
@@ -257,7 +287,7 @@ defineProps({
 
 // --- Store Access ---
 const settingsStore = useSettingsStore()
-// Get needed state refs for v-model
+// Get needed state refs for v-model binding to the store
 const {
   imageGenDefaultAspectRatio,
   imageGenDefaultStyle,
@@ -269,6 +299,14 @@ const {
 const isAdvancedVisible = ref(false) // Default collapsed
 const toggleAdvanced = () => {
   isAdvancedVisible.value = !isAdvancedVisible.value
+}
+
+// --- Reset Action Handler ---
+const handleResetImageDefaults = () => {
+  // Call the reset action directly from the store
+  settingsStore.resetImageGenDefaults()
+  // Optional: Show confirmation to the user
+  alert('Image Generation default settings have been reset.')
 }
 </script>
 
@@ -286,29 +324,32 @@ const toggleAdvanced = () => {
   border-bottom: none;
 }
 
+/* Specific layout for wider items like textarea */
 .setting-item.wide-item {
-  /* Adjusted grid for textarea */
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto; /* Label | Control | Help */
   grid-template-areas:
     'label control help'
-    '. description .';
-  align-items: start;
+    '. description .'; /* Span description under control */
+  align-items: start; /* Align items to the start for multi-line consistency */
 }
 .setting-item.wide-item .setting-label {
   grid-area: label;
+  padding-top: 0.4rem; /* Align label better with textarea */
 }
 .setting-item.wide-item .setting-description {
   grid-area: description;
-  padding-left: 0;
+  padding-left: 0; /* Align with control */
   padding-top: 0.3rem;
 }
 .setting-item.wide-item .settings-textarea {
   grid-area: control;
-  justify-self: stretch;
+  justify-self: stretch; /* Allow textarea to take full width */
 }
 .setting-item.wide-item .help-button {
   grid-area: help;
   justify-self: end;
+  align-self: start; /* Align help button with top of label */
+  margin-top: 0.4rem; /* Match label padding */
 }
 
 .setting-label {
@@ -328,15 +369,16 @@ const toggleAdvanced = () => {
   white-space: normal;
 }
 
-/* Align controls and help button to the end */
+/* Align controls and help button to the end by default */
 .settings-select,
 .settings-slider,
 .settings-input,
 .settings-textarea,
 .help-button,
 .slider-container,
+.quick-setting-button, /* Added quick setting button */
 .input-container {
-  /* Simple container for number input */
+  /* Wrapper for number input */
   justify-self: end;
 }
 
@@ -376,9 +418,9 @@ const toggleAdvanced = () => {
 
 .settings-textarea {
   min-width: 200px; /* Wider */
-  max-width: 100%;
+  max-width: 100%; /* Allow stretching in wide-item */
   resize: vertical;
-  min-height: calc(1.4em * 2 + 0.8rem); /* Approx 2 rows */
+  min-height: calc(1.4em * 2 + 0.8rem); /* Approx 2 rows based on line-height + padding */
 }
 
 .settings-slider {
@@ -388,11 +430,65 @@ const toggleAdvanced = () => {
   vertical-align: middle;
   min-width: 120px;
   max-width: 150px;
+  /* Appearance handled globally if needed, or keep specific here */
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: none;
+}
+.settings-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: var(--border-color-light);
+  border-radius: 3px;
+}
+.settings-slider::-moz-range-track {
+  height: 6px;
+  background: var(--border-color-light);
+  border-radius: 3px;
+}
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -7px;
+  background: var(--accent-color-primary);
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg-input-field);
+}
+.settings-slider::-moz-range-thumb {
+  background: var(--accent-color-primary);
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg-input-field);
+}
+.settings-slider:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+}
+.settings-slider:focus::-moz-range-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+}
+
+.input-container {
+  /* Simple wrapper if needed */
+  display: flex;
 }
 
 .settings-input.number-input {
   max-width: 100px; /* Smaller width for number input */
   text-align: right;
+}
+.settings-input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.settings-input[type='number']::-webkit-outer-spin-button,
+.settings-input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .slider-container {
@@ -403,39 +499,33 @@ const toggleAdvanced = () => {
 .slider-value {
   font-size: 0.9em;
   color: var(--text-secondary);
-  min-width: 3ch; /* Space for '20' */
+  min-width: 3ch;
   text-align: right;
 }
 
-/* Help button style */
-.help-button {
+/* Reset Button (using quick-setting styles) */
+.quick-setting-button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color-medium);
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
-  border: none;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
+  font-family: sans-serif;
   font-size: 0.9em;
-  font-weight: bold;
-  line-height: 1;
-  cursor: pointer;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
+  box-sizing: border-box;
+  text-align: center;
+  cursor: pointer;
   transition: background-color 0.2s ease;
-  outline: none;
+  min-width: 100px;
+  max-width: 200px; /* Adjust if needed */
 }
-.help-button:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.help-button:hover {
+.quick-setting-button:not(:disabled):hover {
   background-color: var(--bg-button-secondary-hover);
 }
-/* Apply faint pulse animation */
-.help-button.pulsing-help {
-  animation: faintGreenPulse 3s infinite alternate ease-in-out;
+.quick-setting-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* --- Advanced Section --- */
@@ -466,27 +556,7 @@ const toggleAdvanced = () => {
   font-size: 0.95em;
   user-select: none;
 }
-.advanced-arrow {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    transform 0.3s ease,
-    color 0.2s ease;
-  animation: faintGreenPulse 3.5s infinite alternate ease-in-out;
-}
-.advanced-arrow:hover {
-  color: var(--text-primary);
-}
-.advanced-arrow svg {
-  display: block;
-}
-.advanced-arrow.expanded {
-  transform: rotate(180deg);
-}
+/* Arrow styles are global */
 
 .advanced-settings-section {
   padding: 1rem 1rem 0 1rem;
@@ -496,6 +566,10 @@ const toggleAdvanced = () => {
   margin-bottom: 1rem;
   background-color: var(--bg-main-content);
   overflow: hidden;
+}
+.advanced-settings-section .setting-item {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* --- Transition for Collapse --- */
@@ -520,4 +594,6 @@ const toggleAdvanced = () => {
   opacity: 1;
   max-height: 600px; /* Increased max-height */
 }
+
+/* Scoped CSS is now minimal, only component-specific layout adjustments remain */
 </style>

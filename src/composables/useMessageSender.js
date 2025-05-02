@@ -2,35 +2,30 @@
 import { ref } from 'vue'
 import { useConversationStore } from '@/stores/conversationStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useAssistantsStore } from '@/stores/assistantsStore'
 import { useApi } from '@/composables/useApi'
 import { useFileInput } from '@/composables/useFileInput'
 
-/**
- * Composable for handling the message sending process, including API interaction.
- */
 export function useMessageSender() {
   const conversationStore = useConversationStore()
   const settingsStore = useSettingsStore()
+  const assistantsStore = useAssistantsStore()
   const { callApi, isLoading, error: apiError } = useApi()
-  const { readFileAsBase64 } = useFileInput({}) // Review dependency if needed
+  const { readFileAsBase64 } = useFileInput({})
 
-  const error = ref(null) // Local error state
+  const error = ref(null)
 
   const sendMessage = async (textInput, imageFile, imagePreviewUrlForStore) => {
     error.value = null
     const trimmedInput = textInput?.trim() ?? ''
 
     if (isLoading.value) {
-      console.warn('[useMessageSender] Already sending, please wait.')
       return { success: false }
     }
     if (trimmedInput === '' && !imageFile) {
-      console.warn('[useMessageSender] No text or image to send.')
       return { success: false }
     }
 
-    // 1. Add User Message to Store (for display, with preview URL)
-    // This happens *before* getting history for the API call.
     conversationStore.addMessageToActiveSession(
       'user',
       trimmedInput,
@@ -38,11 +33,9 @@ export function useMessageSender() {
       imagePreviewUrlForStore,
     )
 
-    // 2. Prepare Image Data (if any) for API
     let imgDataForApi = null
     if (imageFile && typeof readFileAsBase64 === 'function') {
       try {
-        // Read the actual file data for the API payload
         imgDataForApi = await readFileAsBase64(imageFile)
       } catch (e) {
         console.error('[useMessageSender] Error processing image file:', e)
@@ -55,106 +48,134 @@ export function useMessageSender() {
       return { success: false }
     }
 
-    // 3. Prepare API Payload
+    // --- Determine Model and Target URL ---
+    let modelIdToUse = settingsStore.chatModel
+    let targetUrl = '/.netlify/functions/call-openai-gpt-4'
+    const currentId = conversationStore.activeSessionId
+    if (currentId && !conversationStore.isMainChatSession(currentId)) {
+      try {
+        const currentAssistant = assistantsStore.getAssistantById(currentId)
+        if (currentAssistant && currentAssistant.model) {
+          modelIdToUse = currentAssistant.model
+        }
+      } catch (e) {
+        console.error(`[useMessageSender] Error getting assistant config for ${currentId}: ${e}`)
+      }
+    }
+    if (modelIdToUse && modelIdToUse.toLowerCase().startsWith('gemini')) {
+      targetUrl = '/.netlify/functions/call-google-gemini'
+    } else {
+      targetUrl = '/.netlify/functions/call-openai-gpt-4'
+    }
+    console.log(
+      `[useMessageSender] Routing request for model ${modelIdToUse} to endpoint: ${targetUrl}`,
+    )
+
+    // --- Prepare Message History & Context ---
     let messagesToSend = []
     try {
-      // Get history *excluding* the message just added above
-      const historyForApi = conversationStore.getFormattedHistoryForAPI({ excludeLast: true })
-
-      // Apply context limit to the history *before* adding the current message
+      messagesToSend = conversationStore.getFormattedHistoryForAPI({ excludeLast: true })
+      // Inject "My AI" Context
+      const segments = settingsStore.myAiContextSegments
+      const applyToAll = settingsStore.myAiContextApplyToAll
+      const allowedIds = settingsStore.myAiContextAllowedAssistantIds
+      let shouldApplyContext = false
+      if (segments && segments.length > 0 && currentId) {
+        if (applyToAll) {
+          shouldApplyContext = true
+        } else if (
+          allowedIds &&
+          typeof allowedIds.has === 'function' &&
+          allowedIds.has(currentId)
+        ) {
+          shouldApplyContext = true
+        } else if (allowedIds && Array.isArray(allowedIds) && allowedIds.includes(currentId)) {
+          shouldApplyContext = true
+        }
+      }
+      if (shouldApplyContext) {
+        const contextPreamble = 'Remember these facts/preferences about the user: '
+        const contextString = segments.join('; ')
+        const fullContextContent = contextPreamble + contextString
+        const systemPromptIndex = messagesToSend.findIndex((msg) => msg.role === 'system')
+        if (systemPromptIndex !== -1) {
+          messagesToSend[systemPromptIndex].content =
+            fullContextContent + '\n\n---\n\n' + messagesToSend[systemPromptIndex].content
+        } else {
+          messagesToSend.unshift({ role: 'system', content: fullContextContent })
+        }
+      }
+      // Apply context limit
       const contextLimit = settingsStore.chatContextLength
-      const limitedHistory = historyForApi
-        .filter((msg) => msg.role !== 'system')
-        .slice(-(contextLimit > 0 ? contextLimit : Infinity))
-      const systemPrompt = historyForApi.find((msg) => msg.role === 'system')
-
-      // Start building the final message list
-      if (systemPrompt) messagesToSend.push(systemPrompt)
-      messagesToSend.push(...limitedHistory)
-
-      // Construct the *current* user message in the API format
+      const systemPrompt = messagesToSend.find((msg) => msg.role === 'system')
+      const nonSystemMessages = messagesToSend.filter((msg) => msg.role !== 'system')
+      const limitedHistory = nonSystemMessages.slice(-(contextLimit > 0 ? contextLimit : Infinity))
+      messagesToSend = systemPrompt ? [systemPrompt, ...limitedHistory] : [...limitedHistory]
+      // Construct current user message content
       const currentUserMessageContent = []
       if (trimmedInput) {
         currentUserMessageContent.push({ type: 'text', text: trimmedInput })
       }
-      // ** USE imgDataForApi here **
-      if (imgDataForApi && imgDataForApi.mimeType && imgDataForApi.base64Data) {
+      if (imgDataForApi?.mimeType && imgDataForApi?.base64Data) {
         currentUserMessageContent.push({
           type: 'image_url',
           image_url: { url: `data:${imgDataForApi.mimeType};base64,${imgDataForApi.base64Data}` },
         })
       } else if (imgDataForApi) {
-        // Handle cases where readFileAsBase64 might return invalid structure (though it shouldn't)
-        console.error('[useMessageSender] Invalid image data structure received:', imgDataForApi)
-        error.value = 'Internal error: Failed to format image data for API.'
+        console.error('[useMessageSender] Image data missing properties...')
+        error.value = 'Internal error: Failed to format image data.'
         return { success: false }
       }
-
-      // Add the fully constructed current user message to the payload
       if (currentUserMessageContent.length > 0) {
         messagesToSend.push({ role: 'user', content: currentUserMessageContent })
       } else {
-        console.warn(
-          '[useMessageSender] No content (text or image) could be formatted for the current user message API call.',
-        )
-        // This case should ideally not happen due to checks at the start, but good to handle.
+        console.warn('[useMessageSender] No content found for current user message.')
         error.value = 'No message content to send.'
         return { success: false }
       }
-
-      // Final check for empty payload
       if (
         messagesToSend.length === 0 ||
         (messagesToSend.length === 1 && messagesToSend[0].role === 'system')
       ) {
-        console.warn(
-          '[useMessageSender] No suitable messages found to send to API after formatting.',
-        )
+        console.warn('[useMessageSender] History contains no user/assistant messages.')
         error.value = 'No message content to send.'
         return { success: false }
       }
-      console.log('[useMessageSender] History prepared for API:', messagesToSend)
     } catch (e) {
       console.error('[useMessageSender] Error preparing message history:', e)
       error.value = 'Internal Error: Cannot prepare message history.'
       return { success: false }
     }
 
+    // *** Construct API Payload (FIXED - single declaration) ***
     const payload = {
-      model: settingsStore.chatModel || 'gpt-4o',
-      temperature: settingsStore.chatTemperature ?? 0.7,
-      max_tokens: settingsStore.chatMaxTokens || 1024,
-      top_p: settingsStore.chatTopP ?? 1.0,
+      model: modelIdToUse,
+      temperature: settingsStore.chatTemperature ?? undefined,
+      max_tokens: settingsStore.chatMaxTokens || undefined, // Using || might be problematic if 0 is valid, consider ??
+      top_p: settingsStore.chatTopP ?? undefined,
       messages: messagesToSend,
     }
 
-    // 4. Call API
-    const url = '/.netlify/functions/call-openai-gpt-4' // Adjust if needed
+    // Call API
     let aiResponseText = null
     try {
-      const responseData = await callApi(url, payload, 'POST')
-
-      // 5. Handle Response
+      const responseData = await callApi(targetUrl, payload, 'POST')
       aiResponseText = responseData?.aiText
       if (typeof aiResponseText === 'string' && aiResponseText.trim() !== '') {
         conversationStore.addMessageToActiveSession('assistant', aiResponseText.trim(), Date.now())
-        error.value = null // Clear error on success
+        error.value = null
         return { success: true, aiResponse: aiResponseText.trim() }
       } else {
-        console.warn('[useMessageSender] API response missing expected AI content:', responseData)
-        error.value = 'Received an empty or invalid response from the AI.'
+        console.warn('[useMessageSender] API response missing content:', responseData)
+        error.value = 'Received empty/invalid AI response.'
         return { success: false }
       }
     } catch (err) {
       console.error('[useMessageSender] API call failed:', apiError.value || err)
-      error.value = apiError.value || `An error occurred: ${err.message}`
+      error.value = apiError.value || `API error: ${err.message || 'Unknown API error'}`
       return { success: false }
     }
-  }
+  } // End sendMessage function
 
-  return {
-    sendMessage,
-    isLoading,
-    error,
-  }
-}
+  return { sendMessage, isLoading, error }
+} // End useMessageSender composable

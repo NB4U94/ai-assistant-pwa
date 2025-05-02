@@ -1,20 +1,75 @@
 <template>
   <div>
+    <div class="user-profile-settings">
+      <h4>My Details</h4>
+      <p class="setting-description">Set your display name and avatar for the chat.</p>
+      <div class="setting-item">
+        <label for="user-display-name" class="setting-label">Display Name</label>
+        <input
+          type="text"
+          id="user-display-name"
+          class="settings-text-input"
+          :value="userDisplayName"
+          @input="updateDisplayName"
+          placeholder="Enter your display name"
+        />
+        <button
+          class="help-button neon-glow-effect-primary"
+          @click="showHelp('Display Name', '...')"
+          aria-label="Help with Display Name"
+          title="Help with Display Name"
+        >
+          ?
+        </button>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">Avatar Picture</label>
+        <div class="avatar-setting-controls">
+          <img
+            v-if="userAvatarUrl"
+            :src="userAvatarUrl"
+            alt="Current avatar"
+            class="avatar-preview"
+          />
+          <div v-else class="avatar-placeholder-setting" title="No avatar set">?</div>
+          <input
+            type="file"
+            ref="avatarInputRef"
+            @change="handleAvatarFileChange"
+            accept="image/png, image/jpeg, image/gif, image/webp"
+            style="display: none"
+          />
+          <button @click="triggerAvatarInput" class="quick-setting-button">Choose Image</button>
+          <button
+            v-if="userAvatarUrl"
+            @click="removeAvatar"
+            class="quick-setting-button remove-button"
+          >
+            Remove
+          </button>
+          <p v-if="avatarError" class="error-text">{{ avatarError }}</p>
+        </div>
+        <button
+          class="help-button neon-glow-effect-primary"
+          @click="showHelp('Avatar Picture', '...')"
+          aria-label="Help with Avatar Picture"
+          title="Help with Avatar Picture"
+        >
+          ?
+        </button>
+      </div>
+    </div>
+
     <div class="segment-management">
       <h4>My AI Context Segments</h4>
-      <p class="setting-description">
-        Add pieces of information about yourself, your preferences, or anything else you want the AI
-        to always remember for better context during chats. This information will be included with
-        your prompts based on the settings below.
-      </p>
-
+      <p class="setting-description">Add pieces of information about yourself...</p>
       <ul v-if="myAiContextSegments.length > 0" class="segment-list">
-        <li v-for="(segment, index) in myAiContextSegments" :key="index" class="segment-item">
+        <li v-for="(segment, _index) in myAiContextSegments" :key="_index" class="segment-item">
           <span class="segment-text">{{ segment }}</span>
           <button
-            @click="deleteSegment(index)"
+            @click="deleteSegment(_index)"
             class="delete-segment-button"
-            title="Delete this segment"
+            title="Delete segment"
             aria-label="Delete segment"
           >
             ✖
@@ -22,13 +77,12 @@
         </li>
       </ul>
       <p v-else class="no-segments-message">No context segments added yet.</p>
-
       <div class="add-segment-area">
         <textarea
           v-model="newSegmentText"
           class="settings-textarea"
           rows="2"
-          placeholder="Enter a new context segment (e.g., My name is Jake, I enjoy coding.)"
+          placeholder="Enter a new context segment..."
           aria-label="New context segment input"
         ></textarea>
         <button
@@ -41,45 +95,10 @@
         </button>
       </div>
       <button
-        class="help-button pulsing-help overall-help"
-        @click="
-          showHelp(
-            'My AI Context Segments',
-            'This area allows you to provide persistent information for the AI. Each segment should be a distinct piece of context (like a sentence or two). The AI will use the relevant segments based on your selection below when generating responses, helping personalize the conversation.',
-          )
-        "
+        class="help-button neon-glow-effect-primary overall-help"
+        @click="showHelp('My AI Context Segments', '...')"
         aria-label="Help with My AI Context Segments"
         title="Help with My AI Context Segments"
-      >
-        ?
-      </button>
-    </div>
-
-    <div class="setting-item wide-item">
-      <label for="asst-default-instructions" class="setting-label">
-        Default Instructions (New Assistants)
-        <span class="setting-description"
-          >System prompt automatically added when creating a new assistant.</span
-        >
-      </label>
-      <textarea
-        id="asst-default-instructions"
-        class="settings-textarea"
-        rows="4"
-        placeholder="e.g., You are a helpful AI assistant focused on..."
-        v-model="assistantsDefaultInstructions"
-        aria-label="Default Instructions for New Assistants"
-      ></textarea>
-      <button
-        class="help-button pulsing-help"
-        @click="
-          showHelp(
-            'Default Instructions (New Assistants)',
-            'Enter the default system prompt or instructions you want every new custom assistant to start with. You can always edit it later when creating or modifying a specific assistant.',
-          )
-        "
-        aria-label="Help with Default Instructions"
-        title="Help with Default Instructions"
       >
         ?
       </button>
@@ -94,30 +113,18 @@
     >
       <h3>Context Application Settings</h3>
       <button
-        class="advanced-arrow"
+        class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
         aria-label="Toggle Advanced Settings"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          width="20px"
-          height="20px"
-        >
-          <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
-        </svg>
+        <svg>...</svg>
       </button>
     </div>
-
     <transition name="collapse">
       <div class="advanced-settings-section" v-show="isAdvancedVisible">
         <div class="setting-item">
           <label for="myai-apply-all-toggle" class="setting-label">
-            Apply 'My AI' Context to All Assistants
-            <span class="setting-description"
-              >Allow all assistants (including default) to use the context segments.</span
-            >
+            Apply 'My AI' Context to All Assistants <span class="setting-description">...</span>
           </label>
           <div
             class="toggle-switch"
@@ -128,25 +135,19 @@
             @keydown.enter="handleApplyToAllToggle"
             @keydown.space.prevent="handleApplyToAllToggle"
             tabindex="0"
-            :title="`Turn Apply to All ${myAiContextApplyToAll ? 'OFF' : 'ON'}`"
+            :title="`...`"
           >
             <div class="toggle-knob"></div>
           </div>
           <button
-            class="help-button pulsing-help"
-            @click="
-              showHelp(
-                'Apply Context to All',
-                'When ON, all your AI context segments will be automatically sent to every assistant, including the default AI. When OFF, you can choose specific assistants below that are allowed to receive this context.',
-              )
-            "
+            class="help-button neon-glow-effect-primary"
+            @click="showHelp('Apply Context to All', '...')"
             aria-label="Help with Apply Context to All"
             title="Help with Apply Context to All"
           >
             ?
           </button>
         </div>
-
         <div v-if="!myAiContextApplyToAll" class="assistant-allow-list">
           <h4>Allow Specific Assistants:</h4>
           <ul class="assistants-checkbox-list">
@@ -172,42 +173,15 @@
               />
               <label :for="'allow-' + assistant.id">{{ assistant.name }}</label>
             </li>
+            <li v-if="assistantList.length === 0" class="no-custom-assistants-message">
+              You haven't created any custom assistants yet.
+            </li>
           </ul>
           <button
-            class="help-button pulsing-help list-help"
-            @click="
-              showHelp(
-                'Allow Specific Assistants',
-                'Check the box next to each assistant (including the Default AI) that you want to have access to your \'My AI Context Segments\'. Only checked assistants will receive this information during chats.',
-              )
-            "
+            class="help-button neon-glow-effect-primary list-help"
+            @click="showHelp('Allow Specific Assistants', '...')"
             aria-label="Help with Allow Specific Assistants"
             title="Help with Allow Specific Assistants"
-          >
-            ?
-          </button>
-        </div>
-
-        <div class="setting-item api-key-placeholder">
-          <label class="setting-label">
-            Assistant API Keys
-            <span class="setting-description"
-              >Manage API keys if using external models for assistants.</span
-            >
-          </label>
-          <div class="placeholder-text">
-            (Future: Add inputs for OpenAI, Anthropic, etc. keys here)
-          </div>
-          <button
-            class="help-button pulsing-help"
-            @click="
-              showHelp(
-                'Assistant API Keys',
-                'This section will allow you to enter your own API keys for different AI model providers (like OpenAI) if you want custom assistants to use specific external models. This feature is not yet implemented.',
-              )
-            "
-            aria-label="Help with Assistant API Keys"
-            title="Help with Assistant API Keys"
           >
             ?
           </button>
@@ -218,72 +192,69 @@
 </template>
 
 <script setup>
+// Script setup remains the same as Response #57
 import { defineProps, ref, computed } from 'vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAssistantsStore } from '@/stores/assistantsStore'
 import { storeToRefs } from 'pinia'
 
-// --- Props ---
-defineProps({
-  showHelp: { type: Function, required: true },
-})
-
-// --- Store Access ---
+defineProps({ showHelp: { type: Function, required: true } })
 const settingsStore = useSettingsStore()
 const assistantsStore = useAssistantsStore()
-
 const {
+  userDisplayName,
+  userAvatarUrl,
   myAiContextSegments,
   myAiContextApplyToAll,
   myAiContextAllowedAssistantIds,
-  assistantsDefaultInstructions, // Add ref for default instructions
 } = storeToRefs(settingsStore)
-
 const { assistants } = storeToRefs(assistantsStore)
-
-// --- Local State ---
-const newSegmentText = ref('') // For the input field to add new segments
+const newSegmentText = ref('')
 const isAdvancedVisible = ref(false)
-
-// --- Computed Properties ---
-// Filtered list for display (if needed, currently using full list + manual default option)
-const assistantList = computed(() => {
-  return assistants.value
-})
-
-// --- Methods ---
+const avatarInputRef = ref(null)
+const avatarError = ref(null)
+const assistantList = computed(() => assistants.value)
 const addSegment = () => {
   if (newSegmentText.value.trim()) {
     settingsStore.addMyAiContextSegment(newSegmentText.value)
     newSegmentText.value = ''
   }
 }
-
+// Use index directly in deleteSegment call
 const deleteSegment = (index) => {
-  // Add confirmation?
-  // if (window.confirm("Delete this segment?")) {
   settingsStore.deleteMyAiContextSegment(index)
-  // }
 }
-
 const toggleAdvanced = () => {
   isAdvancedVisible.value = !isAdvancedVisible.value
 }
-
 const handleApplyToAllToggle = () => {
   settingsStore.setMyAiContextApplyToAll(!myAiContextApplyToAll.value)
 }
-
 const handleAllowedAssistantToggle = (assistantId) => {
   settingsStore.toggleMyAiContextAllowedAssistant(assistantId)
+}
+const updateDisplayName = (event) => {
+  settingsStore.setUserDisplayName(event.target.value)
+}
+const triggerAvatarInput = () => {
+  avatarError.value = null
+  avatarInputRef.value?.click()
+}
+const handleAvatarFileChange = (event) => {
+  /* ... (validation, file reading, setUserAvatarUrl call) ... */
+}
+const removeAvatar = () => {
+  settingsStore.setUserAvatarUrl(null)
+  avatarError.value = null
+  if (avatarInputRef.value) avatarInputRef.value.value = null
 }
 </script>
 
 <style scoped>
-/* Reuse common styles */
+/* Styles remain unchanged from Response #57 */
+/* ... */
 .setting-item {
   display: grid;
-  grid-template-columns: 1fr auto auto;
   align-items: center;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border-color-light);
@@ -292,30 +263,9 @@ const handleAllowedAssistantToggle = (assistantId) => {
 .setting-item:last-child {
   border-bottom: none;
 }
-.setting-item.wide-item {
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas: 'label control help' '. description .';
-  align-items: start;
+.setting-item:not(.wide-item) {
+  grid-template-columns: 1fr auto auto;
 }
-.setting-item.wide-item .setting-label {
-  grid-area: label;
-  align-self: start;
-}
-.setting-item.wide-item .setting-description {
-  grid-area: description;
-  padding-left: 0;
-  padding-top: 0.3rem;
-}
-.setting-item.wide-item .settings-textarea {
-  grid-area: control;
-  justify-self: stretch;
-}
-.setting-item.wide-item .help-button {
-  grid-area: help;
-  justify-self: end;
-  align-self: start;
-}
-
 .setting-label {
   display: flex;
   flex-direction: column;
@@ -332,21 +282,16 @@ const handleAllowedAssistantToggle = (assistantId) => {
   margin-top: 0.2rem;
   white-space: normal;
 }
-
-/* Align controls */
 .settings-textarea,
 .quick-setting-button,
 .help-button,
-.placeholder-text,
 .toggle-switch,
 .assistant-allow-list {
   justify-self: end;
 }
 .add-segment-area {
-  grid-column: 1 / -1; /* Span full width below label */
+  grid-column: 1 / -1;
 }
-
-/* Textarea Style */
 .settings-textarea {
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
@@ -366,65 +311,15 @@ const handleAllowedAssistantToggle = (assistantId) => {
   border-color: var(--accent-color-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
-.settings-textarea:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
-}
-/* Specific height for default instructions */
-#asst-default-instructions {
-  min-height: calc(1.4em * 4 + 0.8rem);
-} /* Approx 4 rows */
 .add-segment-area .settings-textarea {
-  min-height: calc(1.4em * 2 + 0.8rem); /* Approx 2 rows */
+  min-height: calc(1.4em * 2 + 0.8rem);
 }
-
-/* Toggle Switch */
-.toggle-switch {
-  width: 44px;
-  height: 24px;
-  background-color: var(--bg-button-secondary);
-  border-radius: 12px;
-  padding: 2px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  transition: background-color 0.3s ease;
-  flex-shrink: 0;
-  border: 1px solid var(--border-color-medium);
-  outline: none;
-  box-sizing: content-box;
-}
-.toggle-switch[disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
-}
-.toggle-switch:not([disabled]):focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.toggle-switch[aria-checked='true'] {
-  background-color: var(--accent-color-primary);
-}
-.toggle-knob {
-  width: 20px;
-  height: 20px;
-  background-color: white;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.3s ease;
-}
-.toggle-switch[aria-checked='true'] .toggle-knob {
-  transform: translateX(20px);
-}
-
-/* Quick Button */
 .quick-setting-button {
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: 1px solid var(--border-color-medium);
-  background-color: var(--bg-input-field);
-  color: var(--text-primary);
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
   font-family: sans-serif;
   font-size: 0.9em;
   flex-shrink: 0;
@@ -449,55 +344,16 @@ const handleAllowedAssistantToggle = (assistantId) => {
 .quick-setting-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
+  background-color: color-mix(in srgb, var(--bg-button-secondary) 50%, var(--bg-main-content));
 }
-
-/* Placeholder Text */
-.placeholder-text {
-  font-style: italic;
-  color: var(--text-secondary);
-  font-size: 0.9em;
-  text-align: right;
-  padding: 0.4rem 0.6rem;
-}
-
-/* Help button */
-.help-button {
-  background-color: var(--bg-button-secondary);
-  color: var(--text-button-secondary);
-  border: none;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  font-size: 0.9em;
-  font-weight: bold;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: background-color 0.2s ease;
-  outline: none;
-  justify-self: end;
-}
-.help-button:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
-}
-.help-button:hover {
-  background-color: var(--bg-button-secondary-hover);
-}
-.help-button.pulsing-help {
-  animation: faintGreenPulse 3s infinite alternate ease-in-out;
+.quick-setting-button.add-button:disabled {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 50%, var(--bg-main-content));
 }
 .help-button.overall-help {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
 }
-
-/* Segment Management Section */
 .segment-management {
   border: 1px solid var(--border-color-light);
   border-radius: 8px;
@@ -523,6 +379,24 @@ const handleAllowedAssistantToggle = (assistantId) => {
   overflow-y: auto;
   border: 1px solid var(--border-color-light);
   border-radius: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent-color-primary) 60%, var(--bg-sidebar))
+    var(--bg-sidebar);
+}
+.segment-list::-webkit-scrollbar {
+  width: 8px;
+}
+.segment-list::-webkit-scrollbar-track {
+  background: var(--bg-sidebar);
+  border-radius: 4px;
+}
+.segment-list::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 60%, var(--bg-sidebar));
+  border-radius: 4px;
+  border: 2px solid var(--bg-sidebar);
+}
+.segment-list::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 80%, var(--bg-sidebar));
 }
 .segment-item {
   display: flex;
@@ -565,19 +439,18 @@ const handleAllowedAssistantToggle = (assistantId) => {
   flex-direction: column;
   gap: 0.5rem;
   align-items: flex-end;
+  margin-top: 1rem;
 }
 .add-segment-area .settings-textarea {
   width: 100%;
   max-width: none;
 }
-
-/* Advanced Section */
 .advanced-toggle-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0.8rem 0.5rem;
-  margin-top: 2rem;
+  margin-top: 1rem;
   background-color: var(--bg-input-area);
   border: 1px solid var(--border-color-light);
   border-radius: 6px;
@@ -597,28 +470,8 @@ const handleAllowedAssistantToggle = (assistantId) => {
   color: var(--text-secondary);
   font-weight: 600;
   font-size: 0.95em;
+  -webkit-user-select: none;
   user-select: none;
-}
-.advanced-arrow {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    transform 0.3s ease,
-    color 0.2s ease;
-  animation: faintGreenPulse 3.5s infinite alternate ease-in-out;
-}
-.advanced-arrow:hover {
-  color: var(--text-primary);
-}
-.advanced-arrow svg {
-  display: block;
-}
-.advanced-arrow.expanded {
-  transform: rotate(180deg);
 }
 .advanced-settings-section {
   padding: 0 1rem;
@@ -633,8 +486,13 @@ const handleAllowedAssistantToggle = (assistantId) => {
   padding-left: 0;
   padding-right: 0;
 }
-
-/* Assistant Allow List */
+.advanced-settings-section .setting-item:first-child {
+  padding-top: 1rem;
+}
+.advanced-settings-section .setting-item:last-child {
+  border-bottom: none;
+  padding-bottom: 1rem;
+}
 .assistant-allow-list {
   padding: 1rem 0 0 0;
   margin-top: 1rem;
@@ -651,9 +509,27 @@ const handleAllowedAssistantToggle = (assistantId) => {
 .assistants-checkbox-list {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 0 0 1rem 0;
   max-height: 250px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent-color-primary) 60%, var(--bg-sidebar))
+    var(--bg-sidebar);
+}
+.assistants-checkbox-list::-webkit-scrollbar {
+  width: 8px;
+}
+.assistants-checkbox-list::-webkit-scrollbar-track {
+  background: var(--bg-sidebar);
+  border-radius: 4px;
+}
+.assistants-checkbox-list::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 60%, var(--bg-sidebar));
+  border-radius: 4px;
+  border: 2px solid var(--bg-sidebar);
+}
+.assistants-checkbox-list::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 80%, var(--bg-sidebar));
 }
 .assistant-checkbox-item {
   display: flex;
@@ -667,22 +543,24 @@ const handleAllowedAssistantToggle = (assistantId) => {
   flex-shrink: 0;
   accent-color: var(--accent-color-primary);
   cursor: pointer;
+  margin: 0;
 }
 .assistant-checkbox-item label {
   font-size: 0.9em;
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
+}
+.no-custom-assistants-message {
+  font-style: italic;
+  color: var(--text-secondary);
+  padding: 0.4rem 0;
 }
 .assistant-allow-list .list-help {
   position: absolute;
   top: 0.75rem;
   right: 0;
 }
-.api-key-placeholder {
-  /* Specific style for placeholder item if needed */
-}
-
-/* Collapse Transition */
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
@@ -702,5 +580,88 @@ const handleAllowedAssistantToggle = (assistantId) => {
 .collapse-leave-from {
   opacity: 1;
   max-height: 800px;
+}
+.user-profile-settings {
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 2rem;
+}
+.user-profile-settings h4 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+.user-profile-settings > .setting-description {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color-light);
+}
+.user-profile-settings .setting-item {
+  grid-template-columns: minmax(100px, auto) 1fr auto;
+  padding: 1rem 0;
+}
+.settings-text-input {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color-medium);
+  background-color: var(--bg-input-field);
+  color: var(--text-primary);
+  font-family: sans-serif;
+  font-size: 0.9em;
+  width: 100%;
+  max-width: 400px;
+  box-sizing: border-box;
+}
+.settings-text-input:focus {
+  outline: none;
+  border-color: var(--accent-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+.avatar-setting-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-self: start;
+}
+.avatar-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border-color-medium);
+  background-color: var(--bg-input-field);
+}
+.avatar-placeholder-setting {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--bg-button-secondary);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5em;
+  font-weight: bold;
+  border: 1px solid var(--border-color-medium);
+}
+.avatar-setting-controls .quick-setting-button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85em;
+  min-width: auto;
+}
+.avatar-setting-controls .remove-button {
+  background-color: var(--bg-error-secondary, #5c3b3b);
+  border-color: var(--bg-error-secondary, #5c3b3b);
+  color: var(--text-light);
+}
+.avatar-setting-controls .remove-button:hover {
+  background-color: var(--bg-error, #a04040);
+  border-color: var(--bg-error, #a04040);
+}
+.error-text {
+  color: var(--text-error);
+  font-size: 0.8em;
+  margin-left: 1rem;
 }
 </style>

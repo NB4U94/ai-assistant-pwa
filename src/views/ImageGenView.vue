@@ -3,6 +3,7 @@
     <div class="image-display-area">
       <div v-if="isLoading" class="loading-indicator">
         <div class="loading-indicator-visual large-plasma-loader"></div>
+        Loading...
       </div>
 
       <div v-else-if="generatedImageUrl" class="generated-image-container">
@@ -174,15 +175,11 @@
 <script setup>
 import { ref, watch, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useApi } from '@/composables/useApi'
-// Removed unused import: vOnClickOutside is used in the template, so keep it
 import { vOnClickOutside } from '@vueuse/components'
-// Removed unused import: PulsingIconButton is used in the template, so keep it
 import PulsingIconButton from '@/components/PulsingIconButton.vue'
 
-// Destructure from useApi - this is the ONLY source for isLoading now
 const { isLoading, error: apiError, callApi } = useApi()
 
-// --- State ---
 const prompt = ref('')
 const generatedImageUrl = ref(null)
 const revisedPrompt = ref(null)
@@ -194,7 +191,6 @@ const selectedQuality = ref('standard')
 const selectedStyle = ref('vivid')
 const visibleHelpParam = ref(null)
 
-// --- Placeholder Cycling ---
 const placeholderSuggestions = [
   'A cyberpunk cityscape at dusk, raining neon...',
   'A photorealistic cat wearing tiny glasses reading a book...',
@@ -214,7 +210,6 @@ const cyclePlaceholder = () => {
   currentPlaceholder.value = placeholderSuggestions[currentPlaceholderIndex]
 }
 
-// --- Computed Properties ---
 const DALL_E_3_SIZES = [
   { value: '1024x1024', label: '1024x1024 (Square)' },
   { value: '1792x1024', label: '1792x1024 (Wide)' },
@@ -229,8 +224,6 @@ const availableSizes = computed(() => {
   return selectedModel.value === 'dall-e-2' ? DALL_E_2_SIZES : DALL_E_3_SIZES
 })
 
-// --- Watcher ---
-// Removed unused 'newModel' and 'oldModel' parameters
 watch(selectedModel, () => {
   const currentSizeIsValidForNewModel = availableSizes.value.some(
     (s) => s.value === selectedSize.value,
@@ -241,8 +234,6 @@ watch(selectedModel, () => {
   visibleHelpParam.value = null
 })
 
-// --- Methods ---
-// These functions are used in the template, so ESLint warning is likely false positive
 const autoGrowPromptInput = () => {
   nextTick(() => {
     const el = promptInputRef.value
@@ -277,13 +268,11 @@ const generateImage = async () => {
 
     if (!responseData || !responseData.imageBase64) {
       let errorMessage = 'Backend function did not return valid image data.'
-      if (responseData && responseData.error) {
+      if (responseData && responseData.error)
         errorMessage += ` Backend Error: ${responseData.error}`
-      } else if (responseData && responseData.revisedPrompt) {
+      else if (responseData && responseData.revisedPrompt)
         errorMessage += ` Revised Prompt was: ${responseData.revisedPrompt}`
-      } else if (!responseData) {
-        errorMessage += ' No response data received.'
-      }
+      else if (!responseData) errorMessage += ' No response data received.'
       throw new Error(errorMessage)
     }
     generatedImageUrl.value = `data:image/png;base64,${responseData.imageBase64}`
@@ -299,13 +288,9 @@ const generateImage = async () => {
 const clearError = () => {
   apiError.value = null
 }
-
 const openFullScreen = () => {
-  if (generatedImageUrl.value) {
-    showFullScreen.value = true
-  }
+  if (generatedImageUrl.value) showFullScreen.value = true
 }
-
 const closeFullScreen = () => {
   showFullScreen.value = false
 }
@@ -335,18 +320,13 @@ const closeHelp = () => {
   visibleHelpParam.value = null
 }
 
-// --- Lifecycle Hooks ---
 onMounted(() => {
   autoGrowPromptInput()
   placeholderIntervalId = setInterval(cyclePlaceholder, 3500)
 })
-
 onUnmounted(() => {
-  if (placeholderIntervalId) {
-    clearInterval(placeholderIntervalId)
-  }
+  if (placeholderIntervalId) clearInterval(placeholderIntervalId)
 })
-
 watch(prompt, autoGrowPromptInput)
 </script>
 
@@ -361,29 +341,30 @@ watch(prompt, autoGrowPromptInput)
 /* --- Main Layout --- */
 .image-gen-view {
   padding: 1rem 1.5rem;
-  height: calc(100vh - 60px);
+  height: calc(100vh - 60px); /* Adjust based on actual header height */
   max-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: var(--bg-main-content);
+  /* *** UPDATED Background Color *** */
+  background-color: #101010; /* Near black */
   color: var(--text-primary);
   box-sizing: border-box;
 }
 
 .image-display-area {
   flex-grow: 1;
-  border: none;
+  border: none; /* No border for main display */
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   padding: 0.5rem;
-  background-color: transparent;
-  min-height: 150px;
+  background-color: transparent; /* Transparent background */
+  min-height: 150px; /* Minimum height */
   position: relative;
-  overflow: hidden;
+  overflow: hidden; /* Hide potential overflow */
   margin-bottom: 1rem;
 }
 
@@ -393,9 +374,9 @@ watch(prompt, autoGrowPromptInput)
   gap: 1rem;
   margin-bottom: 1rem;
   flex-shrink: 0;
-  justify-content: flex-start;
-  padding: 0 0.5rem;
-  align-items: flex-end;
+  justify-content: flex-start; /* Align to start */
+  padding: 0 0.5rem; /* Horizontal padding */
+  align-items: flex-end; /* Align items at the bottom */
 }
 
 .input-area {
@@ -448,7 +429,6 @@ watch(prompt, autoGrowPromptInput)
 }
 
 .icon-button {
-  /* Base styles for non-pulsing icon buttons */
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -480,7 +460,6 @@ watch(prompt, autoGrowPromptInput)
   background-color: var(--bg-button-secondary-hover);
 }
 
-/* Specific class for the generate button if needed for margin */
 .generate-button {
   margin-left: 0.5rem;
 }
@@ -499,7 +478,7 @@ watch(prompt, autoGrowPromptInput)
 }
 .param-label-group label {
   font-size: 0.85em;
-  color: var(--text-secondary);
+  color: #dcdcdc; /* Brighter label */
   font-weight: 500;
   margin-bottom: 0.1rem;
 }
@@ -600,6 +579,7 @@ watch(prompt, autoGrowPromptInput)
   opacity: 0.7;
 }
 
+/* Generated Image Display */
 .generated-image-container {
   width: 100%;
   height: 100%;
@@ -611,7 +591,6 @@ watch(prompt, autoGrowPromptInput)
   gap: 0.5rem;
   overflow: hidden;
 }
-
 .image-wrapper {
   width: 100%;
   flex-grow: 1;
@@ -621,7 +600,6 @@ watch(prompt, autoGrowPromptInput)
   overflow: hidden;
   min-height: 0;
 }
-
 .generated-image {
   max-width: 100%;
   max-height: 100%;
@@ -631,7 +609,6 @@ watch(prompt, autoGrowPromptInput)
   display: block;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
-
 .image-actions {
   display: flex;
   flex-wrap: wrap;
@@ -644,7 +621,6 @@ watch(prompt, autoGrowPromptInput)
   position: relative;
   bottom: 0;
 }
-
 .image-action-button.icon-button {
   background-color: rgba(0, 0, 0, 0.5);
   color: white;
@@ -666,8 +642,8 @@ watch(prompt, autoGrowPromptInput)
 .revised-prompt-display {
   font-size: 0.75em;
   font-style: italic;
-  color: var(--text-secondary);
-  background-color: rgba(0, 0, 0, 0.1);
+  color: #dcdcdc; /* Brighter */
+  background-color: rgba(255, 255, 255, 0.1);
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
   max-width: calc(100% - 80px);
@@ -677,6 +653,7 @@ watch(prompt, autoGrowPromptInput)
   cursor: help;
 }
 
+/* Placeholders & Loaders */
 .placeholder-text {
   color: var(--text-placeholder);
   font-style: italic;
@@ -690,7 +667,7 @@ watch(prompt, autoGrowPromptInput)
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(var(--rgb-main-content, 30, 30, 30), 0.7);
+  background-color: rgba(16, 16, 16, 0.7); /* Match dark background */
   backdrop-filter: blur(2px);
   z-index: 5;
   border-radius: 8px;
@@ -699,11 +676,10 @@ watch(prompt, autoGrowPromptInput)
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  color: var(--text-secondary);
+  color: #dcdcdc; /* Brighter text */
   font-style: normal;
   font-size: 0.9em;
 }
-
 .loading-indicator-visual.large-plasma-loader {
   width: 60px;
   height: 60px;
@@ -717,7 +693,6 @@ watch(prompt, autoGrowPromptInput)
   animation: large-plasma-pulse 1.2s infinite ease-in-out;
   box-shadow: 0 0 12px 3px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
-
 @keyframes large-plasma-pulse {
   0% {
     transform: scale(0.8);
@@ -736,6 +711,7 @@ watch(prompt, autoGrowPromptInput)
   }
 }
 
+/* Error Message */
 .error-message {
   width: calc(100% - 2rem);
   max-width: 600px;
@@ -788,7 +764,6 @@ watch(prompt, autoGrowPromptInput)
   box-sizing: border-box;
   cursor: pointer;
 }
-
 .fullscreen-image {
   max-width: 100%;
   max-height: 100%;
@@ -796,7 +771,6 @@ watch(prompt, autoGrowPromptInput)
   display: block;
   cursor: default;
 }
-
 .close-fullscreen-button {
   position: absolute;
   top: 15px;
@@ -808,13 +782,11 @@ watch(prompt, autoGrowPromptInput)
   font-size: 1.8em;
   line-height: 1;
   padding: 0;
-  z-index: 1002;
-  /* Inherits .icon-button styles */
+  z-index: 1002; /* Inherits .icon-button styles */
 }
 .close-fullscreen-button:hover {
   background: rgba(70, 70, 70, 0.8);
 }
-
 .download-fullscreen-button.icon-button {
   position: absolute;
   bottom: 15px;

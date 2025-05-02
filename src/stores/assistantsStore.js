@@ -1,22 +1,30 @@
 // src/stores/assistantsStore.js
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { v4 as uuidv4 } from 'uuid' // Import uuid
+import { v4 as uuidv4 } from 'uuid'
 
-// Key for localStorage
-const STORAGE_KEY = 'custom-assistants' // Use your existing key
+const STORAGE_KEY = 'custom-assistants'
 
-// --- Helper function to load from localStorage ---
-// (Moved outside defineStore for clarity, but works inside too)
+// Helper function to load from localStorage (Ensure body is present)
 function loadAssistantsFromLocalStorage() {
   try {
     const storedData = localStorage.getItem(STORAGE_KEY)
     if (storedData) {
       const parsedData = JSON.parse(storedData)
-      // Basic validation: Check if it's an array and elements have IDs
+      // Add validation for array and basic structure (id)
       if (Array.isArray(parsedData) && parsedData.every((a) => a && a.id)) {
         console.log(`[AssistantsStore] Loaded ${parsedData.length} assistants from localStorage.`)
-        return parsedData
+        // Ensure necessary fields exist, provide defaults if missing (optional robustness)
+        return parsedData.map((a) => ({
+          ...a,
+          // Provide defaults for potentially missing fields from older saves
+          model: a.model || null,
+          level: a.level || 'General',
+          imageUrl: a.imageUrl || null,
+          color: a.color || null,
+          isDefault: a.isDefault || false,
+          // createdAt might be missing, handle if needed
+        }))
       } else {
         console.warn('[AssistantsStore] Invalid data structure found in localStorage, ignoring.')
         localStorage.removeItem(STORAGE_KEY) // Clear invalid data
@@ -26,105 +34,95 @@ function loadAssistantsFromLocalStorage() {
     console.error('[AssistantsStore] Error loading or parsing localStorage:', error)
     localStorage.removeItem(STORAGE_KEY) // Clear potentially corrupt data
   }
-  console.log('[AssistantsStore] No valid assistants found in localStorage, initializing empty.')
-  return [] // Default to empty array
+  console.log('[AssistantsStore] No valid assistants found in localStorage, initializing default.')
+  // Return empty array or potentially a default Nb4U-Ai assistant if needed
+  return []
 }
 
 export const useAssistantsStore = defineStore('assistants', () => {
   // --- State ---
   const assistants = ref(loadAssistantsFromLocalStorage())
-  const selectedAssistantId = ref(null) // ID of the currently selected assistant
+  // Default to null selection, matching main_chat concept
+  const selectedAssistantId = ref(null)
   const lastError = ref(null)
 
-  // --- Automatically select the default or first assistant on load ---
-  if (assistants.value.length > 0) {
-    const defaultAssistant = assistants.value.find((a) => a.isDefault)
-    selectedAssistantId.value = defaultAssistant ? defaultAssistant.id : assistants.value[0].id
-    console.log(`[AssistantsStore] Initial selection: ${selectedAssistantId.value}`)
-  }
+  console.log(
+    `[AssistantsStore] Initializing. selectedAssistantId defaulted to: ${selectedAssistantId.value}`,
+  )
 
-  // --- Getters ---
+  // --- Getters --- (Ensure bodies are present)
   const getAssistantById = computed(() => {
-    return (assistantId) => assistants.value.find((a) => a && a.id === assistantId)
+    return (assistantId) => {
+      if (!assistantId) return null
+      return assistants.value.find((a) => a && a.id === assistantId) || null
+    }
   })
 
   const selectedAssistant = computed(() => {
     if (!selectedAssistantId.value) return null
-    return assistants.value.find((a) => a.id === selectedAssistantId.value) || null // Ensure null if not found
+    return assistants.value.find((a) => a.id === selectedAssistantId.value) || null
   })
 
   const defaultAssistant = computed(() => {
-    // Find an assistant marked as default, or return the first one, or null
+    // Find explicitly marked default first, then fallback to first, then null
     return assistants.value.find((a) => a.isDefault) || assistants.value[0] || null
   })
 
-  // --- Actions ---
+  // --- Actions --- (Ensure bodies are present)
 
-  /**
-   * Saves the current assistants array to localStorage.
-   */
+  // Internal save function
   function _saveAssistantsToLocalStorage() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(assistants.value))
-      console.log(`[AssistantsStore] Saved ${assistants.value.length} assistants to localStorage.`)
+      // console.log(`[AssistantsStore] Saved assistants to localStorage.`); // Reduce noise
     } catch (error) {
       console.error('[AssistantsStore] Error saving to localStorage:', error)
       lastError.value = 'Failed to save assistants. Storage might be full.'
     }
   }
 
-  // --- Watcher ---
-  watch(
-    assistants,
-    (newValue) => {
-      console.log('[AssistantsStore] Assistants array changed, auto-saving...')
-      _saveAssistantsToLocalStorage()
-    },
-    { deep: true },
-  )
-
-  /**
-   * Adds a new assistant configuration.
-   */
+  // Add assistant (Includes color validation/storage)
   function addAssistant(assistantConfig) {
     lastError.value = null
-    // Basic validation (keep it simple or enhance as needed)
+    // Validate color format if present
+    if (assistantConfig.color && !/^#[0-9A-F]{6}$/i.test(assistantConfig.color)) {
+      console.warn(
+        `[AssistantsStore] Invalid color format provided: ${assistantConfig.color}. Ignoring color.`,
+      )
+      assistantConfig.color = null
+    }
     if (!assistantConfig?.name || !assistantConfig.instructions) {
       lastError.value = 'Missing required fields (name, instructions).'
       console.error('[AssistantsStore] Invalid config for addAssistant:', assistantConfig)
       return false
     }
-
     const trimmedName = assistantConfig.name.trim()
     if (assistants.value.some((a) => a.name === trimmedName)) {
       lastError.value = `Assistant name "${trimmedName}" already exists.`
       console.error(`[AssistantsStore] ${lastError.value}`)
       return false
     }
-
     const newAssistant = {
-      id: uuidv4(), // Use UUID for reliable unique ID
+      id: uuidv4(),
       name: trimmedName,
       instructions: assistantConfig.instructions,
-      level: assistantConfig.level || 'General', // Default level if not provided
+      model: assistantConfig.model || null,
+      level: assistantConfig.level || 'General',
       createdAt: new Date().toISOString(),
       imageUrl: assistantConfig.imageUrl || null,
-      isDefault: assistants.value.length === 0, // First assistant is default
+      color: assistantConfig.color || null, // Store color
+      isDefault: assistants.value.length === 0, // First added is default initially
     }
-
     assistants.value.push(newAssistant)
-    console.log(`[AssistantsStore] Assistant added: "${newAssistant.name}"`)
-
-    // If this is the first assistant, select it
-    if (assistants.value.length === 1) {
-      selectAssistant(newAssistant.id)
-    }
-    return true // Indicate success
+    console.log(
+      `[AssistantsStore] Assistant added: "${newAssistant.name}" (Color: ${newAssistant.color})`,
+    )
+    // Optionally select the newly added assistant
+    // selectAssistant(newAssistant.id);
+    return true
   }
 
-  /**
-   * Updates an existing assistant.
-   */
+  // Update assistant (Includes color validation/storage)
   function updateAssistant(updatedAssistantConfig) {
     lastError.value = null
     if (!updatedAssistantConfig?.id) {
@@ -132,16 +130,20 @@ export const useAssistantsStore = defineStore('assistants', () => {
       console.error('[AssistantsStore]', lastError.value, updatedAssistantConfig)
       return false
     }
-
+    // Validate color format if present in update
+    if (updatedAssistantConfig.color && !/^#[0-9A-F]{6}$/i.test(updatedAssistantConfig.color)) {
+      console.warn(
+        `[AssistantsStore] Invalid color format during update: ${updatedAssistantConfig.color}. Ignoring color update.`,
+      )
+      delete updatedAssistantConfig.color // Don't apply invalid color
+    }
     const index = assistants.value.findIndex((a) => a.id === updatedAssistantConfig.id)
-
     if (index !== -1) {
       const originalAssistant = assistants.value[index]
       const newName = updatedAssistantConfig.name
         ? updatedAssistantConfig.name.trim()
-        : originalAssistant.name // Handle potential missing name in update
-
-      // Check for name conflict (only if name changed and another assistant has the new name)
+        : originalAssistant.name
+      // Check for name conflict only if name is changing
       if (
         newName !== originalAssistant.name &&
         assistants.value.some((a) => a.name === newName && a.id !== updatedAssistantConfig.id)
@@ -150,18 +152,17 @@ export const useAssistantsStore = defineStore('assistants', () => {
         console.error(`[AssistantsStore] Update conflict: ${lastError.value}`)
         return false
       }
-
-      // Merge updates, preserving ID and createdAt
+      // Merge updates safely, preserving critical fields
       assistants.value[index] = {
-        ...originalAssistant, // Start with original
-        ...updatedAssistantConfig, // Apply updates
-        name: newName, // Ensure trimmed name
-        id: originalAssistant.id, // Ensure ID is not overwritten
-        createdAt: originalAssistant.createdAt, // Ensure createdAt is not overwritten
-        updatedAt: new Date().toISOString(), // Add/update timestamp
+        ...originalAssistant,
+        ...updatedAssistantConfig, // Apply incoming updates
+        name: newName, // Apply potentially updated name
+        id: originalAssistant.id, // MUST preserve original ID
+        createdAt: originalAssistant.createdAt, // MUST preserve original creation date
+        updatedAt: new Date().toISOString(), // Add/update modification date
       }
       console.log(`[AssistantsStore] Assistant updated: "${assistants.value[index].name}"`)
-      return true // Indicate success
+      return true
     } else {
       lastError.value = `Assistant with ID ${updatedAssistantConfig.id} not found for update.`
       console.error(`[AssistantsStore] ${lastError.value}`)
@@ -169,34 +170,28 @@ export const useAssistantsStore = defineStore('assistants', () => {
     }
   }
 
-  /**
-   * Deletes an assistant by ID.
-   */
+  // Delete assistant
   function deleteAssistant(assistantId) {
     lastError.value = null
     const index = assistants.value.findIndex((a) => a.id === assistantId)
-
     if (index !== -1) {
       const deletedAssistant = assistants.value[index]
       const wasSelected = selectedAssistantId.value === assistantId
       const wasDefault = deletedAssistant.isDefault
-
-      assistants.value.splice(index, 1)
+      assistants.value.splice(index, 1) // Remove from array
       console.log(
         `[AssistantsStore] Assistant deleted: ${deletedAssistant.name || `ID: ${assistantId}`}`,
       )
-
-      // Handle selection change
+      // Handle selection: If deleted was selected, select default or null
       if (wasSelected) {
-        const newDefault = defaultAssistant.value // Check for a new default
-        selectAssistant(newDefault ? newDefault.id : null) // Select default or null
+        const newDefault = defaultAssistant.value
+        selectAssistant(newDefault ? newDefault.id : null) // Use existing select action
       }
-      // Handle default change
+      // Handle default: If default was deleted, make first assistant the new default
       if (wasDefault && assistants.value.length > 0 && !assistants.value.some((a) => a.isDefault)) {
-        setDefaultAssistant(assistants.value[0].id) // Make the new first one default
+        setDefaultAssistant(assistants.value[0].id) // Use existing set default action
       }
-
-      return true // Indicate success
+      return true
     } else {
       lastError.value = `Assistant with ID ${assistantId} not found for deletion.`
       console.error(`[AssistantsStore] ${lastError.value}`)
@@ -204,35 +199,29 @@ export const useAssistantsStore = defineStore('assistants', () => {
     }
   }
 
-  /**
-   * Selects an assistant by ID.
-   */
+  // Select assistant (accepts null for main_chat)
   function selectAssistant(assistantId) {
     if (assistantId === null || assistants.value.some((a) => a.id === assistantId)) {
-      selectedAssistantId.value = assistantId
-      console.log(`[AssistantsStore] Selected assistant ID: ${assistantId}`)
+      if (selectedAssistantId.value !== assistantId) {
+        selectedAssistantId.value = assistantId
+        console.log(`[AssistantsStore] Selected assistant ID set to: ${assistantId}`)
+      }
     } else {
       console.warn(
-        `[AssistantsStore] Attempted to select non-existent assistant ID: ${assistantId}. Keeping current selection: ${selectedAssistantId.value}`,
+        `[AssistantsStore] Attempted to select non-existent assistant ID: ${assistantId}. Keeping current: ${selectedAssistantId.value}`,
       )
-      // Optionally select default instead:
-      // const def = defaultAssistant.value;
-      // selectedAssistantId.value = def ? def.id : null;
     }
   }
 
-  /**
-   * Sets a specific assistant as the default.
-   */
+  // Set default assistant
   function setDefaultAssistant(id) {
     if (!id) return
     let found = false
     assistants.value.forEach((assistant) => {
-      if (assistant.id === id) {
-        assistant.isDefault = true
+      // Set isDefault flag based on matching ID
+      assistant.isDefault = assistant.id === id
+      if (assistant.isDefault) {
         found = true
-      } else {
-        assistant.isDefault = false // Ensure only one default
       }
     })
     if (!found) {
@@ -240,22 +229,33 @@ export const useAssistantsStore = defineStore('assistants', () => {
       lastError.value = `Assistant with ID ${id} not found. Cannot set default.`
     } else {
       console.log(`[AssistantsStore] Assistant ID ${id} set as default.`)
-      // No need to save explicitly, watcher handles it.
     }
+    // Watcher will trigger save implicitly by modifying the array item
   }
 
-  // --- Return state, getters, and actions ---
+  // --- Watcher --- (Ensure body is present)
+  watch(
+    assistants,
+    () => {
+      // Removed unused 'newValue' parameter
+      // console.log('[AssistantsStore] Assistants array changed, auto-saving...');
+      _saveAssistantsToLocalStorage() // Call internal save function
+    },
+    { deep: true }, // Deep watch needed to detect changes inside assistant objects (like isDefault)
+  )
+
+  // --- Return Public API --- (Ensure complete)
   return {
     assistants,
     selectedAssistantId,
-    selectedAssistant, // Expose the computed getter
-    defaultAssistant, // Expose the computed getter
+    selectedAssistant,
+    defaultAssistant,
     getAssistantById,
     lastError,
     addAssistant,
     updateAssistant,
     deleteAssistant,
-    selectAssistant, // Expose the action
-    setDefaultAssistant, // Expose the action
+    selectAssistant,
+    setDefaultAssistant,
   }
-})
+}) // End defineStore

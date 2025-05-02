@@ -1,3 +1,4 @@
+// src/composables/useGeneralSettings.js
 import { computed } from 'vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { storeToRefs } from 'pinia'
@@ -6,11 +7,19 @@ export function useGeneralSettings() {
   const settingsStore = useSettingsStore()
 
   // Get reactive state from the store using storeToRefs
-  // This ensures reactivity is maintained correctly
-  const { theme, appFontSize } = storeToRefs(settingsStore)
+  const {
+    theme,
+    appFontSize,
+    uiSoundEffectsEnabled, // Added
+    showAssistantSelectorBar, // Added
+  } = storeToRefs(settingsStore)
 
   // Get actions directly from the store instance
-  const { setAppFontSize } = settingsStore // Or settingsStore.setAppFontSize
+  const {
+    setAppFontSize,
+    setTheme, // Use the action for theme setting
+    // We will add setUiSoundEffectsEnabled and setShowAssistantSelectorBar actions in the store next
+  } = settingsStore
 
   // Computed property to check if dark mode is active
   const isDarkMode = computed(() => theme.value === 'dark')
@@ -18,7 +27,21 @@ export function useGeneralSettings() {
   // Function to toggle the theme by calling the store action
   const toggleTheme = () => {
     const newTheme = isDarkMode.value ? 'light' : 'dark'
-    settingsStore.setTheme(newTheme) // Use the action
+    setTheme(newTheme) // Correctly uses the action
+  }
+
+  // --- NEW: Function to toggle UI Sound Effects ---
+  const toggleUiSoundEffects = () => {
+    // This will call a new action we'll add to the store
+    // Assumes the action will be named 'setUiSoundEffectsEnabled'
+    settingsStore.setUiSoundEffectsEnabled(!uiSoundEffectsEnabled.value)
+  }
+
+  // --- NEW: Function to toggle Assistant Selector Bar ---
+  const toggleShowAssistantSelectorBar = () => {
+    // This will call a new action we'll add to the store
+    // Assumes the action will be named 'setShowAssistantSelectorBar'
+    settingsStore.setShowAssistantSelectorBar(!showAssistantSelectorBar.value)
   }
 
   // Expose reactive state and methods needed by the component
@@ -29,6 +52,10 @@ export function useGeneralSettings() {
     // Font size related
     appFontSize, // The reactive font size state (value: 80-120)
     setAppFontSize, // The action function to update font size
-    // We can add other general settings logic here later
+    // --- NEWLY EXPOSED ---
+    uiSoundEffectsEnabled, // Expose the state
+    toggleUiSoundEffects, // Expose the toggle function
+    showAssistantSelectorBar, // Expose the state
+    toggleShowAssistantSelectorBar, // Expose the toggle function
   }
 }
