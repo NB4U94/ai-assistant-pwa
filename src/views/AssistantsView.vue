@@ -23,15 +23,14 @@
           <template v-if="assistant">
             <div class="assistant-avatar">
               <img
-                v-if="assistant.imageUrl"
+                v-if="assistant.imageUrl && !avatarLoadError[assistant.id]"
                 :src="assistant.imageUrl"
                 :alt="`${assistant.name || 'Assistant'} avatar`"
-                @error.stop="onImageError($event, assistant.id)"
+                @error="handleAvatarError(assistant.id)"
                 class="assistant-image"
-                :data-assistant-id="assistant.id"
               />
-              <div v-else class="assistant-placeholder">
-                {{ assistant.name ? assistant.name.charAt(0).toUpperCase() : '?' }}
+              <div v-else :style="getPlaceholderStyle(assistant)" class="assistant-placeholder">
+                {{ getInitials(assistant.name) }}
               </div>
             </div>
             <div class="assistant-info">
@@ -41,17 +40,26 @@
                 {{ formatTimestamp(assistant.createdAt) }}</span
               >
             </div>
+
             <div class="assistant-actions">
-              <button @click.stop="openTestModal(assistant)" title="Test this Assistant">
+              <button
+                @click.stop="openTestModal(assistant)"
+                class="action-button test-button"
+                title="Test this Assistant"
+              >
                 Test
               </button>
-              <button @click.stop="editAssistant(assistant)" title="Edit Assistant Settings">
+              <button
+                @click.stop="editAssistant(assistant)"
+                class="action-button edit-button"
+                title="Edit Assistant Settings"
+              >
                 Edit
               </button>
               <button
                 @click.stop="confirmDeleteAssistant(assistant)"
+                class="action-button delete-button"
                 title="Delete Assistant"
-                class="delete-button"
               >
                 Delete
               </button>
@@ -82,13 +90,27 @@
           </button>
         </div>
         <div class="test-modal-chat-area">
-          <ChatView v-if="assistantBeingTested" :assistant-config="assistantBeingTested" />
+          <ChatView
+            v-if="assistantBeingTested"
+            :initial-assistant-id="assistantBeingTested.id"
+            :is-test-mode="true"
+          />
         </div>
         <div class="test-modal-footer">
-          <button @click="editAssistantFromTest" title="Edit This Assistant's Configuration">
+          <button
+            @click="editAssistantFromTest"
+            class="action-button edit-button"
+            title="Edit This Assistant's Configuration"
+          >
             Edit Assistant
           </button>
-          <button @click="closeTestModal" title="Close Test Chat Window">Close Test</button>
+          <button
+            @click="closeTestModal"
+            class="action-button cancel-button"
+            title="Close Test Chat Window"
+          >
+            Close Test
+          </button>
         </div>
       </div>
     </div>
@@ -96,8 +118,7 @@
 </template>
 
 <script setup>
-// Script setup remains the same
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAssistantsStore } from '@/stores/assistantsStore'
@@ -107,18 +128,38 @@ import ChatView from '@/views/ChatView.vue'
 
 const router = useRouter()
 const assistantsStore = useAssistantsStore()
-const { assistants } = storeToRefs(assistantsStore)
 const conversationStore = useConversationStore()
+const { assistants } = storeToRefs(assistantsStore)
 
 const showCreatorModal = ref(false)
 const isTestModalVisible = ref(false)
 const assistantBeingTested = ref(null)
 const isLoading = ref(false)
 const error = ref(null)
+const avatarLoadError = ref({}) // State for tracking avatar image errors
 
 onMounted(() => {
-  console.log('[AssistantsView] Mounted. Displaying assistants from store:', assistants.value)
+  avatarLoadError.value = {} // Reset errors on mount
 })
+
+// --- Avatar Helper Functions (Restored) ---
+const handleAvatarError = (assistantId) => {
+  if (!assistantId) return
+  console.warn(`[AssistantsView] Avatar image failed to load for assistant ID: ${assistantId}`)
+  avatarLoadError.value[assistantId] = true
+}
+
+const getInitials = (name) => {
+  // Simple initials logic (first letter)
+  return name ? name.trim().charAt(0).toUpperCase() : '?'
+}
+
+const getPlaceholderStyle = (assistant) => {
+  // Use assistant's color if available, otherwise fallback is handled by CSS class
+  return assistant?.color ? { backgroundColor: assistant.color } : {}
+}
+// --- End Avatar Helper Functions ---
+
 const startCreateAssistant = () => {
   showCreatorModal.value = true
 }
@@ -126,71 +167,71 @@ const closeCreatorModal = () => {
   showCreatorModal.value = false
 }
 const openTestModal = (assistant) => {
-  if (!assistant || !assistant.id) return
-  console.log('[AssistantsView] Opening test modal for assistant:', assistant.name)
+  if (!assistant?.id) return
   assistantBeingTested.value = assistant
   isTestModalVisible.value = true
 }
 const closeTestModal = () => {
-  console.log('[AssistantsView] Closing test modal.')
   isTestModalVisible.value = false
   assistantBeingTested.value = null
 }
 const formatTimestamp = (timestamp) => {
   if (!timestamp) return 'N/A'
   try {
-    const date = new Date(timestamp)
-    if (isNaN(date.getTime())) return 'Invalid Date'
-    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    const d = new Date(timestamp)
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   } catch (e) {
-    console.error('[AssistantsView] Error formatting timestamp:', timestamp, e)
     return 'Date Error'
   }
 }
 const editAssistant = (assistant) => {
-  if (!assistant || !assistant.id) return
-  console.log('[AssistantsView] Navigating to edit assistant:', assistant.name, assistant.id)
+  if (!assistant?.id) return
   router.push({ name: 'assistant-edit', params: { id: assistant.id } })
   if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) closeTestModal()
 }
 const editAssistantFromTest = () => {
   if (assistantBeingTested.value) editAssistant(assistantBeingTested.value)
 }
-const confirmDeleteAssistant = (assistant) => {
-  if (!assistant || !assistant.id) return
-  if (
-    window.confirm(
-      `Are you sure you want to delete the assistant "${assistant.name || 'this assistant'}"? This action cannot be undone.`,
-    )
-  ) {
-    console.log('[AssistantsView] Attempting to delete assistant:', assistant.name, assistant.id)
-    try {
-      const success = assistantsStore.deleteAssistant(assistant.id)
-      if (!success)
-        alert(
-          `Failed to delete assistant "${assistant.name || 'this assistant'}". Please check the console for details.`,
-        )
-      else console.log(`[AssistantsView] Assistant ${assistant.id} deleted successfully.`)
-    } catch (err) {
-      console.error(`[AssistantsView] Error deleting assistant ${assistant.id}:`, err)
-      alert(`An error occurred while trying to delete "${assistant.name || 'this assistant'}".`)
+
+// --- Delete Logic with Prompt ---
+const confirmDeleteAssistant = async (assistant) => {
+  if (!assistant?.id) return
+  const assistantName = assistant.name || 'this assistant'
+  if (window.confirm(`Are you sure you want to delete the assistant "${assistantName}"?`)) {
+    let deleteMemoriesToo = false
+    if (assistant.id !== conversationStore.MAIN_CHAT_ID) {
+      deleteMemoriesToo = window.confirm(
+        `Also delete all conversation memories associated with "${assistantName}"? \n\n(Click OK to delete memories, Cancel to keep them)`,
+      )
+    } else {
+      return
     }
+    console.log(
+      `User chose to delete assistant ${assistant.id}. Delete memories: ${deleteMemoriesToo}`,
+    )
+    try {
+      if (deleteMemoriesToo) {
+        console.log(`Deleting memories for session ID: ${assistant.id}`)
+        await conversationStore.deleteMemoriesForSession(assistant.id) // Delete memories first
+      }
+      console.log(`Deleting assistant definition for ID: ${assistant.id}`)
+      const success = assistantsStore.deleteAssistant(assistant.id) // Then delete assistant
+      if (!success) {
+        console.error(`assistantsStore.deleteAssistant failed for ID: ${assistant.id}`)
+        alert(`Failed to delete assistant definition "${assistantName}".`)
+      } else {
+        console.log(`Assistant ${assistant.id} definition deleted.`)
+      }
+    } catch (err) {
+      console.error(`Error during deletion process for assistant ${assistant.id}:`, err)
+      alert(`An error occurred deleting "${assistantName}".`)
+    }
+  } else {
+    console.log(`User cancelled deletion for assistant ${assistant.id}.`)
   }
 }
-const onImageError = (event, assistantId) => {
-  const imgElement = event.target
-  if (!imgElement || imgElement.tagName !== 'IMG') return
-  console.warn(
-    `[AssistantsView] Assistant image failed to load for ID ${assistantId}:`,
-    imgElement.src,
-  )
-  imgElement.style.display = 'none'
-  const avatarContainer = imgElement.closest('.assistant-avatar')
-  if (avatarContainer) {
-    const placeholder = avatarContainer.querySelector('.assistant-placeholder')
-    if (placeholder) placeholder.style.display = 'flex'
-  }
-}
+
+// --- Chat Start Logic (Corrected) ---
 const startChatWithAssistant = (assistant) => {
   if (!assistant || !assistant.id) {
     alert('Could not start chat. Invalid assistant data.')
@@ -198,6 +239,7 @@ const startChatWithAssistant = (assistant) => {
   }
   console.log('[AssistantsView] Starting chat with assistant:', assistant.name, assistant.id)
   try {
+    // Let setActiveSession handle setting the assistant ID in both stores
     conversationStore.setActiveSession(assistant.id)
     router.push({ name: 'chat' })
   } catch (error) {
@@ -210,24 +252,7 @@ const startChatWithAssistant = (assistant) => {
 </script>
 
 <style scoped>
-/* --- ADDED Keyframe for Ripple using Pseudo-element (Scoped) --- */
-@keyframes ripplePulse {
-  0%,
-  100% {
-    transform: scale(0.95);
-    opacity: 0;
-    border-width: 1px;
-    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 0%, transparent);
-  }
-  70% {
-    transform: scale(1.4);
-    opacity: 0.6;
-    border-width: 1px;
-    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 60%, transparent);
-  }
-}
-
-/* --- Base View --- */
+/* Base View */
 .assistants-view {
   padding: 1.5rem 2rem;
   height: 100%;
@@ -239,7 +264,7 @@ const startChatWithAssistant = (assistant) => {
   position: relative;
 }
 
-/* --- Header --- */
+/* Header */
 .assistants-header {
   display: flex;
   justify-content: space-between;
@@ -256,27 +281,31 @@ const startChatWithAssistant = (assistant) => {
   font-weight: 600;
 }
 .create-button {
-  padding: 0.5rem 1rem;
-  background-color: var(--bg-button-primary);
-  color: var(--text-button-primary);
-  border: none;
+  /* Primary action outline style */
+  padding: 0.4rem 0.8rem;
   border-radius: 6px;
-  cursor: pointer;
+  border-width: 2px;
+  border-style: solid;
+  border-color: var(--accent-color-primary);
+  background-color: transparent;
+  color: white;
   font-family: sans-serif;
   font-size: 0.9em;
   font-weight: 500;
+  cursor: pointer;
   transition: background-color 0.2s ease;
   white-space: nowrap;
 }
 .create-button:hover {
-  background-color: var(--bg-button-primary-hover);
+  background-color: color-mix(in srgb, var(--accent-color-primary) 20%, transparent);
 }
 
-/* --- List Container --- */
+/* List Container */
 .assistants-list-container {
   flex-grow: 1;
   overflow-y: auto;
   padding-right: 5px;
+  min-height: 100px;
 }
 .assistants-list-container h3 {
   margin-top: 0;
@@ -291,7 +320,7 @@ const startChatWithAssistant = (assistant) => {
   margin: 0;
 }
 
-/* --- List Item --- */
+/* List Item */
 .assistant-item {
   display: flex;
   align-items: center;
@@ -311,37 +340,37 @@ const startChatWithAssistant = (assistant) => {
   background-color: #2a2a2a;
 }
 
-/* --- Avatar --- */
+/* Avatar (Corrected Logic Applied) */
 .assistant-avatar {
   width: 40px;
   height: 40px;
   flex-shrink: 0;
   border-radius: 50%;
-  /* REMOVED overflow: hidden; */
-  background-color: var(--bg-sidebar); /* Grey */
+  background-color: var(--bg-sidebar); /* Fallback */
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-color-light);
-  position: relative; /* For ::after */
+  position: relative;
+  overflow: hidden;
 }
-/* *** ADDED Scoped ::after rule for ripple *** */
 .assistant-avatar::after {
+  /* Ripple */
   content: '';
   position: absolute;
-  top: -2px;
-  left: -2px;
-  right: -2px;
-  bottom: -2px; /* Offset */
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
   border-radius: 50%;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--accent-color-primary, #42b983) 50%, transparent);
   opacity: 0;
-  /* Apply ripple animation with linear timing */
-  animation: ripplePulse 2.5s linear infinite;
+  animation: ripplePulse 2.5s infinite ease-out;
   pointer-events: none;
   z-index: 0;
 }
 .assistant-image {
+  /* Displayed when imageUrl is valid */
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -349,8 +378,9 @@ const startChatWithAssistant = (assistant) => {
   position: relative;
   z-index: 1;
   border-radius: 50%;
-} /* Added z-index & radius */
+}
 .assistant-placeholder {
+  /* Displayed as fallback */
   width: 100%;
   height: 100%;
   display: flex;
@@ -358,15 +388,15 @@ const startChatWithAssistant = (assistant) => {
   justify-content: center;
   font-size: 1.4em;
   font-weight: 600;
-  color: #dcdcdc; /* Brighter text */
-  background-color: var(--bg-sidebar); /* Keep grey background */
+  color: #dcdcdc;
+  background-color: var(--bg-sidebar); /* Default bg, overridden by :style */
   border-radius: 50%;
   user-select: none;
   position: relative;
-  z-index: 1; /* Added z-index */
+  z-index: 1;
 }
 
-/* --- Info Section --- */
+/* Info Section */
 .assistant-info {
   display: flex;
   flex-direction: column;
@@ -384,41 +414,87 @@ const startChatWithAssistant = (assistant) => {
 }
 .assistant-detail {
   font-size: 0.8em;
-  color: #dcdcdc; /* Brighter text */
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* --- Action Buttons --- */
+/* Action Buttons Container */
 .assistant-actions {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
 }
-.assistant-actions button {
-  padding: 0.3rem 0.7rem;
-  font-size: 0.8em;
-  background-color: var(--bg-button-secondary);
-  color: var(--text-button-secondary);
-  border: none;
-  border-radius: 4px;
+
+/* Outline Button Styles */
+.action-button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border-width: 2px;
+  border-style: solid;
+  border-color: transparent;
+  background-color: transparent;
+  color: white;
+  font-family: sans-serif;
+  font-size: 0.85em;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease;
   white-space: nowrap;
+  min-width: 60px;
+  text-align: center;
+  position: relative;
+  box-shadow: none;
 }
-.assistant-actions button:hover {
-  background-color: var(--bg-button-secondary-hover);
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--border-color-medium);
+  background-color: transparent;
+  color: var(--text-disabled, #888);
 }
-.assistant-actions .delete-button {
-  background-color: #a04040;
+/* Specific Outline Colors (Corrected for this view) */
+.edit-button {
+  border-color: var(--accent-color-primary);
+} /* Edit = Green */
+.test-button {
+  border-color: #ffc107;
+} /* Test = Yellow */
+.delete-button {
+  border-color: #e53e3e;
+} /* Delete = Red */
+.save-button {
+  border-color: var(--accent-color-primary);
+} /* Save (in modal?) = Green */
+.cancel-button {
+  border-color: var(--border-color-medium);
+} /* Cancel / Close Test = Gray */
+/* Hover Effects - Fill background */
+.action-button:hover:not(:disabled) {
   color: white;
 }
-.assistant-actions .delete-button:hover {
-  background-color: #8c1c13;
+.edit-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 20%, transparent);
+}
+.test-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, #ffc107 20%, transparent);
+}
+.delete-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, #e53e3e 20%, transparent);
+}
+.save-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--accent-color-primary) 20%, transparent);
+}
+.cancel-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--border-color-medium) 20%, transparent);
 }
 
-/* --- Placeholders & Messages --- */
+/* Placeholders & Messages */
 .placeholder-text,
 .loading-indicator,
 .error-message {
@@ -458,7 +534,7 @@ const startChatWithAssistant = (assistant) => {
   cursor: default;
 }
 
-/* --- Modal Styles --- */
+/* Modal Styles */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -549,87 +625,29 @@ const startChatWithAssistant = (assistant) => {
   gap: 0.75rem;
   flex-shrink: 0;
 }
+/* Ensure modal footer buttons use correct classes for outline style */
 .test-modal .test-modal-footer button {
-  padding: 0.5rem 1rem;
-  background-color: var(--bg-button-secondary);
-  color: var(--text-button-secondary);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9em;
-  font-weight: 500;
-  transition: background-color 0.2s ease;
-}
-.test-modal .test-modal-footer button:hover {
-  background-color: var(--bg-button-secondary-hover);
+  /* Inherit base .action-button style */
 }
 
-/* --- Other Keyframes (Not used in this component directly) --- */
-@keyframes faintGreenPulse {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 1px color-mix(in srgb, var(--accent-color-primary) 40%, transparent));
-  }
-  50% {
-    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-color-primary) 70%, transparent));
-  }
-}
-@keyframes subtle-pulse {
+/* Keyframes */
+@keyframes ripplePulse {
   0% {
-    transform: scale(1);
+    transform: scale(0.95);
+    opacity: 0.6;
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 60%, transparent);
   }
-  50% {
-    transform: scale(1.1);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-@keyframes pulse-red {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0px color-mix(in srgb, var(--bg-button-listening) 70%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--bg-button-listening) 0%, transparent);
-  }
-}
-@keyframes plasma-arrow-pulse {
-  0% {
-    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 10px 3px color-mix(in srgb, var(--accent-color-primary) 60%, transparent);
-    transform: scale(1.05);
+  70% {
+    transform: scale(1.4);
+    opacity: 0;
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--accent-color-primary, #42b983) 40%, transparent);
   }
   100% {
-    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
-    transform: scale(1);
-  }
-}
-@keyframes plasma-shoot {
-  0% {
-    transform: scale(1.1);
-    box-shadow: 0 0 15px 5px color-mix(in srgb, var(--accent-color-primary) 80%, transparent);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
-  }
-}
-@keyframes loading-gradient {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-@keyframes fadeIn {
-  to {
-    opacity: 1;
-    transform: translateY(0);
+    transform: scale(0.95);
+    opacity: 0;
+    border-width: 1px;
   }
 }
 </style>

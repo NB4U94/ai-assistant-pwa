@@ -130,31 +130,25 @@
 <script setup>
 import { RouterLink, useRouter } from 'vue-router'
 import { useConversationStore } from '@/stores/conversationStore'
-// *** Import storeToRefs to get reactive access to state ***
-import { storeToRefs } from 'pinia'
+// Removed storeToRefs as activeSessionId is no longer needed directly here
+// import { storeToRefs } from 'pinia'
 
 const conversationStore = useConversationStore()
 const router = useRouter()
 
-// *** Get reactive access to activeSessionId ***
-const { activeSessionId } = storeToRefs(conversationStore)
+// Removed reactive access as we don't need to read it directly anymore
+// const { activeSessionId } = storeToRefs(conversationStore)
 
 const handleNewChat = async () => {
-  // *** Get the current session ID BEFORE saving/resetting ***
-  const currentId = activeSessionId.value
-  console.log(`[LeftSidebar] New Chat clicked. Current session ID: ${currentId}. Saving session...`)
+  // We don't need the current ID anymore
+  console.log('[LeftSidebar] New Chat clicked. Saving session (if applicable) and clearing view...')
 
   try {
-    // 1. Save the current conversation
-    await conversationStore.saveActiveConversationToMemories()
-    console.log('[LeftSidebar] Current session saved.')
+    // 1. Call clearActiveChatView - It handles saving first, then clearing state.
+    await conversationStore.clearActiveChatView() // <<< CORRECTED FUNCTION CALL
+    console.log('[LeftSidebar] clearActiveChatView completed.')
 
-    // 2. Reset the chat view for the *same* session ID (main_chat or assistant)
-    // setActiveSession handles clearing messages and loadedMemoryId
-    console.log(`[LeftSidebar] Resetting session view for ID: ${currentId}...`)
-    conversationStore.setActiveSession(currentId) // Pass the ID we captured earlier
-
-    // 3. Navigate to chat view if not already there
+    // 2. Navigate to chat view if not already there
     if (router.currentRoute.value.path !== '/') {
       console.log('[LeftSidebar] Navigating to chat view...')
       router.push('/')

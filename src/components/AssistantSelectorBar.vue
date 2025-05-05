@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, onMounted } from 'vue' // Added ref, onMounted
+import Nb4uLogoPlaceholder from '@/components/Nb4uLogoPlaceholder.vue' // Import logo component
 
 // Props definition (remains the same)
 const props = defineProps({
@@ -12,17 +13,51 @@ const props = defineProps({
 // Emits definition (remains the same)
 const emit = defineEmits(['select-assistant', 'toggle-selector'])
 
-// getInitials helper function (remains the same)
+// --- State for Avatar Errors ---
+const avatarLoadError = ref({}) // Tracks image load errors { assistantId: true }
+
+// --- Lifecycle Hooks ---
+onMounted(() => {
+  // Reset error state on component mount
+  avatarLoadError.value = {}
+})
+// Consider adding a watcher on `availableAssistants` if errors need resetting when the list changes dynamically
+
+// --- Avatar Helper Functions ---
+const handleAvatarError = (assistantId) => {
+  if (!assistantId) return
+  console.warn(`[AssistantSelector] Avatar image failed to load for assistant ID: ${assistantId}`)
+  avatarLoadError.value[assistantId] = true
+}
+
+const getPlaceholderStyle = (assistant) => {
+  // Use assistant's color if available, otherwise fallback is handled by CSS class
+  return assistant && assistant.color ? { backgroundColor: assistant.color } : {}
+}
+
+// Provided getInitials helper function (remains the same)
 function getInitials(name) {
   if (!name || typeof name !== 'string') return '?'
-  const parts = name.split(' ')
-  if (parts.length === 1) {
-    return name.substring(0, 1).toUpperCase()
+  const parts = name.trim().split(/\s+/) // Use regex to split on any whitespace
+  if (parts.length === 1 && parts[0].length > 0) {
+    // Handle single word names or acronyms like "Nb4U-Ai"
+    if (parts[0].includes('-')) {
+      // Specific check for hyphenated names like Nb4U-Ai
+      const hyphenParts = parts[0].split('-')
+      if (hyphenParts.length > 1) {
+        return (hyphenParts[0][0] + (hyphenParts[1][0] || '')).toUpperCase()
+      }
+    }
+    return parts[0].substring(0, 1).toUpperCase() // Default single letter for single word
   }
-  const firstInitial = parts[0][0] || ''
-  const lastInitial = parts.length > 1 ? parts[parts.length - 1][0] || '' : ''
-  return (firstInitial + lastInitial).toUpperCase().substring(0, 2)
+  if (parts.length > 1) {
+    const firstInitial = parts[0][0] || ''
+    const lastInitial = parts[parts.length - 1][0] || ''
+    return (firstInitial + lastInitial).toUpperCase()
+  }
+  return '?' // Fallback
 }
+// --- End Avatar Helper Functions ---
 
 // Event handlers (remain the same)
 function handleSelectAssistant(assistantId) {
@@ -65,16 +100,15 @@ function handleToggleSelector() {
           <ul class="assistant-list">
             <li
               @click="handleSelectAssistant('main_chat')"
-              :class="{ active: activeSessionId === 'main_chat' }"
+              :class="{ active: activeSessionId === 'main_chat' || activeSessionId === null }"
               class="assistant-list-item"
               role="button"
               tabindex="0"
               @keydown.enter.space="handleSelectAssistant('main_chat')"
+              title="Nb4U-Ai (Main Chat)"
             >
               <div class="assistant-avatar">
-                <div class="avatar-placeholder">
-                  {{ getInitials('Nb4U-Ai') }}
-                </div>
+                <Nb4uLogoPlaceholder />
               </div>
               <span class="assistant-name">Nb4U-Ai</span>
             </li>
@@ -87,20 +121,17 @@ function handleToggleSelector() {
               role="button"
               tabindex="0"
               @keydown.enter.space="handleSelectAssistant(assistant.id)"
+              :title="assistant.name"
             >
               <div class="assistant-avatar">
                 <img
-                  v-if="assistant.imageUrl"
+                  v-if="assistant.imageUrl && !avatarLoadError[assistant.id]"
                   :src="assistant.imageUrl"
-                  alt=""
+                  :alt="`${assistant.name || 'Assistant'} avatar`"
                   class="avatar-image"
-                  @error="(e) => (e.target.style.display = 'none')"
+                  @error="handleAvatarError(assistant.id)"
                 />
-                <div
-                  v-else
-                  class="avatar-placeholder"
-                  :style="{ backgroundColor: assistant.color || 'var(--bg-input-field)' }"
-                >
+                <div v-else :style="getPlaceholderStyle(assistant)" class="avatar-placeholder">
                   {{ getInitials(assistant.name) }}
                 </div>
               </div>
@@ -120,62 +151,40 @@ function handleToggleSelector() {
   padding: 5px 15px 0;
   position: relative;
   box-sizing: border-box;
-  z-index: 10;
+  z-index: 10; /* Ensure it sits above chat content if needed */
 }
 
 .selector-bar-header {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 30px;
-  padding-bottom: 5px;
-}
-
-/* Avatar Styling (List only) */
-.assistant-avatar {
-  /* Ripple effect applied globally via main.css */
-  width: 48px; /* Increased size */
-  height: 48px; /* Increased size */
-  border-radius: 50%;
-  flex-shrink: 0;
-  position: relative; /* Needed for ripple ::after */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--bg-input-field); /* Default grey background */
-  border: 1px solid var(--border-color-medium);
-  margin-bottom: 4px;
-}
-.avatar-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  border-radius: 50%;
-  z-index: 1;
-  position: relative;
-}
-.avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  color: white;
-  font-size: 1.2em; /* Slightly larger initials for bigger avatar */
-  line-height: 1;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-  border-radius: 50%;
-  z-index: 1;
-  position: relative;
-  background-color: inherit;
+  min-height: 30px; /* Ensure space for the toggle button */
+  padding-bottom: 5px; /* Space below toggle button */
 }
 
 .assistant-selector-toggle-arrow {
-  /* Centered by parent */
+  /* Assuming global styles handle background, border, cursor */
+  padding: 4px;
+  border-radius: 50%;
+  display: flex; /* Center SVG */
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease;
+  /* Glow effect applied by class solid-glow-effect-primary */
+  background-color: transparent; /* Explicitly set for clarity */
+  border: none; /* Explicitly set for clarity */
+  color: var(--accent-color-primary); /* Make arrow icon colored */
+}
+.assistant-selector-toggle-arrow svg {
+  width: 20px;
+  height: 20px;
 }
 
+.assistant-selector-toggle-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+/* Separator line when collapsed */
 .selector-separator {
   border: none;
   height: 1px;
@@ -183,20 +192,24 @@ function handleToggleSelector() {
   margin: 0;
 }
 
+/* Wrapper for the list when expanded */
 .assistant-list-wrapper {
   overflow: hidden;
-  border-bottom: 1px solid transparent;
+  border-bottom: 1px solid transparent; /* Prepare for accent border */
   transition: border-color 0.3s ease;
 }
 .assistant-list-wrapper.expanded-border {
+  /* Add accent border only when expanded */
   border-bottom: 1px solid var(--accent-color-primary);
   box-shadow: 0 2px 6px -2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 
+/* Container for scrollable list */
 .assistant-list-container {
-  max-height: 210px; /* Adjusted max-height to accommodate larger items */
-  overflow-y: auto;
-  padding: 10px 0;
+  max-height: 210px; /* Limit height */
+  overflow-y: auto; /* Enable vertical scroll */
+  padding: 10px 0; /* Padding above/below list */
+  /* Custom scrollbar styling */
   scrollbar-width: thin;
   scrollbar-color: var(--accent-color-primary) var(--bg-main-content);
 }
@@ -212,63 +225,118 @@ function handleToggleSelector() {
   border-radius: 3px;
 }
 
-/* List Items Layout */
+/* Flex container for list items */
 .assistant-list {
   list-style: none;
   padding: 0;
   margin: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-  justify-content: flex-start;
-  padding-left: 5px;
+  flex-wrap: wrap; /* Allow items to wrap */
+  gap: 15px; /* Spacing between items */
+  justify-content: flex-start; /* Align items to start */
+  padding-left: 5px; /* Small padding for alignment */
   padding-right: 5px;
 }
 
+/* Individual list item styling */
 .assistant-list-item {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
+  flex-direction: column; /* Stack avatar and name vertically */
+  align-items: center; /* Center content horizontally */
+  gap: 0; /* No gap between avatar and name */
   padding: 5px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 8px; /* Rounded corners */
   transition: background-color 0.2s ease;
-  width: 85px; /* Adjusted width for larger avatar */
+  width: 85px; /* Fixed width for grid layout */
   text-align: center;
-  border: 1px solid transparent;
+  border: 1px solid transparent; /* Border placeholder for active state */
+  box-sizing: border-box; /* Include padding/border in width */
+  position: relative; /* For potential future use (e.g., badges) */
 }
 
+/* Avatar Styling (specific to list items) */
+.assistant-avatar {
+  /* Ripple effect applied globally or needs specific class if not */
+  width: 48px; /* Size for the selector items */
+  height: 48px;
+  border-radius: 50%;
+  flex-shrink: 0; /* Prevent shrinking */
+  position: relative; /* Needed for potential ::after or absolute children */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-input-field); /* Fallback background color */
+  border: 1px solid var(--border-color-medium); /* Default border */
+  margin-bottom: 4px; /* Space between avatar and name */
+  overflow: hidden; /* Clip image/placeholder/logo */
+}
+
+/* Ensure direct children fill the avatar container */
+.assistant-avatar > .avatar-image,
+.assistant-avatar > .avatar-placeholder,
+.assistant-avatar > :deep(.nb4u-logo-placeholder) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-image {
+  object-fit: cover; /* Cover the area */
+  display: block; /* Remove extra space */
+  border-radius: 50%; /* Ensure image itself is round */
+  z-index: 1; /* Above potential background elements */
+  position: relative; /* If needed for stacking */
+}
+
+.avatar-placeholder {
+  font-weight: bold;
+  color: var(--text-primary); /* Use primary text for contrast */
+  font-size: 1.2em; /* Size of initials */
+  line-height: 1; /* Prevent extra height */
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+  border-radius: 50%;
+  z-index: 1; /* Above potential background */
+  position: relative; /* If needed */
+  background-color: var(--bg-input-field); /* CSS Fallback color */
+  user-select: none;
+}
+
+/* Assistant Name Styling */
 .assistant-name {
-  color: #f0f0f0; /* Whiter text color */
+  color: var(--text-secondary); /* Use secondary text for non-active */
   font-size: 0.85em;
   line-height: 1.3;
-  white-space: normal;
-  word-break: break-word;
+  white-space: normal; /* Allow wrapping */
+  word-break: break-word; /* Break long words */
   max-width: 100%;
-  margin-top: 2px;
-  height: 2.6em;
-  overflow: hidden;
-  display: -webkit-box;
+  margin-top: 2px; /* Small space above name */
+  height: 2.6em; /* Allow up to two lines */
+  overflow: hidden; /* Hide overflow */
+  display: -webkit-box; /* Enable line clamping */
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  text-align: center; /* Center potentially wrapped text */
 }
 
+/* Hover effect for list items */
 .assistant-list-item:hover {
-  background-color: var(--bg-hover-light);
+  background-color: var(--bg-hover-light); /* Use a subtle hover background */
 }
 
+/* Active state styling */
 .assistant-list-item.active {
   background-color: color-mix(in srgb, var(--accent-color-primary) 20%, transparent);
-  color: var(--text-primary); /* Use primary text color when active */
   font-weight: 500;
-  border: 1px solid var(--accent-color-primary);
+  border: 1px solid var(--accent-color-primary); /* Highlight border */
 }
 .assistant-list-item.active .assistant-avatar {
-  border-color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary); /* Match border highlight */
 }
 .assistant-list-item.active .assistant-name {
-  color: var(--text-primary); /* Match active text color */
+  color: var(--text-primary); /* Use primary text color when active */
 }
 
 /* Expansion Transition */
@@ -278,7 +346,7 @@ function handleToggleSelector() {
     max-height 0.3s ease-out,
     opacity 0.2s ease-out 0.1s,
     padding-bottom 0.3s ease-out,
-    margin-bottom 0.3s ease-out;
+    /* Match padding */ margin-bottom 0.3s ease-out; /* If margin is used */
   overflow: hidden;
 }
 .expand-enter-from,
@@ -290,8 +358,8 @@ function handleToggleSelector() {
 }
 .expand-enter-to,
 .expand-leave-from {
-  max-height: 220px; /* Adjusted max-height for transition */
+  max-height: 220px; /* Match container max-height + padding */
   opacity: 1;
-  padding-bottom: 5px;
+  padding-bottom: 10px; /* Match container padding */
 }
 </style>

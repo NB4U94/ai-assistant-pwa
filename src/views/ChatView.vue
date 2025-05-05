@@ -1,26 +1,5 @@
 <template>
   <div class="chat-view">
-    <div
-      class="debug-info"
-      style="
-        background: #333;
-        color: white;
-        padding: 5px;
-        font-size: 0.8em;
-        border-bottom: 1px solid #555;
-        white-space: pre-wrap;
-        margin-bottom: 5px;
-      "
-    >
-      <p><strong>DEBUG INFO:</strong></p>
-      <p>AssistStore - Selected ID: {{ assistantsStore.selectedAssistantId }}</p>
-      <p>AssistStore - Selected Name: {{ assistantsStore.selectedAssistant?.name }}</p>
-      <p>ConvoStore - Active Session ID: {{ conversationStore.activeSessionId }}</p>
-      <p>ConvoStore - Loaded Memory ID: {{ conversationStore.loadedMemoryId }}</p>
-      <hr style="border-color: #555" />
-      <p>ChatLogic - Current Placeholder: {{ currentPlaceholder }}</p>
-      <p>ChatLogic - Selected Assistant Name (via Ref): {{ logicSelectedAssistant?.name }}</p>
-    </div>
     <AssistantSelectorBar
       :showAssistantSelectorBar="showAssistantSelectorBar"
       :isAssistantSelectorExpanded="isAssistantSelectorExpanded"
@@ -65,33 +44,42 @@
 </template>
 
 <script setup>
-// Import ref and stores
+// Import ref
 import { ref } from 'vue'
+// Import the primary composable that drives the chat view's logic
 import { useChatViewLogic } from '@/composables/useChatViewLogic'
-import { useAssistantsStore } from '@/stores/assistantsStore' // Added Store Import
-import { useConversationStore } from '@/stores/conversationStore' // Added Store Import
+// Import child components
 import ChatInputArea from '@/components/ChatInputArea.vue'
 import MessageDisplayArea from '@/components/MessageDisplayArea.vue'
 import AssistantSelectorBar from '@/components/AssistantSelectorBar.vue'
 
-// Get store instances for debugging
-const assistantsStore = useAssistantsStore()
-const conversationStore = useConversationStore()
-
-// Define props passed to the component (Unchanged)
+// Define props passed to the component (e.g., for test mode)
 const props = defineProps({
-  assistantConfig: { type: Object, required: false, default: null },
+  initialAssistantId: {
+    // Used by AssistantView's test modal
+    type: String,
+    required: false,
+    default: null,
+  },
+  isTestMode: {
+    // Used by AssistantView's test modal
+    type: Boolean,
+    required: false,
+    default: false,
+  },
+  // assistantConfig prop seems unused based on current logic, keeping for now if needed later
+  // assistantConfig: { type: Object, required: false, default: null },
 })
 
 // --- Define userInput ref locally in the Parent View ---
-const userInput = ref('') // This ref will be managed by v-model
+const userInput = ref('') // This ref will be managed by v-model in ChatInputArea
 
-// --- Define Ref for Child Component ---
-const chatInputAreaRef = ref(null)
+// --- Define Ref for Child Component Access ---
+const chatInputAreaRef = ref(null) // Used to potentially call methods on ChatInputArea
 
-// --- PASS local userInput ref INTO the composable ---
-// --- DESTRUCTURE results directly ---
-// Destructure selectedAssistant from logic result as well for debug comparison
+// --- Use the Chat View Logic Composable ---
+// Pass the local userInput ref and component props into the composable.
+// Destructure all the reactive state and methods needed by the template.
 const {
   isSending,
   isListening,
@@ -100,14 +88,14 @@ const {
   selectedFile,
   activeSessionId, // From conversationStore via logic
   showAssistantSelectorBar,
-  currentPlaceholder, // From logic
-  displayMessages,
-  availableAssistants,
-  selectedAssistant: logicSelectedAssistant, // Get the ref from the composable result
+  currentPlaceholder, // Calculated placeholder text
+  displayMessages, // Formatted messages for display
+  availableAssistants, // List for the selector bar
+  // selectedAssistant: logicSelectedAssistant, // Removed - Was only for debug
   speechSupported,
   ttsSupported,
   isTtsEnabled,
-  copiedState,
+  copiedState, // For copy feedback
   handleSendMessage,
   handleEnterKey,
   selectAssistant,
@@ -119,26 +107,21 @@ const {
   handleFileSelected,
   removeSelectedImage,
   copyText,
-  processMessageText,
-  formatTimestamp,
-  getAvatarDetailsForMessage,
-  autoGrowTextarea,
+  processMessageText, // For rendering markdown/code blocks
+  formatTimestamp, // Utility for displaying dates/times
+  getAvatarDetailsForMessage, // Provides avatar info for messages
+  autoGrowTextarea, // Input area utility
 } = useChatViewLogic(userInput, props, { chatInputAreaRef })
 </script>
 
 <style scoped>
-/* Styles unchanged */
+/* Styles remain unchanged */
 .chat-view {
   height: 100%;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-main-content);
   color: var(--text-primary);
-  overflow: hidden;
-}
-/* Optional: Style for the debug info */
-.debug-info {
-  flex-shrink: 0; /* Prevent shrinking */
-  /* Add other styles as needed */
+  overflow: hidden; /* Prevent chat view itself from scrolling */
 }
 </style>
