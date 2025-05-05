@@ -118,7 +118,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+// Removed unused 'computed' import
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAssistantsStore } from '@/stores/assistantsStore'
@@ -142,7 +143,7 @@ onMounted(() => {
   avatarLoadError.value = {} // Reset errors on mount
 })
 
-// --- Avatar Helper Functions (Restored) ---
+// --- Avatar Helper Functions ---
 const handleAvatarError = (assistantId) => {
   if (!assistantId) return
   console.warn(`[AssistantsView] Avatar image failed to load for assistant ID: ${assistantId}`)
@@ -150,12 +151,10 @@ const handleAvatarError = (assistantId) => {
 }
 
 const getInitials = (name) => {
-  // Simple initials logic (first letter)
   return name ? name.trim().charAt(0).toUpperCase() : '?'
 }
 
 const getPlaceholderStyle = (assistant) => {
-  // Use assistant's color if available, otherwise fallback is handled by CSS class
   return assistant?.color ? { backgroundColor: assistant.color } : {}
 }
 // --- End Avatar Helper Functions ---
@@ -180,58 +179,81 @@ const formatTimestamp = (timestamp) => {
   try {
     const d = new Date(timestamp)
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-  } catch (e) {
+  } catch (_error) {
+    // Changed 'e' to '_error' as it's unused
+    console.error('Error formatting timestamp:', _error) // Added console log for the error
     return 'Date Error'
   }
 }
 const editAssistant = (assistant) => {
   if (!assistant?.id) return
   router.push({ name: 'assistant-edit', params: { id: assistant.id } })
-  if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) closeTestModal()
+  // Close test modal if editing the assistant currently being tested
+  if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) {
+    closeTestModal()
+  }
 }
 const editAssistantFromTest = () => {
-  if (assistantBeingTested.value) editAssistant(assistantBeingTested.value)
+  if (assistantBeingTested.value) {
+    editAssistant(assistantBeingTested.value)
+    // Optionally close the test modal after navigating to edit
+    // closeTestModal(); // Already handled in editAssistant
+  }
 }
 
 // --- Delete Logic with Prompt ---
 const confirmDeleteAssistant = async (assistant) => {
   if (!assistant?.id) return
   const assistantName = assistant.name || 'this assistant'
+  // First confirmation for deleting the assistant definition
   if (window.confirm(`Are you sure you want to delete the assistant "${assistantName}"?`)) {
     let deleteMemoriesToo = false
+    // Only ask about memories if it's not the main chat (which shouldn't be deletable here anyway)
     if (assistant.id !== conversationStore.MAIN_CHAT_ID) {
+      // Safety check
+      // Second confirmation for deleting associated memories
       deleteMemoriesToo = window.confirm(
         `Also delete all conversation memories associated with "${assistantName}"? \n\n(Click OK to delete memories, Cancel to keep them)`,
       )
     } else {
+      // Should not happen, but prevent deletion of main chat assistant config
+      console.warn('[AssistantsView] Attempted to delete MAIN_CHAT_ID assistant definition.')
+      alert('Cannot delete the main Nb4U-Ai assistant definition.')
       return
     }
+
     console.log(
       `User chose to delete assistant ${assistant.id}. Delete memories: ${deleteMemoriesToo}`,
     )
     try {
+      // Delete memories first if requested
       if (deleteMemoriesToo) {
         console.log(`Deleting memories for session ID: ${assistant.id}`)
-        await conversationStore.deleteMemoriesForSession(assistant.id) // Delete memories first
+        await conversationStore.deleteMemoriesForSession(assistant.id)
       }
+      // Then delete the assistant definition
       console.log(`Deleting assistant definition for ID: ${assistant.id}`)
-      const success = assistantsStore.deleteAssistant(assistant.id) // Then delete assistant
+      const success = assistantsStore.deleteAssistant(assistant.id)
       if (!success) {
         console.error(`assistantsStore.deleteAssistant failed for ID: ${assistant.id}`)
         alert(`Failed to delete assistant definition "${assistantName}".`)
       } else {
         console.log(`Assistant ${assistant.id} definition deleted.`)
+        // Optionally close test modal if deleting the tested assistant
+        if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) {
+          closeTestModal()
+        }
       }
     } catch (err) {
       console.error(`Error during deletion process for assistant ${assistant.id}:`, err)
-      alert(`An error occurred deleting "${assistantName}".`)
+      alert(`An error occurred deleting "${assistantName}". Check console for details.`)
     }
   } else {
     console.log(`User cancelled deletion for assistant ${assistant.id}.`)
   }
 }
 
-// --- Chat Start Logic (Corrected) ---
+// --- Chat Start Logic ---
 const startChatWithAssistant = (assistant) => {
   if (!assistant || !assistant.id) {
     alert('Could not start chat. Invalid assistant data.')
@@ -239,9 +261,10 @@ const startChatWithAssistant = (assistant) => {
   }
   console.log('[AssistantsView] Starting chat with assistant:', assistant.name, assistant.id)
   try {
-    // Let setActiveSession handle setting the assistant ID in both stores
+    // Let setActiveSession handle setting the assistant ID in both stores and clearing state
+    // It defaults to isTest=false
     conversationStore.setActiveSession(assistant.id)
-    router.push({ name: 'chat' })
+    router.push({ name: 'chat' }) // Navigate to the main chat view
   } catch (error) {
     console.error('[AssistantsView] Error setting active session or navigating:', error)
     alert(
@@ -303,10 +326,29 @@ const startChatWithAssistant = (assistant) => {
 /* List Container */
 .assistants-list-container {
   flex-grow: 1;
-  overflow-y: auto;
-  padding-right: 5px;
-  min-height: 100px;
+  overflow-y: auto; /* Make sure list container scrolls if needed */
+  padding-right: 5px; /* Space for scrollbar */
+  min-height: 100px; /* Ensure it has some height */
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--accent-color-primary) var(--bg-sidebar); /* Firefox */
 }
+/* Webkit Scrollbar Styles */
+.assistants-list-container::-webkit-scrollbar {
+  width: 8px;
+}
+.assistants-list-container::-webkit-scrollbar-track {
+  background: var(--bg-sidebar);
+  border-radius: 4px;
+}
+.assistants-list-container::-webkit-scrollbar-thumb {
+  background-color: var(--accent-color-primary);
+  border-radius: 4px;
+  border: 2px solid var(--bg-sidebar);
+}
+.assistants-list-container::-webkit-scrollbar-thumb:hover {
+  background-color: var(--accent-color-secondary);
+}
+
 .assistants-list-container h3 {
   margin-top: 0;
   margin-bottom: 1rem;
@@ -340,7 +382,7 @@ const startChatWithAssistant = (assistant) => {
   background-color: #2a2a2a;
 }
 
-/* Avatar (Corrected Logic Applied) */
+/* Avatar */
 .assistant-avatar {
   width: 40px;
   height: 40px;
@@ -370,7 +412,6 @@ const startChatWithAssistant = (assistant) => {
   z-index: 0;
 }
 .assistant-image {
-  /* Displayed when imageUrl is valid */
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -380,7 +421,6 @@ const startChatWithAssistant = (assistant) => {
   border-radius: 50%;
 }
 .assistant-placeholder {
-  /* Displayed as fallback */
   width: 100%;
   height: 100%;
   display: flex;
@@ -402,7 +442,7 @@ const startChatWithAssistant = (assistant) => {
   flex-direction: column;
   gap: 0.2rem;
   flex-grow: 1;
-  overflow: hidden;
+  overflow: hidden; /* Prevent long text overflowing */
 }
 .assistant-name {
   font-weight: 600;
@@ -433,7 +473,7 @@ const startChatWithAssistant = (assistant) => {
   border-radius: 6px;
   border-width: 2px;
   border-style: solid;
-  border-color: transparent;
+  border-color: transparent; /* Base border color */
   background-color: transparent;
   color: white;
   font-family: sans-serif;
@@ -449,16 +489,16 @@ const startChatWithAssistant = (assistant) => {
   min-width: 60px;
   text-align: center;
   position: relative;
-  box-shadow: none;
+  box-shadow: none; /* Remove default shadow */
 }
 .action-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  border-color: var(--border-color-medium);
+  border-color: var(--border-color-medium); /* Use medium border for disabled */
   background-color: transparent;
   color: var(--text-disabled, #888);
 }
-/* Specific Outline Colors (Corrected for this view) */
+/* Specific Outline Colors */
 .edit-button {
   border-color: var(--accent-color-primary);
 } /* Edit = Green */
@@ -470,10 +510,11 @@ const startChatWithAssistant = (assistant) => {
 } /* Delete = Red */
 .save-button {
   border-color: var(--accent-color-primary);
-} /* Save (in modal?) = Green */
+} /* Save = Green */
 .cancel-button {
   border-color: var(--border-color-medium);
 } /* Cancel / Close Test = Gray */
+
 /* Hover Effects - Fill background */
 .action-button:hover:not(:disabled) {
   color: white;
@@ -625,10 +666,7 @@ const startChatWithAssistant = (assistant) => {
   gap: 0.75rem;
   flex-shrink: 0;
 }
-/* Ensure modal footer buttons use correct classes for outline style */
-.test-modal .test-modal-footer button {
-  /* Inherit base .action-button style */
-}
+/* Removed empty ruleset .test-modal .test-modal-footer button {} */
 
 /* Keyframes */
 @keyframes ripplePulse {

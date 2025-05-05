@@ -3,11 +3,10 @@ import { ref, computed, nextTick } from 'vue'
 import { intricacyLevels, questionsByLevel } from '@/data/assistantQuestions.js'
 
 export function useAssistantWizard(props) {
-  const isEditMode = props.isEditMode ?? ref(false)
-  const answers = props.answers ?? ref([])
-  const resetFormState = props.resetFormState ?? (() => {})
-  const generateFinalInstructions = props.generateFinalInstructions ?? (() => {})
-  const focusTextarea = props.focusTextarea ?? (() => {})
+  // Removed unused props: isEditMode, resetFormState
+  const answers = props.answers ?? ref([]) // Keep as it's used in confirmLevelAndProceed
+  const generateFinalInstructions = props.generateFinalInstructions ?? (() => {}) // Keep, used in nextQuestion
+  const focusTextarea = props.focusTextarea ?? (() => {}) // Keep, used in navigation
 
   // --- Wizard State ---
   const currentStep = ref(1) // 1: Level Select, 2: Color Select, 3: Questions, 4: Review
@@ -15,7 +14,7 @@ export function useAssistantWizard(props) {
   const selectedColor = ref(null)
   const currentQuestionIndex = ref(0)
 
-  // --- Computed Properties --- (Full Implementations)
+  // --- Computed Properties ---
   const currentQuestions = computed(() => {
     return selectedLevel.value && questionsByLevel[selectedLevel.value]
       ? questionsByLevel[selectedLevel.value]
@@ -34,11 +33,11 @@ export function useAssistantWizard(props) {
     return level ? level.name : ''
   })
 
-  // --- Wizard Navigation Methods --- (Full Implementations)
+  // --- Wizard Navigation Methods ---
   const selectLevel = (levelValue) => {
     if (selectedLevel.value !== levelValue) {
       selectedLevel.value = levelValue
-      selectedColor.value = null
+      selectedColor.value = null // Reset color when level changes
       console.log(`[Wizard] Level selected: ${levelValue}`)
     }
   }
@@ -46,9 +45,11 @@ export function useAssistantWizard(props) {
     if (!selectedLevel.value) return
     console.log('[Wizard] Confirming level and proceeding to Color Selection.')
     currentStep.value = 2
+    // Reset answers array based on the new level's questions
     if (answers && Array.isArray(answers.value)) {
       const questionCount = currentQuestions.value?.length || 0
-      answers.value = new Array(questionCount).fill('')
+      answers.value.length = questionCount // Resize array
+      answers.value.fill('') // Fill with empty strings
       console.log(`[Wizard] Answers array reset for ${questionCount} questions.`)
     } else {
       console.warn("[Wizard] Cannot reset answers array - 'answers' prop incorrect?")
@@ -58,10 +59,10 @@ export function useAssistantWizard(props) {
     console.log(
       `[Wizard] Color confirmed (${selectedColor.value || 'default/none'}), proceeding to Questions.`,
     )
-    currentQuestionIndex.value = 0
+    currentQuestionIndex.value = 0 // Start at first question
     currentStep.value = 3
     nextTick(() => {
-      focusTextarea?.()
+      focusTextarea?.() // Focus textarea when entering question step
     })
   }
   const nextQuestion = () => {
@@ -69,14 +70,14 @@ export function useAssistantWizard(props) {
       console.log('[Wizard] Moving to next question.')
       currentQuestionIndex.value++
       nextTick(() => {
-        focusTextarea?.(true)
+        focusTextarea?.(true) // Focus and select text in next question's textarea
       })
     } else {
       console.log(
         '[Wizard] Last question answered, generating instructions and proceeding to Review.',
       )
-      generateFinalInstructions?.()
-      currentStep.value = 4
+      generateFinalInstructions?.() // Call provided function to generate instructions
+      currentStep.value = 4 // Move to Review step
     }
   }
   const previousQuestion = () => {
@@ -84,29 +85,34 @@ export function useAssistantWizard(props) {
       console.log('[Wizard] Moving to previous question.')
       currentQuestionIndex.value--
       nextTick(() => {
-        focusTextarea?.(true)
+        focusTextarea?.(true) // Focus and select text in previous question's textarea
       })
     }
   }
   const goBack = () => {
     console.log(`[Wizard] Go Back requested from Step ${currentStep.value}`)
     if (currentStep.value === 4) {
+      // From Review back to Questions
       currentStep.value = 3
       nextTick(() => {
-        focusTextarea?.()
+        focusTextarea?.() // Focus textarea
       })
     } else if (currentStep.value === 3) {
+      // From Questions back to Color
       currentStep.value = 2
     } else if (currentStep.value === 2) {
+      // From Color back to Level
       currentStep.value = 1
     }
   }
   const resetWizard = () => {
+    // Resets only the wizard's internal state
     console.log('[Wizard] Resetting wizard state.')
     currentStep.value = 1
     selectedLevel.value = null
     selectedColor.value = null
     currentQuestionIndex.value = 0
+    // Note: Does not reset form answers/name etc., parent component handles that via useAssistantForm.resetFormState
   }
 
   // --- Expose State and Methods ---
@@ -118,7 +124,7 @@ export function useAssistantWizard(props) {
     currentQuestions,
     isLastQuestion,
     currentLevelName,
-    intricacyLevels: ref(intricacyLevels),
+    intricacyLevels: ref(intricacyLevels), // Expose levels data for UI
     selectLevel,
     confirmLevelAndProceed,
     confirmColorAndProceed,

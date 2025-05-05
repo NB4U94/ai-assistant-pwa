@@ -19,11 +19,12 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue'
+// defineProps and defineEmits are compiler macros, no longer need importing
 
 // Props:
 // - colors: Array of hex color strings (e.g., ['#ff0000', '#00ff00', ...])
 // - modelValue: The currently selected color hex string (for v-model)
+// eslint-disable-next-line no-unused-vars
 const props = defineProps({
   colors: {
     type: Array,
@@ -54,7 +55,6 @@ function selectColor(color) {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  /* Add background/styling as needed for full-screen feel */
   background-color: var(--bg-main-content, #1a1a1a);
   border-radius: 8px;
 }
@@ -99,6 +99,8 @@ function selectColor(color) {
   border-color: var(--text-primary, #fff);
   transform: scale(1.1);
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  /* Optionally pause animation when selected */
+  animation-play-state: paused;
 }
 
 .checkmark {
@@ -109,18 +111,25 @@ function selectColor(color) {
   left: 50%;
   transform: translate(-50%, -50%);
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.5); /* Make checkmark more visible */
+  pointer-events: none; /* Prevent checkmark from interfering with clicks */
 }
 
-/* Assuming subtle-pulse animation exists globally or add it here */
+/* Subtle pulse animation */
 @keyframes subtle-pulse {
   0% {
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+    box-shadow:
+      0 2px 5px rgba(0, 0, 0, 0.2),
+      0 0 5px rgba(255, 255, 255, 0.2);
   }
   50% {
-    box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
-  } /* Enhanced glow */
+    box-shadow:
+      0 4px 8px rgba(0, 0, 0, 0.3),
+      0 0 15px rgba(255, 255, 255, 0.5);
+  }
   100% {
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+    box-shadow:
+      0 2px 5px rgba(0, 0, 0, 0.2),
+      0 0 5px rgba(255, 255, 255, 0.2);
   }
 }
 </style>

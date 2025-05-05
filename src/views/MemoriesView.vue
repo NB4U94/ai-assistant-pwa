@@ -249,7 +249,8 @@ const formatMemoryTimestamp = (timestamp) => {
       hour12: true,
     }
     return new Date(timestamp).toLocaleString(undefined, opts)
-  } catch (_e) {
+  } catch {
+    // <-- Removed (_e) here
     try {
       return new Date(timestamp).toLocaleDateString()
     } catch {
@@ -453,9 +454,7 @@ h1 {
   outline-offset: -2px;
   z-index: 1;
 }
-.icon-button {
-  /* Shared class */
-}
+/* .icon-button {}  <-- Removed this empty rule */
 /* --- FINAL Search Button Styles END --- */
 
 .filter-select-wrapper {
@@ -496,6 +495,30 @@ h1 {
   margin: 0 -0.5rem;
   padding: 0 0.5rem;
 }
+/* --- Consistent Scrollbar Styling --- */
+/* Webkit (Chrome, Safari, Edge) */
+.memory-list::-webkit-scrollbar {
+  width: 8px; /* Width of the scrollbar */
+}
+.memory-list::-webkit-scrollbar-track {
+  background: var(--bg-input-area, #2a2a2a); /* Track background */
+  border-radius: 4px;
+}
+.memory-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color-medium, #555); /* Thumb color */
+  border-radius: 4px; /* Rounded corners */
+  border: 2px solid var(--bg-input-area, #2a2a2a); /* Creates padding around thumb */
+}
+.memory-list::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-color-light, #777); /* Thumb color on hover */
+}
+/* Firefox */
+.memory-list {
+  scrollbar-width: thin; /* "auto" or "thin" */
+  scrollbar-color: var(--border-color-medium, #555) var(--bg-input-area, #2a2a2a); /* thumb track */
+}
+/* --- End Consistent Scrollbar Styling --- */
+
 .memory-list-placeholder {
   flex-grow: 1;
   display: flex;
@@ -741,4 +764,34 @@ h1 {
   border-color: color-mix(in srgb, var(--accent-color-primary) 80%, #fff);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
 }
+
+/* --- ADDED SCROLLBAR STYLING TO MATCH MEMORIES VIEW --- */
+/* Ensures consistency across scrollable lists */
+
+/* Webkit (Chrome, Safari, Edge) */
+.memory-list::-webkit-scrollbar {
+  width: 8px; /* Width of the scrollbar */
+}
+
+.memory-list::-webkit-scrollbar-track {
+  background: var(--bg-input-area, #2a2a2a); /* Track background */
+  border-radius: 4px;
+}
+
+.memory-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color-medium, #555); /* Thumb color */
+  border-radius: 4px; /* Rounded corners */
+  border: 2px solid var(--bg-input-area, #2a2a2a); /* Creates padding around thumb */
+}
+
+.memory-list::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-color-light, #777); /* Thumb color on hover */
+}
+
+/* Firefox */
+.memory-list {
+  scrollbar-width: thin; /* "auto" or "thin" */
+  scrollbar-color: var(--border-color-medium, #555) var(--bg-input-area, #2a2a2a); /* thumb track */
+}
+/* --- END SCROLLBAR STYLING --- */
 </style>
