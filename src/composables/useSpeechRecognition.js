@@ -1,6 +1,7 @@
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+// src/composables/useSpeechRecognition.js (Simplified)
+import { ref, onMounted, onUnmounted } from 'vue' // Removed nextTick
 
-// Error callback type definition for clarity (optional but good practice)
+// Error callback type definition
 /**
  * @callback AddErrorCallback
  * @param {string} errorMessage - The error message text.
@@ -8,23 +9,33 @@ import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 
 /**
  * Composable for handling Speech Recognition (Voice Input).
+ * Focuses on updating userInputRef and reporting errors.
  *
  * @param {object} options
  * @param {import('vue').Ref<string>} options.userInputRef - Ref to the user input model.
- * @param {import('vue').Ref<HTMLTextAreaElement|null>} options.inputAreaRef - Ref to the textarea element.
- * @param {Function} options.autoGrowTextarea - Function to resize the textarea.
  * @param {AddErrorCallback} options.addErrorMessage - Callback function to display errors to the user.
  * @returns {object} - Reactive state and methods for speech recognition.
  */
 export function useSpeechRecognition({
-  userInputRef,
-  inputAreaRef,
-  autoGrowTextarea,
-  addErrorMessage,
+  userInputRef, // <<< Required
+  addErrorMessage, // <<< Required
 }) {
   const isListening = ref(false)
   const recognition = ref(null)
   const speechSupported = ref(false)
+
+  // --- Input Validation ---
+  if (!userInputRef || typeof userInputRef.value === 'undefined') {
+    console.error('[useSpeechRecognition] FATAL: Requires a valid ref for userInputRef.')
+    // Return inert state if required refs/callbacks are missing
+    return { isListening: ref(false), speechSupported: ref(false), toggleListening: () => {} }
+  }
+  if (typeof addErrorMessage !== 'function') {
+    console.error('[useSpeechRecognition] FATAL: Requires a function for addErrorMessage.')
+    // Return inert state
+    return { isListening: ref(false), speechSupported: ref(false), toggleListening: () => {} }
+  }
+  // --- End Input Validation ---
 
   const setupSpeechRecognition = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -40,14 +51,19 @@ export function useSpeechRecognition({
         recognition.value.onresult = (event) => {
           const transcript = event.results?.[0]?.[0]?.transcript
           if (transcript) {
-            // Append transcript to existing user input
-            userInputRef.value += (userInputRef.value ? ' ' : '') + transcript
-            nextTick(() => {
-              // Auto-grow textarea after updating input
-              if (inputAreaRef.value) autoGrowTextarea({ target: inputAreaRef.value })
-            })
+            // Check userInputRef is still valid before updating
+            if (userInputRef && typeof userInputRef.value !== 'undefined') {
+              // Append transcript to existing user input
+              userInputRef.value += (userInputRef.value ? ' ' : '') + transcript
+              // --- REMOVED nextTick and autoGrowTextarea call ---
+              // The watcher in useChatViewLogic will handle resizing.
+            } else {
+              console.error(
+                '[useSpeechRecognition] ERROR: userInputRef became invalid in onresult handler.',
+              )
+              addErrorMessage('Internal error processing speech result.')
+            }
           }
-          // isListening.value = false; // Handled by onend
         }
 
         recognition.value.onerror = (event) => {
@@ -66,7 +82,7 @@ export function useSpeechRecognition({
           } else if (event.error === 'network') {
             errorMessage = 'Network error during speech recognition.'
           }
-          addErrorMessage(errorMessage) // Use the callback
+          addErrorMessage(errorMessage) // Use the provided callback
           isListening.value = false
         }
 
@@ -75,8 +91,9 @@ export function useSpeechRecognition({
         }
 
         recognition.value.onend = () => {
-          // Ensure listening state is always false when recognition ends
-          isListening.value = false
+          if (recognition.value) {
+            isListening.value = false
+          }
         }
       } catch (e) {
         console.error('[useSpeechRecognition] Speech Recognition initialization failed:', e)
@@ -91,7 +108,7 @@ export function useSpeechRecognition({
 
   const startListening = () => {
     if (!speechSupported.value || !recognition.value) {
-      addErrorMessage('Speech recognition not supported on this device.')
+      addErrorMessage('Speech recognition not supported or not initialized.')
       return
     }
     if (isListening.value) return
@@ -99,9 +116,8 @@ export function useSpeechRecognition({
       recognition.value.start()
     } catch (e) {
       console.error(`[useSpeechRecognition] Error starting speech recognition: ${e.name}`, e)
-      // Avoid showing error for trying to start again immediately after stop
       if (e.name !== 'InvalidStateError') {
-        addErrorMessage(`Voice input start error: ${e.message}`)
+        addErrorMessage(`Voice input start error: ${e.message || e.name}`)
       }
       isListening.value = false
     }
@@ -112,15 +128,19 @@ export function useSpeechRecognition({
     try {
       recognition.value.stop()
     } catch (e) {
-      // Errors on stopping are usually less critical, just log them.
       console.warn('[useSpeechRecognition] Error stopping speech recognition:', e)
-      isListening.value = false // Ensure state is reset
+      isListening.value = false
     }
   }
 
   const toggleListening = () => {
     if (!speechSupported.value) {
-      addErrorMessage('Voice input not supported on this browser or device.')
+      // Check if addErrorMessage is available before calling
+      if (typeof addErrorMessage === 'function') {
+        addErrorMessage('Voice input not supported on this browser or device.')
+      } else {
+        console.error('[useSpeechRecognition] addErrorMessage function is missing!')
+      }
       return
     }
     if (isListening.value) {
@@ -137,10 +157,16 @@ export function useSpeechRecognition({
   onUnmounted(() => {
     if (recognition.value) {
       try {
-        recognition.value.abort() // Abort any ongoing recognition
+        recognition.value.onresult = null
+        recognition.value.onerror = null
+        recognition.value.onstart = null
+        recognition.value.onend = null
+        recognition.value.abort()
+        console.log('[useSpeechRecognition] Recognition aborted and listeners cleaned up.')
       } catch (e) {
-        /* ignore potential errors on abort */
+        console.warn('[useSpeechRecognition] Error during unmount cleanup:', e)
       }
+      recognition.value = null
     }
   })
 

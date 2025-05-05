@@ -96,7 +96,7 @@ const props = defineProps({
 // const emit = defineEmits(['update:userInput']) // No longer needed
 
 // --- Template Refs (Internal) ---
-const inputAreaRef = ref(null)
+const inputAreaRef = ref(null) // Ref for the <textarea> element
 const sendButtonRef = ref(null)
 
 // --- Local Logic ---
@@ -139,11 +139,12 @@ const resetTextareaHeight = () => {
   }
 }
 
-// --- Expose METHODS ---
+// --- Expose METHODS and REFS --- // <<< MODIFIED HERE
 defineExpose({
   triggerNestedSendAnimation,
   focusNestedInput,
   resetTextareaHeight,
+  inputAreaRef, // <<< ADDED: Expose the textarea element ref
 })
 </script>
 

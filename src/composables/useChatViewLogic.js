@@ -4,14 +4,14 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useAssistantsStore } from '@/stores/assistantsStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import { storeToRefs } from 'pinia'
-import { useSpeechRecognition } from '@/composables/useSpeechRecognition'
+import { useSpeechRecognition } from '@/composables/useSpeechRecognition' // Keep this import
 import { useFileInput } from '@/composables/useFileInput'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import { useUIUtils } from '@/composables/useUIUtils'
 import { useChatScroll } from '@/composables/useChatScroll'
 import { useMessageSender } from '@/composables/useMessageSender'
 
-// Helper Function for Initials
+// Helper Function for Initials (Unchanged)
 function getInitials(name, fallback = '?') {
   if (name === null || name === undefined || typeof name !== 'string') {
     return fallback
@@ -34,46 +34,57 @@ function getInitials(name, fallback = '?') {
 
 // props parameter IS used
 export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
+  // Initial ref check (Unchanged)
   if (!userInputRef || typeof userInputRef.value === 'undefined') {
     console.error('FATAL: useChatViewLogic requires a valid ref for userInputRef.')
-    return {}
+    // Return minimal state to prevent further errors down the line
+    return {
+      isSending: ref(false),
+      isListening: ref(false),
+      speechSupported: ref(false),
+      // Add other essential states/methods with default/dummy values if needed
+      // to prevent crashes in the template, or ensure ChatView handles this case.
+    }
   }
 
-  // Store instances
-  const chatInputAreaRef = refs.chatInputAreaRef || ref(null)
+  // Store instances (Unchanged)
+  const chatInputAreaRef = refs.chatInputAreaRef || ref(null) // Ref to ChatInput component instance
   const assistantsStore = useAssistantsStore()
   const conversationStore = useConversationStore()
   const settingsStore = useSettingsStore()
 
-  // Store state refs
+  // Store state refs (Unchanged)
   const { assistants: availableAssistants, selectedAssistant } = storeToRefs(assistantsStore)
-  const {
-    activeHistory,
-    activeSessionId,
-    loadedMemoryId,
-    isCurrentSessionTestMode, // Get reactive ref for test mode status
-  } = storeToRefs(conversationStore)
+  const { activeHistory, activeSessionId, loadedMemoryId, isCurrentSessionTestMode } =
+    storeToRefs(conversationStore)
   const { showAssistantSelectorBar, userDisplayName, userAvatarUrl, sendOnEnter } =
     storeToRefs(settingsStore)
 
-  // Local state
-  const messageAreaRef = ref(null) // Ref for the MessageDisplayArea component/element
+  // Local state (Unchanged)
+  const messageAreaRef = ref(null)
   const isAssistantSelectorExpanded = ref(true)
   const currentPlaceholder = ref('Enter message...')
-  const testSessionMessages = ref([]) // <<< NEW: Local array for test messages
+  const testSessionMessages = ref([])
 
-  // Composables instantiation
+  // --- Composables instantiation ---
+
+  // Define error handler first
   const handleComposableError = (errorMessage) => {
     const message = String(errorMessage || 'An unexpected error occurred.')
     console.error('[Composable Error Handler]', message)
+    // Maybe push to a visible error list in UI later?
   }
+
+  // UI Utils (Unchanged)
   const { copiedState, formatTimestamp, copyText, processMessageText, autoGrowTextarea } =
     useUIUtils({ addErrorMessage: handleComposableError })
 
+  // Function needed for useFileInput (Unchanged)
   const updatePlaceholderBasedOnState = () => {
     currentPlaceholder.value = calculatePlaceholder(userInputRef.value, selectedFile.value)
   }
 
+  // File Input (Unchanged)
   const {
     selectedImagePreview,
     selectedFile,
@@ -84,6 +95,8 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     addErrorMessage: handleComposableError,
     updatePlaceholder: updatePlaceholderBasedOnState,
   })
+
+  // Text To Speech (Unchanged)
   const {
     ttsSupported,
     isTtsEnabled,
@@ -91,27 +104,29 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     handleMessageClick: ttsHandleMessageClick,
     speakText: ttsSpeakText,
   } = useTextToSpeech({ addErrorMessage: handleComposableError })
-  const { isListening, speechSupported, toggleListening } = useSpeechRecognition({
-    onResult: (transcript) => {
-      userInputRef.value = transcript
-    },
-    onError: handleComposableError,
-  })
 
-  // <<< MODIFIED: Pass testSessionMessages OR activeHistory to useChatScroll >>>
-  // We need the scroll logic to watch the currently *displayed* messages
+  // --- Speech Recognition (MODIFIED CALL) ---
+  const { isListening, speechSupported, toggleListening } = useSpeechRecognition({
+    userInputRef: userInputRef, // <<< Pass the correct ref
+    addErrorMessage: handleComposableError, // <<< Pass the correct error handler function
+    // No longer passing inputAreaRef or autoGrowTextarea here
+  })
+  // --- End Speech Recognition ---
+
+  // Chat Scroll (Unchanged)
   const messagesForScroll = computed(() =>
     isCurrentSessionTestMode.value ? testSessionMessages.value : activeHistory.value,
   )
-  useChatScroll(messageAreaRef, messagesForScroll) // Pass the computed ref
+  useChatScroll(messageAreaRef, messagesForScroll)
 
+  // Message Sender (Unchanged)
   const {
     sendMessage: sendChatMessage,
     isLoading: isSending,
     error: sendError,
   } = useMessageSender()
 
-  // Calculate Placeholder Logic
+  // Calculate Placeholder Logic (Unchanged)
   const calculatePlaceholder = (currentInput, currentFile) => {
     if (isCurrentSessionTestMode.value) {
       const assistantName = selectedAssistant?.value?.name || props.assistantConfig?.name
@@ -152,14 +167,12 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     }
   }
 
-  // <<< MODIFIED: Return local test messages OR store history based on mode >>>
+  // Display Messages Computed (Unchanged)
   const displayMessages = computed(() => {
-    return isCurrentSessionTestMode.value // Use the reactive store ref
-      ? testSessionMessages.value
-      : activeHistory.value
+    return isCurrentSessionTestMode.value ? testSessionMessages.value : activeHistory.value
   })
 
-  // getAvatarDetailsForMessage - (Logic seems okay, handles props.assistantConfig for test name)
+  // getAvatarDetailsForMessage (Unchanged - logic seems okay)
   const getAvatarDetailsForMessage = (message) => {
     const details = {
       imageUrl: null,
@@ -243,6 +256,7 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     return details
   }
 
+  // Other methods (toggleAssistantSelector, selectAssistant, handleEnterKey, handleSendMessage) remain unchanged
   const toggleAssistantSelector = () => {
     isAssistantSelectorExpanded.value = !isAssistantSelectorExpanded.value
   }
@@ -253,11 +267,10 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
       console.error('[useChatViewLogic] Attempted selectAssistant with invalid ID:', id)
       return
     }
-    // Selecting an assistant always exits test mode
     console.log(
       `[useChatViewLogic] Setting active session to: ${conversationSessionId} (Test Mode: false)`,
     )
-    await conversationStore.setActiveSession(conversationSessionId, false) // Explicitly set test mode to false
+    await conversationStore.setActiveSession(conversationSessionId, false)
     await nextTick()
     chatInputAreaRef.value?.focusNestedInput?.()
   }
@@ -288,49 +301,40 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     removeSelectedImage()
     chatInputInstance?.resetTextareaHeight?.()
 
-    // <<< MODIFIED: Capture result object from sendChatMessage >>>
     const result = await sendChatMessage(
       textToSend,
       fileToSend,
       imagePreviewUrlForStore,
-      isCurrentSessionTestMode.value, // <<< Pass STORE value here
+      isCurrentSessionTestMode.value,
     )
 
-    // <<< MODIFIED: Handle temporary messages in test mode >>>
     if (props.isTestMode || isCurrentSessionTestMode.value) {
-      // Check prop OR store flag
       if (result.success) {
-        // Add user message returned from sender to local array
         if (result.userMessage) {
           testSessionMessages.value.push(result.userMessage)
         }
-        // Add assistant message returned from sender to local array
         if (result.assistantMessage) {
           testSessionMessages.value.push(result.assistantMessage)
         }
       } else {
-        // If sending failed in test mode, maybe still show user message temporarily?
         if (result.userMessage) {
-          // Find a way to indicate error? Or just display user message.
-          // testSessionMessages.value.push({...result.userMessage, error: true }); // Example
-          // Let's just push it for now, errors are handled elsewhere
           testSessionMessages.value.push(result.userMessage)
         }
       }
     }
 
-    // Speak response only if successful (TTS logic is independent of saving)
     if (result.success && result.aiResponse) {
       ttsSpeakText(result.aiResponse)
     } else if (!result.success) {
       console.error(`[useChatViewLogic -> handleSendMessage] Message sending reported failure.`)
+      // Error message should be displayed by useMessageSender's error handling
     }
 
     await nextTick()
     chatInputInstance?.focusNestedInput?.()
   }
 
-  // --- Watchers ---
+  // --- Watchers (Unchanged) ---
   watch(sendError, (newError) => {
     if (newError) handleComposableError(newError.message || newError)
   })
@@ -342,7 +346,7 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
       activeSessionId.value,
       loadedMemoryId.value,
       selectedAssistant?.value?.name,
-      isCurrentSessionTestMode.value, // Use store value
+      isCurrentSessionTestMode.value,
       props.isTestMode,
       props.assistantConfig?.name,
     ],
@@ -352,21 +356,20 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     { immediate: true, deep: true },
   )
 
-  // <<< NEW: Watcher to clear temporary messages when leaving test mode >>>
   watch(isCurrentSessionTestMode, (isTest) => {
     if (!isTest) {
       console.log('[useChatViewLogic] Exiting test mode, clearing temporary messages.')
-      testSessionMessages.value = [] // Clear local messages
+      testSessionMessages.value = []
     }
   })
 
-  // --- Lifecycle Hooks ---
+  // --- Lifecycle Hooks (Unchanged) ---
   onMounted(() => {
     console.log('[useChatViewLogic] Mounted.')
     const initialAssistantId = props.initialAssistantId
     const isTestFromProps = props.isTestMode || false
 
-    testSessionMessages.value = [] // Clear temporary messages on mount/remount
+    testSessionMessages.value = []
 
     if (initialAssistantId) {
       // Case 1: Test modal from AssistantsView
@@ -395,7 +398,6 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
       console.log(
         `[useChatViewLogic] Initializing for temporary test from AssistantCreator. Test Mode: ${isTestFromProps}`,
       )
-      // Directly set the store flag (setActiveSession might not be appropriate without a real ID)
       isCurrentSessionTestMode.value = true
       updatePlaceholderBasedOnState()
       nextTick(() => {
@@ -404,7 +406,7 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     } else {
       // Case 3: Standard mount
       console.log('[useChatViewLogic] Standard mount. Updating placeholder.')
-      isCurrentSessionTestMode.value = false
+      isCurrentSessionTestMode.value = false // Ensure test mode is false on standard mount
       updatePlaceholderBasedOnState()
       nextTick(() => {
         chatInputAreaRef.value?.focusNestedInput?.()
@@ -414,12 +416,14 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
 
   onUnmounted(() => {
     console.log('[useChatViewLogic] Unmounted.')
-    if (isListening.value) toggleListening()
-    // Clear temporary messages when component is destroyed
+    // Stop listening if active when component unmounts
+    if (isListening.value) {
+      toggleListening() // Calls stopListening internally
+    }
     testSessionMessages.value = []
   })
 
-  // --- Return statement ---
+  // --- Return statement (Unchanged structure) ---
   return {
     // Reactive State
     isSending,
@@ -430,7 +434,7 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     activeSessionId,
     showAssistantSelectorBar,
     currentPlaceholder,
-    displayMessages, // Now returns temporary messages in test mode
+    displayMessages,
     availableAssistants,
     selectedAssistant,
     speechSupported,
@@ -453,6 +457,6 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     processMessageText,
     formatTimestamp,
     getAvatarDetailsForMessage,
-    autoGrowTextarea,
+    autoGrowTextarea, // Keep exporting this for ChatInput binding
   }
 }
