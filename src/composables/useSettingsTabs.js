@@ -7,7 +7,8 @@ const TABS = [
   { id: 'chat', name: 'Chat' },
   { id: 'imageGen', name: 'Image Gen' },
   { id: 'assistants', name: 'Assistants' },
-  { id: 'myAi', name: 'My AI' }, // *** Added My AI tab here ***
+  { id: 'memories', name: 'Memories' }, // <<< MOVED Memories tab here
+  { id: 'myAi', name: 'My AI' },
 ]
 
 // Default active tab ID
@@ -19,7 +20,7 @@ export function useSettingsTabs() {
   const activeTab = ref(DEFAULT_TAB)
 
   // Use the defined TABS configuration
-  const tabs = ref(TABS) // Keep it as a ref if needed elsewhere, though unlikely to change
+  const tabs = ref(TABS) // Keep it as a ref
 
   const changeTab = (tabId) => {
     // Ensure the tabId exists before setting it

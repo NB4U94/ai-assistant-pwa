@@ -1,10 +1,11 @@
 // src/stores/settingsStore.js
 import { defineStore } from 'pinia'
-import { ref, watch, computed /* Add computed if using getters */ } from 'vue' // Added computed import just in case, check if needed
+import { ref, watch, computed } from 'vue'
 
 export const useSettingsStore = defineStore('settings', () => {
   // --- Constants ---
   const SETTINGS_STORAGE_KEY = 'nb4u_ai_settings'
+  // Defaults...
   const DEFAULT_USER_DISPLAY_NAME = ''
   const DEFAULT_USER_AVATAR_URL = null
   const DEFAULT_THEME = 'dark'
@@ -12,29 +13,23 @@ export const useSettingsStore = defineStore('settings', () => {
   const MAX_FONT_SIZE = 120
   const DEFAULT_FONT_SIZE = 100
   const DEFAULT_UI_SOUND_EFFECTS_ENABLED = false
-  const DEFAULT_STARTUP_ASSISTANT_ID = null
+  const DEFAULT_STARTUP_ASSISTANT_ID = null // null represents main chat
   const DEFAULT_SHOW_ASSISTANT_SELECTOR_BAR = true
   const DEFAULT_TTS_ENABLED = false
   const DEFAULT_VOICE_URI = null
-
-  // --- *** FIXED: Added example models to prevent initialization error *** ---
   const VALID_CHAT_MODELS = [
-    { id: 'gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', acceptsImage: true }, // Example OpenAI model
+    { id: 'gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai', acceptsImage: true },
     {
       id: 'gemini-1.5-flash-latest',
       name: 'Google Gemini 1.5 Flash',
       provider: 'google',
       acceptsImage: true,
-    }, // Example Google model
-    // Add other models you plan to support here
+    },
+    // Add other models here
   ]
-  // --- *** END FIX *** ---
-
-  // Ensure VALID_CHAT_MODELS is not empty before accessing index 0
-  const DEFAULT_CHAT_MODEL = VALID_CHAT_MODELS.length > 0 ? VALID_CHAT_MODELS[0].id : null // Safer default
-
+  const DEFAULT_CHAT_MODEL = VALID_CHAT_MODELS.length > 0 ? VALID_CHAT_MODELS[0].id : null
   const DEFAULT_TEMPERATURE = 0.7
-  const DEFAULT_MAX_TOKENS = 1024 // Consider if 4096 is better for some models
+  const DEFAULT_MAX_TOKENS = 1024
   const MIN_CONTEXT_LENGTH = 1
   const MAX_CONTEXT_LENGTH = 10 // Default max history items
   const DEFAULT_CONTEXT_LENGTH = 5
@@ -42,20 +37,23 @@ export const useSettingsStore = defineStore('settings', () => {
   const MIN_TOP_P = 0.0
   const MAX_TOP_P = 1.0
   const DEFAULT_TOP_P = 1.0
-  const VALID_ASPECT_RATIOS = ['1:1', '16:9', '9:16'] // Used for DALL-E 3 image gen
+  const VALID_ASPECT_RATIOS = ['1:1', '16:9', '9:16']
   const DEFAULT_IMAGE_GEN_ASPECT_RATIO = '1:1'
-  const VALID_IMAGE_STYLES = ['Standard', 'Vivid', 'Natural', 'Cinematic'] // Used for DALL-E 3
-  const DEFAULT_IMAGE_GEN_STYLE = 'Vivid' // Changed default to Vivid based on DALL-E 3 docs
+  const VALID_IMAGE_STYLES = ['Standard', 'Vivid', 'Natural', 'Cinematic']
+  const DEFAULT_IMAGE_GEN_STYLE = 'Vivid'
   const DEFAULT_IMAGE_GEN_NEGATIVE_PROMPT = ''
   const MIN_NUM_IMAGES = 1
-  const MAX_NUM_IMAGES = 1 // DALL-E 3 currently supports n=1
+  const MAX_NUM_IMAGES = 1
   const DEFAULT_IMAGE_GEN_NUM_IMAGES = 1
   const DEFAULT_ASSISTANTS_INSTRUCTIONS = 'You are a helpful AI assistant.'
   const DEFAULT_MYAI_CONTEXT_SEGMENTS = []
   const DEFAULT_MYAI_APPLY_TO_ALL = true
+  const DEFAULT_MYAI_ALLOWED_IDS = [] // Stored as array, used as Set
+  const DEFAULT_SAVE_CONVERSATIONS = true
+  const DEFAULT_EXCLUDED_ASSISTANT_IDS = [] // Store as array, use as Set
+  const DEFAULT_LAST_ACTIVE_SETTINGS_TAB_ID = 'general' // Default active tab
 
   // --- Helper Function to Load/Save ---
-  // Ensure this handles potential parsing errors gracefully
   const loadSettings = () => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY)
@@ -63,16 +61,15 @@ export const useSettingsStore = defineStore('settings', () => {
         return JSON.parse(stored)
       }
     } catch (e) {
-      console.error('Error loading settings from localStorage:', e)
-      localStorage.removeItem(SETTINGS_STORAGE_KEY) // Clear corrupted data
+      console.error('Error loading settings:', e)
+      localStorage.removeItem(SETTINGS_STORAGE_KEY)
     }
-    return {} // Return empty object if nothing stored or error
+    return {}
   }
 
   const loadedSettings = loadSettings()
 
-  // --- State ---
-  // Initialize with loaded value or default. Ensure types match.
+  // --- Persistent State ---
   const userDisplayName = ref(loadedSettings.userDisplayName ?? DEFAULT_USER_DISPLAY_NAME)
   const userAvatarUrl = ref(loadedSettings.userAvatarUrl ?? DEFAULT_USER_AVATAR_URL)
   const theme = ref(loadedSettings.theme ?? DEFAULT_THEME)
@@ -86,12 +83,9 @@ export const useSettingsStore = defineStore('settings', () => {
   )
   const isTtsEnabled = ref(loadedSettings.isTtsEnabled ?? DEFAULT_TTS_ENABLED)
   const selectedVoiceUri = ref(loadedSettings.selectedVoiceUri ?? DEFAULT_VOICE_URI)
-
-  // Validate loaded chat model against current VALID list
   const loadedChatModel = loadedSettings.chatModel
   const isValidLoadedModel = VALID_CHAT_MODELS.some((m) => m.id === loadedChatModel)
   const chatModel = ref(isValidLoadedModel ? loadedChatModel : DEFAULT_CHAT_MODEL)
-
   const chatTemperature = ref(loadedSettings.chatTemperature ?? DEFAULT_TEMPERATURE)
   const chatMaxTokens = ref(loadedSettings.chatMaxTokens ?? DEFAULT_MAX_TOKENS)
   const chatContextLength = ref(loadedSettings.chatContextLength ?? DEFAULT_CONTEXT_LENGTH)
@@ -116,14 +110,23 @@ export const useSettingsStore = defineStore('settings', () => {
   const myAiContextApplyToAll = ref(
     loadedSettings.myAiContextApplyToAll ?? DEFAULT_MYAI_APPLY_TO_ALL,
   )
-  // Handle Set persistence correctly
   const myAiContextAllowedAssistantIds = ref(
-    new Set(loadedSettings.myAiContextAllowedAssistantIds || []),
+    new Set(loadedSettings.myAiContextAllowedAssistantIds || DEFAULT_MYAI_ALLOWED_IDS),
+  )
+  const saveConversationsGlobally = ref(
+    loadedSettings.saveConversationsGlobally ?? DEFAULT_SAVE_CONVERSATIONS,
+  )
+  const excludedAssistantIds = ref(
+    new Set(loadedSettings.excludedAssistantIds || DEFAULT_EXCLUDED_ASSISTANT_IDS),
   )
 
+  // --- Non-Persistent UI State ---
+  const lastActiveSettingsTabId = ref(DEFAULT_LAST_ACTIVE_SETTINGS_TAB_ID)
+  const settingsTabsAdvancedVisible = ref({})
+
   // --- Persistence ---
-  // Consolidate state into one object for saving
   const settingsToPersist = computed(() => ({
+    // --- Only include settings that SHOULD be saved permanently ---
     userDisplayName: userDisplayName.value,
     userAvatarUrl: userAvatarUrl.value,
     theme: theme.value,
@@ -146,28 +149,27 @@ export const useSettingsStore = defineStore('settings', () => {
     assistantsDefaultInstructions: assistantsDefaultInstructions.value,
     myAiContextSegments: myAiContextSegments.value,
     myAiContextApplyToAll: myAiContextApplyToAll.value,
-    // Convert Set to Array for JSON serialization
     myAiContextAllowedAssistantIds: Array.from(myAiContextAllowedAssistantIds.value),
+    saveConversationsGlobally: saveConversationsGlobally.value,
+    excludedAssistantIds: Array.from(excludedAssistantIds.value),
   }))
 
   function saveSettingsToLocalStorage() {
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsToPersist.value))
     } catch (error) {
-      console.error('Error saving settings to localStorage:', error)
-      // Potentially notify user or implement more robust error handling
+      console.error('Error saving settings:', error)
     }
   }
 
-  // --- Watcher ---
-  // Watch the computed object that aggregates all settings
+  // Watcher for persistent settings
   watch(
     settingsToPersist,
     (newValue) => {
-      console.log('Settings changed, saving to localStorage:', newValue) // Log the change
+      console.log('Persistent settings changed, saving to localStorage:', Object.keys(newValue))
       saveSettingsToLocalStorage()
     },
-    { deep: true }, // Deep watch is necessary for nested objects/arrays
+    { deep: true },
   )
 
   // --- Reset Actions ---
@@ -202,56 +204,56 @@ export const useSettingsStore = defineStore('settings', () => {
     assistantsDefaultInstructions.value = DEFAULT_ASSISTANTS_INSTRUCTIONS
     myAiContextSegments.value = DEFAULT_MYAI_CONTEXT_SEGMENTS
     myAiContextApplyToAll.value = DEFAULT_MYAI_APPLY_TO_ALL
-    myAiContextAllowedAssistantIds.value = new Set()
+    myAiContextAllowedAssistantIds.value = new Set(DEFAULT_MYAI_ALLOWED_IDS)
+  }
+  function resetMemoryDefaults() {
+    saveConversationsGlobally.value = DEFAULT_SAVE_CONVERSATIONS
+    excludedAssistantIds.value = new Set(DEFAULT_EXCLUDED_ASSISTANT_IDS)
+    console.log('Memory data settings reset to defaults.')
   }
 
   function resetAllSettingsToDefaults(confirm = true) {
     const confirmed = confirm
-      ? window.confirm('Are you sure you want to reset ALL settings to their defaults?')
+      ? window.confirm('Are you sure you want to reset ALL settings to defaults?')
       : true
     if (confirmed) {
       resetUserProfileDefaults()
       resetGeneralDefaults()
       resetChatDefaults()
       resetImageGenDefaults()
-      resetMyAIDefaults() // Add reset for My AI section
-      console.log('All settings reset to defaults.')
-      // Save immediately after reset
-      saveSettingsToLocalStorage()
+      resetMyAIDefaults()
+      resetMemoryDefaults()
+      lastActiveSettingsTabId.value = DEFAULT_LAST_ACTIVE_SETTINGS_TAB_ID
+      settingsTabsAdvancedVisible.value = {}
+      console.log('All settings (persistent and UI) reset to defaults.')
     }
   }
 
-  // loadSettingsFromLocalStorage() // Initial load is handled above refs initialization now
-
-  // --- Specific Actions (Setters) ---
-  // Ensure validation logic is robust
+  // --- Specific Actions (Setters for Persistent Settings) ---
+  // Implemented bodies to fix unused var warnings
   function setUserDisplayName(newName) {
     userDisplayName.value = String(newName || '').trim()
   }
   function setUserAvatarUrl(newUrl) {
-    // Basic validation: check if it's a string and potentially a data URL or http(s) URL
+    // Added check similar to original
     if (
       typeof newUrl === 'string' &&
       (newUrl.startsWith('data:image/') || newUrl.startsWith('http'))
     ) {
       userAvatarUrl.value = newUrl
     } else if (newUrl === null) {
-      userAvatarUrl.value = null // Allow clearing
-    } else {
-      console.warn('Invalid avatar URL format:', newUrl)
+      userAvatarUrl.value = null
     }
+    // else: ignore invalid URL input
   }
   function setChatModel(newModelId) {
     if (VALID_CHAT_MODELS.some((m) => m.id === newModelId)) {
       chatModel.value = newModelId
-    } else {
-      console.warn(`Attempted to set invalid chat model ID: ${newModelId}`)
     }
   }
   function setTheme(newTheme) {
     if (newTheme === 'light' || newTheme === 'dark') {
       theme.value = newTheme
-      // Update body class or data attribute for global CSS targeting
       document.documentElement.setAttribute('data-theme', newTheme)
     }
   }
@@ -259,7 +261,6 @@ export const useSettingsStore = defineStore('settings', () => {
     const size = Number(newSize)
     if (!isNaN(size) && size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE) {
       appFontSize.value = size
-      // Update body style for global CSS targeting
       document.documentElement.style.fontSize = `${size}%`
     }
   }
@@ -273,21 +274,18 @@ export const useSettingsStore = defineStore('settings', () => {
     isTtsEnabled.value = !!value
   }
   function setSelectedVoice(voiceUri) {
-    // Add validation if necessary (e.g., check against available voices)
     selectedVoiceUri.value = voiceUri
-  }
+  } // No validation needed here
   function setChatTemperature(value) {
     const temp = Number(value)
     if (!isNaN(temp) && temp >= 0 && temp <= 2) {
-      // OpenAI range
       chatTemperature.value = temp
     }
   }
   function setChatMaxTokens(value) {
-    const tokens = Number(value)
-    // Add reasonable upper limit check if needed
-    if (!isNaN(tokens) && tokens > 0) {
-      chatMaxTokens.value = Math.floor(tokens)
+    const tokens = value === null ? null : Number(value)
+    if (tokens === null || (!isNaN(tokens) && tokens > 0)) {
+      chatMaxTokens.value = tokens === null ? null : Math.floor(tokens)
     }
   }
   function setChatContextLength(value) {
@@ -307,14 +305,12 @@ export const useSettingsStore = defineStore('settings', () => {
   }
   function setMyAiContextSegments(segments) {
     if (Array.isArray(segments)) {
-      // Ensure segments are strings and trimmed
       myAiContextSegments.value = segments.map((s) => String(s || '').trim()).filter(Boolean)
     }
   }
   function addMyAiContextSegment(segment) {
     const trimmed = String(segment || '').trim()
     if (trimmed && !myAiContextSegments.value.includes(trimmed)) {
-      // Prevent duplicates
       myAiContextSegments.value.push(trimmed)
     }
   }
@@ -327,35 +323,72 @@ export const useSettingsStore = defineStore('settings', () => {
     const trimmed = String(newValue || '').trim()
     if (index >= 0 && index < myAiContextSegments.value.length) {
       if (trimmed) {
-        // Prevent duplicate on update
         if (
           !myAiContextSegments.value.includes(trimmed) ||
           myAiContextSegments.value[index] === trimmed
         ) {
           myAiContextSegments.value[index] = trimmed
-        } else {
-          console.warn('Attempted to update context segment to an existing value.')
-          // Optionally remove the original if updating to duplicate? Or just ignore.
-          // myAiContextSegments.value.splice(index, 1);
-        }
+        } // else: Avoid adding duplicates on update
       } else {
-        myAiContextSegments.value.splice(index, 1) // Remove if cleared
+        myAiContextSegments.value.splice(index, 1) // Remove if value becomes empty
       }
     }
   }
   function setMyAiContextApplyToAll(apply) {
     myAiContextApplyToAll.value = !!apply
   }
+
   function toggleMyAiContextAllowedAssistant(assistantId) {
+    // Param IS used, ignore possible lint error
     if (!assistantId) return
-    const currentSet = myAiContextAllowedAssistantIds.value // Get current Set
-    const newSet = new Set(currentSet) // Clone to trigger reactivity
+    const newSet = new Set(myAiContextAllowedAssistantIds.value)
     if (newSet.has(assistantId)) {
       newSet.delete(assistantId)
     } else {
       newSet.add(assistantId)
     }
-    myAiContextAllowedAssistantIds.value = newSet // Assign the new Set
+    myAiContextAllowedAssistantIds.value = newSet
+  }
+  function toggleSaveConversationsGlobally() {
+    saveConversationsGlobally.value = !saveConversationsGlobally.value
+    console.log(`Global conversation saving toggled: ${saveConversationsGlobally.value}`)
+  }
+
+  function toggleAssistantExclusion(assistantId) {
+    // Param IS used, ignore possible lint error
+    if (!assistantId || assistantId === 'main_chat') {
+      console.warn('Cannot exclude main chat from saving.')
+      return
+    }
+    const newSet = new Set(excludedAssistantIds.value)
+    if (newSet.has(assistantId)) {
+      newSet.delete(assistantId)
+      console.log(`Assistant ${assistantId} REMOVED from exclusion list.`)
+    } else {
+      newSet.add(assistantId)
+      console.log(`Assistant ${assistantId} ADDED to exclusion list.`)
+    }
+    excludedAssistantIds.value = newSet
+  }
+
+  // --- Actions for Non-Persistent UI State ---
+  function setLastActiveSettingsTabId(tabId) {
+    if (typeof tabId === 'string' && tabId) {
+      lastActiveSettingsTabId.value = tabId
+      // console.log(`[SettingsStore] Last active settings tab set to: ${tabId}`);
+    }
+  }
+
+  function toggleSettingsTabAdvancedVisible(tabId) {
+    if (!tabId || typeof tabId !== 'string') return
+    const currentVisibility = !!settingsTabsAdvancedVisible.value[tabId]
+    settingsTabsAdvancedVisible.value = {
+      ...settingsTabsAdvancedVisible.value,
+      [tabId]: !currentVisibility,
+    }
+    console.log(
+      `[SettingsStore] Advanced visibility toggled for tab '${tabId}': ${!currentVisibility}`,
+    )
   }
 
   // Apply theme and font size on initial load
@@ -364,7 +397,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // --- Return ---
   return {
-    // State (Refs)
+    // State (Refs) - Persistent
     userDisplayName,
     userAvatarUrl,
     theme,
@@ -387,9 +420,15 @@ export const useSettingsStore = defineStore('settings', () => {
     assistantsDefaultInstructions,
     myAiContextSegments,
     myAiContextApplyToAll,
-    myAiContextAllowedAssistantIds, // Expose the Set ref
+    myAiContextAllowedAssistantIds,
+    saveConversationsGlobally,
+    excludedAssistantIds,
 
-    // Actions
+    // State (Refs) - Non-Persistent UI State
+    lastActiveSettingsTabId,
+    settingsTabsAdvancedVisible,
+
+    // Actions - Persistent Settings Modifiers
     setUserDisplayName,
     setUserAvatarUrl,
     setTheme,
@@ -410,18 +449,27 @@ export const useSettingsStore = defineStore('settings', () => {
     updateMyAiContextSegment,
     setMyAiContextApplyToAll,
     toggleMyAiContextAllowedAssistant,
+    toggleSaveConversationsGlobally,
+    toggleAssistantExclusion,
+
+    // Actions - Non-Persistent UI State Modifiers
+    setLastActiveSettingsTabId,
+    toggleSettingsTabAdvancedVisible,
+
+    // Actions - Resets
     resetAllSettingsToDefaults,
     resetUserProfileDefaults,
     resetGeneralDefaults,
     resetChatDefaults,
     resetImageGenDefaults,
-    resetMyAIDefaults, // Expose My AI reset
+    resetMyAIDefaults,
+    resetMemoryDefaults,
 
-    // Constants / Readonly Data (Consider exposing as computed if they might change)
-    VALID_CHAT_MODELS: computed(() => VALID_CHAT_MODELS), // Expose as computed for safety
+    // Constants / Readonly Data
+    VALID_CHAT_MODELS: computed(() => VALID_CHAT_MODELS),
     VALID_ASPECT_RATIOS: computed(() => VALID_ASPECT_RATIOS),
     VALID_IMAGE_STYLES: computed(() => VALID_IMAGE_STYLES),
-    MIN_FONT_SIZE, // Expose raw constants if needed by UI validation
+    MIN_FONT_SIZE,
     MAX_FONT_SIZE,
     MIN_CONTEXT_LENGTH,
     MAX_CONTEXT_LENGTH,
@@ -429,6 +477,6 @@ export const useSettingsStore = defineStore('settings', () => {
     MAX_NUM_IMAGES,
     MIN_TOP_P,
     MAX_TOP_P,
-    DEFAULT_FONT_SIZE: computed(() => DEFAULT_FONT_SIZE), // Expose default if needed
+    DEFAULT_FONT_SIZE: computed(() => DEFAULT_FONT_SIZE),
   }
 })

@@ -6,7 +6,7 @@
         <span class="setting-description">Switch between light and dark mode.</span>
       </label>
       <div
-        class="toggle-switch"
+        :class="['toggle-switch', { active: props.isDarkMode }]"
         id="theme-toggle"
         role="switch"
         :aria-checked="props.isDarkMode.toString()"
@@ -21,7 +21,7 @@
       <button
         class="help-button"
         @click="
-          showHelp(
+          props.showHelp(
             'Theme Setting',
             'Controls the overall appearance. \'Dark\' mode uses a darker scheme, good for low light. \'Light\' mode uses a brighter scheme. Your choice is saved automatically.',
           )
@@ -53,7 +53,7 @@
       <button
         class="help-button"
         @click="
-          showHelp(
+          props.showHelp(
             'App Font Size',
             'Increases or decreases the size of most text (as a percentage of default) for better readability.',
           )
@@ -73,7 +73,7 @@
         >
       </label>
       <div
-        class="toggle-switch"
+        :class="['toggle-switch', { active: uiSoundEffectsEnabled }]"
         id="sound-toggle"
         role="switch"
         :aria-checked="uiSoundEffectsEnabled.toString()"
@@ -88,7 +88,7 @@
       <button
         class="help-button"
         @click="
-          showHelp(
+          props.showHelp(
             'UI Sound Effects',
             'Plays short sounds to provide feedback for certain actions within the application, like sending a message or receiving a response.',
           )
@@ -122,9 +122,9 @@
       <button
         class="help-button"
         @click="
-          showHelp(
+          props.showHelp(
             'Default Startup Assistant',
-            'Select the Assistant that should be active by default when you open the application. \'Nb4U-Ai\' is the main default.',
+            'Select the Assistant that should be active by default when you open the application. \'Nb4U-Ai (Default)\' is the main default.',
           )
         "
         aria-label="Help with Default Startup Assistant"
@@ -140,7 +140,7 @@
         <span class="setting-description">Show/hide the assistant selection bar in Chat view.</span>
       </label>
       <div
-        class="toggle-switch"
+        :class="['toggle-switch', { active: showAssistantSelectorBar }]"
         id="show-selector-toggle"
         role="switch"
         :aria-checked="showAssistantSelectorBar.toString()"
@@ -155,7 +155,7 @@
       <button
         class="help-button"
         @click="
-          showHelp(
+          props.showHelp(
             'Show Assistant Selector Bar',
             'Controls whether the horizontal bar allowing quick selection between Assistants is visible at the top of the main Chat view.',
           )
@@ -169,10 +169,10 @@
 
     <div
       class="advanced-toggle-header"
-      @click="toggleAdvanced"
+      @click="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
       tabindex="0"
-      @keydown.enter.prevent="toggleAdvanced"
-      @keydown.space.prevent="toggleAdvanced"
+      @keydown.enter.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
+      @keydown.space.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
     >
       <h3>Advanced Settings</h3>
       <button
@@ -209,7 +209,7 @@
           <button
             class="help-button"
             @click="
-              showHelp(
+              props.showHelp(
                 'Export Settings',
                 'Creates a JSON file containing all your current application settings (theme, chat preferences, etc.) that you can save as a backup or transfer to another device.',
               )
@@ -244,7 +244,7 @@
           <button
             class="help-button"
             @click="
-              showHelp(
+              props.showHelp(
                 'Import Settings',
                 'Loads settings from a JSON file you previously exported. This will overwrite your current settings.',
               )
@@ -272,7 +272,7 @@
           <button
             class="help-button"
             @click="
-              showHelp(
+              props.showHelp(
                 'Reset All Settings',
                 'WARNING: This will immediately reset all settings across all tabs (General, Chat, Image Gen, Assistants) back to their original default values. This action cannot be undone.',
               )
@@ -289,12 +289,11 @@
 </template>
 
 <script setup>
-// Script setup remains the same as previous correct version
 import { defineProps, defineEmits, computed, ref } from 'vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAssistantsStore } from '@/stores/assistantsStore'
 import { storeToRefs } from 'pinia'
-import { useGeneralSettings } from '@/composables/useGeneralSettings'
+import { useGeneralSettings } from '@/composables/useGeneralSettings' // Still used for toggle actions
 
 // --- Props ---
 const props = defineProps({
@@ -310,22 +309,29 @@ const emit = defineEmits(['update:modelValue'])
 // --- Store Access ---
 const settingsStore = useSettingsStore()
 const assistantsStore = useAssistantsStore()
-// Get needed state directly for binding using storeToRefs
+// Get needed persistent state refs for binding using storeToRefs
 const {
-  uiSoundEffectsEnabled, // Keep for binding :aria-checked, :title
-  defaultAssistantId,
-  showAssistantSelectorBar, // Keep for binding :aria-checked, :title
+  uiSoundEffectsEnabled,
+  defaultAssistantId, // Used directly with v-model
+  showAssistantSelectorBar,
+  settingsTabsAdvancedVisible, // <<< Get shared state object
 } = storeToRefs(settingsStore)
 const { assistants } = storeToRefs(assistantsStore)
 
 // --- Use General Settings Composable ---
-const {
-  // No need to get state refs again, already have them above
-  toggleUiSoundEffects, // Get the toggle function
-  toggleShowAssistantSelectorBar, // Get the toggle function
-} = useGeneralSettings()
+// Get toggle functions (state is now directly from storeToRefs)
+const { toggleUiSoundEffects, toggleShowAssistantSelectorBar } = useGeneralSettings()
 
-// --- Computed for v-model ---
+// --- Local State ---
+const importFileRef = ref(null)
+const tabId = 'general' // Define ID for this tab <<< ADDED tabId
+// Removed local isAdvancedVisible ref
+
+// --- Computed ---
+// Get visibility for *this* tab from the shared state object <<< ADDED computed prop
+const isAdvancedVisible = computed(() => !!settingsTabsAdvancedVisible.value[tabId])
+
+// Font size v-model computed property
 const fontSizeModel = computed({
   get: () => props.modelValue,
   set: (value) => {
@@ -333,9 +339,9 @@ const fontSizeModel = computed({
   },
 })
 
-// --- Computed property for startup assistant dropdown options ---
+// Computed property for startup assistant dropdown options
 const startupAssistantOptions = computed(() => {
-  const options = [{ id: null, name: 'Nb4U-Ai (Default)' }]
+  const options = [{ id: null, name: 'Nb4U-Ai (Default)' }] // Use null for the default/main chat ID
   if (Array.isArray(assistants.value)) {
     assistants.value.forEach((assistant) => {
       if (assistant && assistant.id && assistant.name) {
@@ -348,21 +354,17 @@ const startupAssistantOptions = computed(() => {
   return options
 })
 
-// --- Advanced Section State & Toggle ---
-const isAdvancedVisible = ref(false)
-const toggleAdvanced = () => {
-  isAdvancedVisible.value = !isAdvancedVisible.value
-}
+// Removed local toggleAdvanced method
 
 // --- Action Handlers ---
 const handleResetSettings = () => {
+  // The reset action already includes confirmation
   settingsStore.resetAllSettingsToDefaults()
-  // Reset font size v-model via emit
-  emit('update:modelValue', settingsStore.DEFAULT_FONT_SIZE)
+  // Reset font size v-model via emit using the potentially reset value
+  emit('update:modelValue', settingsStore.appFontSize)
 }
 
 // --- Import/Export ---
-const importFileRef = ref(null)
 const triggerImport = () => {
   importFileRef.value?.click()
 }
@@ -374,46 +376,25 @@ const handleFileImport = (event) => {
   reader.onload = (e) => {
     try {
       const importedSettings = JSON.parse(e.target.result)
-      console.log('Imported settings data:', importedSettings)
       if (typeof importedSettings !== 'object' || importedSettings === null) {
         throw new Error('Imported data is not a valid settings object.')
       }
       if (window.confirm('Importing settings will overwrite your current settings. Continue?')) {
-        // Use store actions where available, otherwise direct assignment (needs review)
-        if (settingsStore.setTheme) settingsStore.setTheme(importedSettings.theme)
-        else settingsStore.theme = importedSettings.theme ?? settingsStore.theme
-
-        // Emit font size update correctly
-        fontSizeModel.value = importedSettings.appFontSize ?? settingsStore.appFontSize
-
-        if (settingsStore.setUiSoundEffectsEnabled)
-          settingsStore.setUiSoundEffectsEnabled(importedSettings.uiSoundEffectsEnabled)
-        else
-          settingsStore.uiSoundEffectsEnabled =
-            importedSettings.uiSoundEffectsEnabled ?? settingsStore.uiSoundEffectsEnabled
-
-        if (settingsStore.setShowAssistantSelectorBar)
-          settingsStore.setShowAssistantSelectorBar(importedSettings.showAssistantSelectorBar)
-        else
-          settingsStore.showAssistantSelectorBar =
-            importedSettings.showAssistantSelectorBar ?? settingsStore.showAssistantSelectorBar
-
-        // Assign other settings (consider adding specific actions for these in store later)
-        settingsStore.defaultAssistantId =
-          importedSettings.defaultAssistantId === undefined
-            ? settingsStore.defaultAssistantId
-            : importedSettings.defaultAssistantId
-        settingsStore.isTtsEnabled = importedSettings.isTtsEnabled ?? settingsStore.isTtsEnabled
-        settingsStore.selectedVoiceUri =
-          importedSettings.selectedVoiceUri ?? settingsStore.selectedVoiceUri
-        settingsStore.chatModel = importedSettings.chatModel ?? settingsStore.chatModel
-        settingsStore.chatTemperature =
-          importedSettings.chatTemperature ?? settingsStore.chatTemperature
-        settingsStore.chatMaxTokens = importedSettings.chatMaxTokens ?? settingsStore.chatMaxTokens
-        settingsStore.chatContextLength =
-          importedSettings.chatContextLength ?? settingsStore.chatContextLength
-        settingsStore.sendOnEnter = importedSettings.sendOnEnter ?? settingsStore.sendOnEnter
-        settingsStore.chatTopP = importedSettings.chatTopP ?? settingsStore.chatTopP
+        // Apply settings using store actions where possible
+        settingsStore.setTheme(importedSettings.theme)
+        fontSizeModel.value = importedSettings.appFontSize ?? settingsStore.DEFAULT_FONT_SIZE // Use computed setter
+        settingsStore.setUiSoundEffectsEnabled(importedSettings.uiSoundEffectsEnabled)
+        settingsStore.setShowAssistantSelectorBar(importedSettings.showAssistantSelectorBar)
+        settingsStore.setTtsEnabled(importedSettings.isTtsEnabled)
+        settingsStore.setSelectedVoice(importedSettings.selectedVoiceUri)
+        settingsStore.setChatModel(importedSettings.chatModel)
+        settingsStore.setChatTemperature(importedSettings.chatTemperature)
+        settingsStore.setChatMaxTokens(importedSettings.chatMaxTokens)
+        settingsStore.setChatContextLength(importedSettings.chatContextLength)
+        settingsStore.setSendOnEnter(importedSettings.sendOnEnter)
+        settingsStore.setChatTopP(importedSettings.chatTopP)
+        // Direct assignment for state without specific setters (consider adding setters later)
+        settingsStore.defaultAssistantId = importedSettings.defaultAssistantId ?? null
         settingsStore.imageGenDefaultAspectRatio =
           importedSettings.imageGenDefaultAspectRatio ?? settingsStore.imageGenDefaultAspectRatio
         settingsStore.imageGenDefaultStyle =
@@ -426,19 +407,16 @@ const handleFileImport = (event) => {
         settingsStore.assistantsDefaultInstructions =
           importedSettings.assistantsDefaultInstructions ??
           settingsStore.assistantsDefaultInstructions
-
-        // My AI Settings
-        if (importedSettings.myAiContextSegments)
-          settingsStore.myAiContextSegments = importedSettings.myAiContextSegments
-        if (importedSettings.myAiContextApplyToAll !== undefined)
-          settingsStore.myAiContextApplyToAll = importedSettings.myAiContextApplyToAll
-        if (importedSettings.myAiContextAllowedAssistantIds)
-          settingsStore.myAiContextAllowedAssistantIds = new Set(
-            importedSettings.myAiContextAllowedAssistantIds,
-          )
+        settingsStore.setMyAiContextSegments(importedSettings.myAiContextSegments)
+        settingsStore.setMyAiContextApplyToAll(importedSettings.myAiContextApplyToAll)
+        settingsStore.myAiContextAllowedAssistantIds = new Set(
+          importedSettings.myAiContextAllowedAssistantIds || [],
+        )
+        settingsStore.saveConversationsGlobally =
+          importedSettings.saveConversationsGlobally ?? settingsStore.saveConversationsGlobally
+        settingsStore.excludedAssistantIds = new Set(importedSettings.excludedAssistantIds || [])
 
         alert('Settings imported successfully!')
-        // Watcher in store triggers save
       }
     } catch (error) {
       console.error('Error reading or parsing settings file:', error)
@@ -457,8 +435,12 @@ const handleFileImport = (event) => {
 
 const exportSettings = () => {
   try {
-    // Use store state directly for export
+    // Use the settingsToPersist computed value for consistency if available,
+    // otherwise reconstruct manually (ensure it matches store definition)
+    // Accessing store state directly is simpler here:
     const settingsToExport = {
+      userDisplayName: settingsStore.userDisplayName,
+      userAvatarUrl: settingsStore.userAvatarUrl,
       theme: settingsStore.theme,
       appFontSize: settingsStore.appFontSize,
       uiSoundEffectsEnabled: settingsStore.uiSoundEffectsEnabled,
@@ -480,13 +462,16 @@ const exportSettings = () => {
       myAiContextSegments: settingsStore.myAiContextSegments,
       myAiContextApplyToAll: settingsStore.myAiContextApplyToAll,
       myAiContextAllowedAssistantIds: Array.from(settingsStore.myAiContextAllowedAssistantIds),
+      saveConversationsGlobally: settingsStore.saveConversationsGlobally,
+      excludedAssistantIds: Array.from(settingsStore.excludedAssistantIds),
     }
+
     const jsonString = JSON.stringify(settingsToExport, null, 2)
     const blob = new Blob([jsonString], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    const timestamp = new Date().toISOString().slice(0, 10) // yyyy-MM-dd format
+    const timestamp = new Date().toISOString().slice(0, 10) // YYYY-MM-DD format
     link.download = `nb4u-ai-settings-${timestamp}.json`
     document.body.appendChild(link)
     link.click()
@@ -537,7 +522,8 @@ const exportSettings = () => {
 .quick-setting-button,
 .help-button,
 .slider-container {
-  justify-self: end;
+  justify-self: end; /* Align to right */
+  align-self: center; /* Center vertically */
 }
 
 .slider-container {
@@ -559,14 +545,63 @@ const exportSettings = () => {
   vertical-align: middle;
   min-width: 120px;
   max-width: 150px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: none;
 }
 .settings-slider:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* Track */
+.settings-slider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--border-color-light);
+  border-radius: 3px;
+}
+.settings-slider::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--border-color-light);
+  border-radius: 3px;
+}
+/* Thumb */
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -7px;
+  background: var(--accent-color-primary);
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg-input-field);
+}
+.settings-slider::-moz-range-thumb {
+  background: var(--accent-color-primary);
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg-input-field);
+}
+/* Focus */
 .settings-slider:focus {
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+.settings-slider:focus::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px var(--bg-input-field),
+    0 0 0 5px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
+}
+.settings-slider:focus::-moz-range-thumb {
+  box-shadow:
+    0 0 0 3px var(--bg-input-field),
+    0 0 0 5px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 
 /* Select Styles */
@@ -606,8 +641,8 @@ const exportSettings = () => {
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: 1px solid var(--border-color-medium);
-  background-color: var(--bg-input-field);
-  color: var(--text-primary);
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
   font-family: sans-serif;
   font-size: 0.9em;
   flex-shrink: 0;
@@ -634,6 +669,63 @@ const exportSettings = () => {
   opacity: 0.6;
   cursor: not-allowed;
   background-color: color-mix(in srgb, var(--bg-input-field) 70%, var(--bg-main-content));
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 26px;
+  background-color: var(--bg-toggle-inactive, #555);
+  border-radius: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.toggle-switch .toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+.toggle-switch.active {
+  background-color: var(--accent-color-primary);
+}
+.toggle-switch.active .toggle-knob {
+  transform: translateX(24px);
+}
+.toggle-switch:disabled,
+.toggle-switch[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Help Button */
+.help-button {
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
+  border: 1px solid var(--border-color-medium);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 0.8em;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-button:hover {
+  background-color: var(--bg-button-secondary-hover);
+  color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary);
+  transform: scale(1.1);
 }
 
 /* --- Advanced Section --- */
@@ -664,21 +756,27 @@ const exportSettings = () => {
   font-size: 0.95em;
   user-select: none;
 }
-
-/* Arrow button styles */
 .advanced-arrow {
-  /* Base styles are now global in main.css */
-  /* Scoped styles only need hover/focus if different */
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+  color: var(--text-button-secondary);
 }
-/* SVG color comes from global rule */
+.advanced-arrow:hover {
+  color: var(--accent-color-primary);
+}
 .advanced-arrow svg {
   display: block;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
 }
 .advanced-arrow.expanded {
   transform: rotate(180deg);
 }
 
-/* Styles for the collapsible content area */
 .advanced-settings-section {
   padding: 1rem 1rem 0 1rem;
   border: 1px solid var(--border-color-light);
@@ -688,12 +786,16 @@ const exportSettings = () => {
   background-color: var(--bg-main-content);
   overflow: hidden;
 }
+.advanced-settings-section .setting-item {
+  padding-left: 0;
+  padding-right: 0;
+}
 
 /* --- Transition for Collapse --- */
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
-  max-height: 500px; /* Adjust as needed */
+  max-height: 500px;
   overflow: hidden;
 }
 .collapse-enter-from,
@@ -703,11 +805,11 @@ const exportSettings = () => {
   padding-top: 0;
   padding-bottom: 0;
   border-width: 0;
-  margin-top: 0; /* Adjust if margin is part of transition */
+  margin-top: 0;
 }
 .collapse-enter-to,
 .collapse-leave-from {
   opacity: 1;
-  max-height: 500px; /* Match enter-active */
+  max-height: 500px;
 }
 </style>

@@ -133,16 +133,16 @@
 
     <div
       class="advanced-toggle-header"
-      @click="toggleAdvanced"
+      @click="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
       tabindex="0"
-      @keydown.enter.prevent="toggleAdvanced"
-      @keydown.space.prevent="toggleAdvanced"
+      @keydown.enter.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
+      @keydown.space.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
     >
       <h3>Advanced Chat Settings</h3>
       <button
         class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
-        aria-label="Toggle Advanced Settings"
+        aria-label="Toggle Advanced Chat Settings"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -245,16 +245,18 @@
           <label for="max-tokens-input" class="setting-label">
             Max Response Tokens <span class="setting-description">Max length of AI response.</span>
           </label>
-          <input
-            type="number"
-            id="max-tokens-input"
-            class="settings-input number-input"
-            v-model="maxTokensModel"
-            min="1"
-            step="1"
-            placeholder="Model Default"
-            aria-label="Maximum response tokens"
-          />
+          <div class="input-container">
+            <input
+              type="number"
+              id="max-tokens-input"
+              class="settings-input number-input"
+              v-model="maxTokensModel"
+              min="1"
+              step="1"
+              placeholder="Model Default"
+              aria-label="Maximum response tokens"
+            />
+          </div>
           <button
             class="help-button"
             @click="showMaxTokensHelp"
@@ -304,20 +306,26 @@
 </template>
 
 <script setup>
-// Script setup remains the same
-import { defineProps, defineEmits, computed, ref } from 'vue'
+import { defineProps, defineEmits, computed } from 'vue' // Removed ref import
 import { useSettingsStore } from '@/stores/settingsStore'
+import { storeToRefs } from 'pinia' // <<< Added storeToRefs
+
+// --- Store Access ---
 const settingsStore = useSettingsStore()
+// Get non-persistent UI state object for advanced sections
+const { settingsTabsAdvancedVisible } = storeToRefs(settingsStore) // <<< Get shared state object
+
+// --- Props ---
 const props = defineProps({
   isTtsEnabled: { type: Boolean, required: true },
   toggleTtsEnabled: { type: Function, required: true },
   ttsSupported: { type: Boolean, required: true },
-  modelValue: { type: [String, null], default: null },
+  modelValue: { type: [String, null], default: null }, // For v-model on tts-voice-select
   availableVoices: { type: Array, required: true },
   showHelp: { type: Function, required: true },
   temperature: { type: Number, required: true },
   modelId: { type: String, required: true },
-  maxTokens: { type: [Number, String, null], required: true },
+  maxTokens: { type: [Number, String, null], required: true }, // Allow null for default
   contextLength: { type: Number, required: true },
   sendOnEnter: { type: Boolean, required: true },
   toggleSendOnEnter: { type: Function, required: true },
@@ -325,14 +333,26 @@ const props = defineProps({
   handleClearHistory: { type: Function, required: true },
   handleResetChatDefaults: { type: Function, required: true },
 })
+
+// --- Emits ---
 const emit = defineEmits([
-  'update:modelValue',
+  'update:modelValue', // For tts-voice-select
   'update:temperature',
   'update:modelId',
   'update:maxTokens',
   'update:contextLength',
   'update:chatTopP',
 ])
+
+// --- Local State ---
+const tabId = 'chat' // Define ID for this tab <<< ADDED tabId
+// Removed local isAdvancedVisible ref
+
+// --- Computed ---
+// Get visibility for *this* tab from the shared state object <<< ADDED computed prop
+const isAdvancedVisible = computed(() => !!settingsTabsAdvancedVisible.value[tabId])
+
+// Computed properties for v-model bindings to props/emits
 const ttsVoiceModel = computed({
   get: () => props.modelValue,
   set: (value) => emit('update:modelValue', value),
@@ -355,16 +375,22 @@ const chatTopPModel = computed({
 })
 const maxTokensModel = computed({
   get: () => props.maxTokens,
+  // Handle empty input to represent 'null' (model default)
   set: (value) => {
     const numValue = value === '' ? null : Number(value)
-    emit('update:maxTokens', numValue)
+    // Only emit valid numbers or null
+    if (numValue === null || (!isNaN(numValue) && numValue >= 1)) {
+      emit('update:maxTokens', numValue === null ? null : Math.floor(numValue))
+    } else if (value === '') {
+      emit('update:maxTokens', null) // Explicitly emit null for empty string
+    }
+    // Else: ignore invalid input like non-numbers
   },
 })
-const isAdvancedVisible = ref(false)
-const toggleAdvanced = () => {
-  isAdvancedVisible.value = !isAdvancedVisible.value
-}
-// Help text functions remain the same
+
+// Removed local toggleAdvanced method
+
+// --- Help Text Functions ---
 const showTtsHelp = () =>
   props.showHelp(
     'Enable TTS',
@@ -388,7 +414,7 @@ const showSendOnEnterHelp = () =>
 const showChatModelHelp = () =>
   props.showHelp(
     'Chat Model',
-    'Selects the underlying Artificial Intelligence model used for generating chat responses. Different models have varying strengths, knowledge cutoffs, response speeds, and potential costs associated with their use (e.g., via API keys). Choose the one that best suits your needs and budget. "(Paid)" indicates models typically requiring API credits or subscriptions.',
+    'Selects the underlying Artificial Intelligence model used for generating chat responses. Different models have varying strengths, knowledge cutoffs, response speeds, and potential costs associated with their use (e.g., via API keys). Choose the one that best suits your needs and budget.',
   )
 const showTemperatureHelp = () =>
   props.showHelp(
@@ -418,7 +444,7 @@ const showResetChatHelp = () =>
 </script>
 
 <style scoped>
-/* Removed scoped styles for .toggle-switch, .toggle-knob, .help-button, .advanced-arrow, @keyframes faintGreenPulse */
+/* Styles are assumed unchanged as they looked consistent */
 .setting-item {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -452,12 +478,14 @@ const showResetChatHelp = () =>
 .settings-input,
 .quick-setting-button,
 .help-button,
-.slider-container {
+.slider-container,
+.input-container {
   justify-self: end;
+  align-self: center;
 }
 .slider-container .settings-slider {
   justify-self: initial;
-}
+} /* Allow slider to take space in container */
 .settings-select,
 .settings-slider,
 .settings-input {
@@ -543,15 +571,26 @@ const showResetChatHelp = () =>
   border: 2px solid var(--bg-input-field);
 }
 .settings-slider:focus::-webkit-slider-thumb {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+  box-shadow:
+    0 0 0 3px var(--bg-input-field),
+    0 0 0 5px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 .settings-slider:focus::-moz-range-thumb {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color-primary) 30%, transparent);
+  box-shadow:
+    0 0 0 3px var(--bg-input-field),
+    0 0 0 5px color-mix(in srgb, var(--accent-color-primary) 50%, transparent);
 }
 
+.input-container {
+  display: flex;
+  align-items: center;
+} /* Wrapper for number input */
 .settings-input {
   max-width: 150px;
   text-align: right;
+}
+.settings-input.number-input {
+  max-width: 100px; /* Smaller width for number input */
 }
 .settings-input[type='number'] {
   -moz-appearance: textfield;
@@ -569,6 +608,15 @@ const showResetChatHelp = () =>
   transition: background-color 0.2s ease;
   padding: 0.5rem 1rem;
   max-width: 200px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color-medium);
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
+  font-family: sans-serif;
+  font-size: 0.9em;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  min-width: 100px;
 }
 .quick-setting-button:not(:disabled):hover {
   background-color: var(--bg-button-secondary-hover);
@@ -582,14 +630,63 @@ const showResetChatHelp = () =>
   background-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black);
 }
-.setting-item:has(.quick-setting-button:not(.danger-button)) .quick-setting-button {
+/* .setting-item:has(.quick-setting-button:not(.danger-button)) .quick-setting-button { background-color: var(--bg-button-secondary); color: var(--text-button-secondary); border-color: var(--border-color-medium); } */
+/* .setting-item:has(.quick-setting-button:not(.danger-button)) .quick-setting-button:not(:disabled):hover { background-color: var(--bg-button-secondary-hover); } */
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 26px;
+  background-color: var(--bg-toggle-inactive, #555);
+  border-radius: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.toggle-switch .toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+.toggle-switch.active {
+  background-color: var(--accent-color-primary);
+}
+.toggle-switch.active .toggle-knob {
+  transform: translateX(24px);
+}
+.toggle-switch[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Help Button */
+.help-button {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
-  border-color: var(--border-color-medium);
+  border: 1px solid var(--border-color-medium);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 0.8em;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.setting-item:has(.quick-setting-button:not(.danger-button))
-  .quick-setting-button:not(:disabled):hover {
+.help-button:hover {
   background-color: var(--bg-button-secondary-hover);
+  color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary);
+  transform: scale(1.1);
 }
 
 .advanced-toggle-header {
@@ -619,8 +716,26 @@ const showResetChatHelp = () =>
   font-size: 0.95em;
   user-select: none;
 }
-
-/* Styles removed as they are global */
+.advanced-arrow {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+  color: var(--text-button-secondary);
+}
+.advanced-arrow:hover {
+  color: var(--accent-color-primary);
+}
+.advanced-arrow svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+.advanced-arrow.expanded {
+  transform: rotate(180deg);
+}
 
 .advanced-settings-section {
   padding: 1rem 1rem 0 1rem;

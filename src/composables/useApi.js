@@ -1,36 +1,34 @@
 // src/composables/useApi.js
 import { ref } from 'vue'
-// Removed unused store imports for generic use case
-// import { useConversationStore } from '@/stores/conversationStore';
-// import { useSettingsStore } from '@/stores/settingsStore';
-// import { storeToRefs } from 'pinia';
 
 /**
  * Composable for handling generic API calls to backend functions.
+ * Now handles both JSON and streaming text responses.
  *
- * @param {object} options - Optional initial configuration (e.g., for image processing).
- * @param {Function} options.readFileAsBase64 - Optional function to read file as base64 (if needed by caller).
- * @returns {object} - Reactive loading state and the function to call the API.
+ * @param {object} options - Optional initial configuration.
+ * @param {Function} options.readFileAsBase64 - Optional function (remains for compatibility).
+ * @returns {object} - Reactive loading/error state and the callApi function.
  */
 export function useApi(options = {}) {
-  // Use the passed-in function if provided, otherwise null
   const readFileAsBase64 = options.readFileAsBase64 || null
-
-  // Single loading state for the composable instance
   const isLoading = ref(false)
-  const error = ref(null) // Add an error ref
+  const error = ref(null)
 
   /**
    * Calls a specified backend Netlify function.
-   * @param {string} url - The Netlify function endpoint (e.g., '/.netlify/functions/call-something').
-   * @param {object} payload - The JSON payload to send to the function.
+   * Determines response type (JSON or Stream) based on Content-Type header.
+   *
+   * @param {string} url - The Netlify function endpoint.
+   * @param {object} payload - The JSON payload to send.
    * @param {string} method - The HTTP method (default: 'POST').
-   * @returns {Promise<object>} - Promise resolving to the parsed JSON response object on success,
-   * or rejects with an error object ({ isError: true, message: string }) on failure.
+   * @returns {Promise<object|Response>} - Promise resolving to:
+   * - Parsed JSON object for 'application/json' responses.
+   * - The raw Response object for 'text/plain' (streaming) responses.
+   * Rejects with an error object ({ isError: true, message: string }) on failure.
    */
   const callApi = async (url, payload, method = 'POST') => {
     isLoading.value = true
-    error.value = null // Clear previous errors
+    error.value = null
     console.log(`[useApi] Calling ${method} ${url}`)
 
     try {
@@ -40,61 +38,85 @@ export function useApi(options = {}) {
         body: JSON.stringify(payload),
       })
 
-      // Try to get text regardless of status for better error reporting
-      const responseText = await response.text()
-
+      // --- Handle initial non-OK responses (applies to both JSON and Stream attempts) ---
       if (!response.ok) {
         let errorMessage = `API Error: HTTP ${response.status} from ${url}`
+        let responseText = ''
         try {
+          responseText = await response.text()
           const parsedError = JSON.parse(responseText)
           errorMessage =
             parsedError.error?.message ||
             parsedError.error ||
             `${errorMessage}: ${responseText.substring(0, 150)}`
-        } catch (parseError) {
-          errorMessage += `: ${responseText.substring(0, 150)}`
+        } catch {
+          // <-- Removed 'parseError' variable
+          // If parsing error body fails, use the text we got (if any)
+          errorMessage += `: ${responseText.substring(0, 150) || response.statusText}`
         }
         console.error(`[useApi] API Error received: ${errorMessage}`)
-        throw new Error(errorMessage) // Throw to be caught below
+        throw new Error(errorMessage)
       }
 
-      // Attempt to parse successful response as JSON
-      let data
-      try {
-        data = JSON.parse(responseText)
-      } catch (e) {
-        console.error('[useApi] Invalid JSON received from API:', responseText)
-        throw new Error(`Invalid JSON received from API: ${responseText.substring(0, 150)}`)
-      }
+      // --- Handle OK responses based on Content-Type ---
+      const contentType = response.headers.get('content-type')?.toLowerCase() || ''
 
-      // Optional: Check for application-level errors in the successful response
-      if (data.error) {
-        console.error('[useApi] API returned error object:', data.error)
-        const errMsg =
-          typeof data.error === 'string'
-            ? data.error
-            : data.error?.message || JSON.stringify(data.error)
-        throw new Error(errMsg)
-      }
+      if (contentType.includes('text/plain')) {
+        // --- Handle Streaming Response ---
+        console.log(
+          `[useApi] Received streaming response (Content-Type: ${contentType}). Returning raw Response object.`,
+        )
+        isLoading.value = false
+        return response
+      } else if (contentType.includes('application/json')) {
+        // --- Handle JSON Response ---
+        console.log(`[useApi] Received JSON response (Content-Type: ${contentType}). Parsing body.`)
+        const responseText = await response.text()
+        let data
+        try {
+          data = JSON.parse(responseText)
+        } catch {
+          // <-- Removed 'e' variable
+          console.error('[useApi] Invalid JSON received from API:', responseText)
+          throw new Error(`Invalid JSON received from API: ${responseText.substring(0, 150)}`)
+        }
 
-      console.log('[useApi] API call successful.')
-      isLoading.value = false
-      return data // Resolve with the parsed data
+        // Optional: Check for application-level errors in JSON
+        if (data.error) {
+          console.error('[useApi] API returned JSON error object:', data.error)
+          const errMsg =
+            typeof data.error === 'string'
+              ? data.error
+              : data.error?.message || JSON.stringify(data.error)
+          throw new Error(errMsg)
+        }
+
+        console.log('[useApi] JSON API call successful.')
+        isLoading.value = false
+        return data
+      } else {
+        // --- Handle Unexpected Content-Type ---
+        console.warn(
+          `[useApi] Received unexpected Content-Type: ${contentType}. Attempting to read as text.`,
+        )
+        const fallbackText = await response.text()
+        console.log('[useApi] Fallback text content:', fallbackText.substring(0, 200))
+        isLoading.value = false
+        return { fallbackText: fallbackText }
+      }
     } catch (err) {
       console.error('[useApi] Error during API call:', err)
-      error.value = err.message || 'An unknown API error occurred.' // Store error message
+      error.value = err.message || 'An unknown API error occurred.'
       isLoading.value = false
-      // Reject the promise on failure for await/async handling
-      throw { isError: true, message: error.value } // Reject standard error object
+      throw { isError: true, message: error.value }
     }
   }
 
   // Return reactive states and the API call function
-  // Keep readFileAsBase64 available if it was passed in, for ChatView compatibility
   return {
     isLoading,
-    error, // Expose error state
+    error,
     callApi,
-    readFileAsBase64, // Make available if provided
+    readFileAsBase64,
   }
 }

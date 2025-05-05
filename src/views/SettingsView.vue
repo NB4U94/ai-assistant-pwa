@@ -58,6 +58,10 @@
         <SettingsTabAssistants :showHelp="showHelp" />
       </div>
 
+      <div v-else-if="activeTab === 'memories'">
+        <SettingsTabMemories :showHelp="showHelp" />
+      </div>
+
       <div v-else-if="activeTab === 'myAi'">
         <SettingsTabMyAi :showHelp="showHelp" />
       </div>
@@ -78,8 +82,15 @@
 </template>
 
 <script setup>
+// --- Import Vue Helpers ---
+import { ref, watch } from 'vue' // <<< Added ref, watch
+import { storeToRefs } from 'pinia' // <<< Added storeToRefs
+
+// --- Import Stores ---
+import { useSettingsStore } from '@/stores/settingsStore' // <<< Added settings store
+
 // --- Import Composables ---
-import { useSettingsTabs } from '@/composables/useSettingsTabs'
+import { useSettingsTabs } from '@/composables/useSettingsTabs' // Still used for the 'tabs' array
 import { useSettingsHelpModal } from '@/composables/useSettingsHelpModal'
 import { useGeneralSettings } from '@/composables/useGeneralSettings'
 import { useChatSettings } from '@/composables/useChatSettings'
@@ -90,9 +101,10 @@ import SettingsTabChat from '@/components/settings/SettingsTabChat.vue'
 import SettingsTabImageGen from '@/components/settings/SettingsTabImageGen.vue'
 import SettingsTabAssistants from '@/components/settings/SettingsTabAssistants.vue'
 import SettingsTabMyAi from '@/components/settings/SettingsTabMyAi.vue'
+import SettingsTabMemories from '@/components/settings/SettingsTabMemories.vue' // <<< UPDATED Import Name
 
 // --- Use Composables ---
-const { activeTab, tabs, changeTab } = useSettingsTabs()
+const { tabs } = useSettingsTabs() // Only need 'tabs' from here now
 const { isHelpModalVisible, currentHelpContent, showHelp, closeHelpModal } = useSettingsHelpModal()
 const { isDarkMode, toggleTheme, appFontSize, setAppFontSize } = useGeneralSettings()
 const {
@@ -117,15 +129,34 @@ const {
   handleClearHistory,
   handleResetChatDefaults,
 } = useChatSettings()
+
+// --- Settings Store Access --- <<< NEW SECTION
+const settingsStore = useSettingsStore()
+const { lastActiveSettingsTabId } = storeToRefs(settingsStore)
+const { setLastActiveSettingsTabId } = settingsStore
+
+// --- Local Active Tab State (synced with store) --- <<< NEW SECTION
+// Initialize local activeTab with the value from the store
+const activeTab = ref(lastActiveSettingsTabId.value)
+
+// Define local function to change the tab
+const changeTab = (tabId) => {
+  activeTab.value = tabId
+}
+
+// Watch the local activeTab and update the store whenever it changes
+watch(activeTab, (newTabId) => {
+  // console.log(`SettingsView: Active tab changed to ${newTabId}, updating store.`); // Optional debug log
+  setLastActiveSettingsTabId(newTabId)
+})
 </script>
 
 <style scoped>
-/* Styles remain the same as response #50 */
+/* Styles remain the same */
 .settings-view {
   padding: 1.5rem 2rem;
   height: 100%;
   overflow-y: auto;
-  /* *** UPDATED Background Color *** */
   background-color: #101010; /* Near black */
   color: var(--text-primary);
   position: relative;
@@ -198,6 +229,7 @@ h2 {
     opacity: 1;
   }
 }
+
 .help-modal-content {
   background-color: var(--bg-modal, var(--bg-main-content));
   color: var(--text-primary);
@@ -221,6 +253,7 @@ h2 {
     opacity: 1;
   }
 }
+
 .help-modal-header {
   display: flex;
   justify-content: space-between;
@@ -248,6 +281,7 @@ h2 {
 .close-modal-button:hover {
   color: var(--text-primary);
 }
+
 .help-modal-body {
   font-size: 0.95em;
   line-height: 1.6;

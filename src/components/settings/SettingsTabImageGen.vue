@@ -16,7 +16,7 @@
       <button
         class="help-button neon-glow-effect-primary"
         @click="
-          showHelp(
+          props.showHelp(
             'Default Aspect Ratio',
             'Sets the default shape (width-to-height ratio) for generated images. Common options are Square, Landscape (Wide), and Portrait (Tall). The underlying AI model may support specific resolutions for these ratios.',
           )
@@ -41,7 +41,7 @@
       <button
         class="help-button neon-glow-effect-primary"
         @click="
-          showHelp(
+          props.showHelp(
             'Default Style Preset',
             'Influences the overall look and feel of the generated image (e.g., realistic, cartoonish, artistic). Availability depends on the AI model.',
           )
@@ -73,7 +73,7 @@
       <button
         class="help-button neon-glow-effect-primary"
         @click="
-          showHelp(
+          props.showHelp(
             'Default Number of Images',
             `Determines the default number of image variations generated each time you submit a prompt (between ${settingsStore.MIN_NUM_IMAGES} and ${settingsStore.MAX_NUM_IMAGES}). Some AI models may have limitations. This applies when starting a new generation session.`,
           )
@@ -100,7 +100,7 @@
       <button
         class="help-button neon-glow-effect-primary"
         @click="
-          showHelp(
+          props.showHelp(
             'Default Negative Prompt',
             'Enter keywords or phrases describing elements you want the AI to avoid by default in generated images (e.g., low quality, extra fingers, text). This helps refine the output and will pre-fill the negative prompt field in the Image Generation view.',
           )
@@ -123,7 +123,7 @@
       <button
         class="help-button neon-glow-effect-primary"
         @click="
-          showHelp(
+          props.showHelp(
             'Reset Image Defaults',
             'Resets Aspect Ratio, Style, Number of Images, and Negative Prompt back to their original default values.',
           )
@@ -137,16 +137,16 @@
 
     <div
       class="advanced-toggle-header"
-      @click="toggleAdvanced"
+      @click="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
       tabindex="0"
-      @keydown.enter.prevent="toggleAdvanced"
-      @keydown.space.prevent="toggleAdvanced"
+      @keydown.enter.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
+      @keydown.space.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
     >
       <h3>Advanced Image Settings</h3>
       <button
         class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
-        aria-label="Toggle Advanced Settings"
+        aria-label="Toggle Advanced Image Settings"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -174,7 +174,7 @@
           <button
             class="help-button neon-glow-effect-primary"
             @click="
-              showHelp(
+              props.showHelp(
                 'Default Resolution',
                 'Sets the default width/height (pixels). Availability depends on model (e.g., DALL-E 3 prefers 1024x1024, 1792x1024, or 1024x1792). (Setting not yet active)',
               )
@@ -200,7 +200,7 @@
           <button
             class="help-button neon-glow-effect-primary"
             @click="
-              showHelp(
+              props.showHelp(
                 'Seed',
                 'Specific number to initialize generation. Same seed + prompt ≈ same result. Blank = random. (Setting not yet active)',
               )
@@ -233,7 +233,7 @@
           <button
             class="help-button neon-glow-effect-primary"
             @click="
-              showHelp(
+              props.showHelp(
                 'Guidance Scale (CFG)',
                 'Controls prompt adherence. Lower = more creative, Higher = stricter. Common: 5-15. (Not standard in all models). (Setting not yet active)',
               )
@@ -256,7 +256,7 @@
           <button
             class="help-button neon-glow-effect-primary"
             @click="
-              showHelp(
+              props.showHelp(
                 'Sampler Method',
                 'Specific algorithm used. Different samplers can affect style/detail. (Not usually user-controlled in simple APIs). (Setting not yet active)',
               )
@@ -273,12 +273,12 @@
 </template>
 
 <script setup>
-import { defineProps, ref } from 'vue'
+import { defineProps, computed } from 'vue' // Removed ref as it's no longer needed locally
 import { useSettingsStore } from '@/stores/settingsStore'
 import { storeToRefs } from 'pinia'
 
 // --- Props ---
-defineProps({
+const props = defineProps({
   showHelp: {
     type: Function,
     required: true,
@@ -287,19 +287,23 @@ defineProps({
 
 // --- Store Access ---
 const settingsStore = useSettingsStore()
-// Get needed state refs for v-model binding to the store
+// Get needed persistent state refs for v-model binding
 const {
   imageGenDefaultAspectRatio,
   imageGenDefaultStyle,
   imageGenDefaultNegativePrompt,
   imageGenDefaultNumImages,
 } = storeToRefs(settingsStore)
+// Get non-persistent UI state object for advanced sections
+const { settingsTabsAdvancedVisible } = storeToRefs(settingsStore) // <<< Get shared state object
 
-// --- Advanced Section State & Toggle ---
-const isAdvancedVisible = ref(false) // Default collapsed
-const toggleAdvanced = () => {
-  isAdvancedVisible.value = !isAdvancedVisible.value
-}
+// --- Local State ---
+const tabId = 'imageGen' // Define ID for this tab <<< ADDED tabId
+// Removed local isAdvancedVisible ref
+
+// --- Computed ---
+// Get visibility for *this* tab from the shared state object <<< ADDED computed prop
+const isAdvancedVisible = computed(() => !!settingsTabsAdvancedVisible.value[tabId])
 
 // --- Reset Action Handler ---
 const handleResetImageDefaults = () => {
@@ -308,6 +312,8 @@ const handleResetImageDefaults = () => {
   // Optional: Show confirmation to the user
   alert('Image Generation default settings have been reset.')
 }
+
+// Removed local toggleAdvanced method
 </script>
 
 <style scoped>
@@ -340,6 +346,7 @@ const handleResetImageDefaults = () => {
   grid-area: description;
   padding-left: 0; /* Align with control */
   padding-top: 0.3rem;
+  grid-column: 2 / 3; /* Ensure description is in the second column */
 }
 .setting-item.wide-item .settings-textarea {
   grid-area: control;
@@ -376,9 +383,8 @@ const handleResetImageDefaults = () => {
 .settings-textarea,
 .help-button,
 .slider-container,
-.quick-setting-button, /* Added quick setting button */
+.quick-setting-button,
 .input-container {
-  /* Wrapper for number input */
   justify-self: end;
 }
 
@@ -395,8 +401,8 @@ const handleResetImageDefaults = () => {
   font-family: sans-serif;
   font-size: 0.9em;
   flex-shrink: 0;
-  min-width: 100px; /* Base min width */
-  max-width: 200px; /* Max width for selects/inputs */
+  min-width: 100px;
+  max-width: 200px;
   box-sizing: border-box;
 }
 .settings-select:focus,
@@ -417,10 +423,10 @@ const handleResetImageDefaults = () => {
 }
 
 .settings-textarea {
-  min-width: 200px; /* Wider */
-  max-width: 100%; /* Allow stretching in wide-item */
+  min-width: 200px;
+  max-width: 100%;
   resize: vertical;
-  min-height: calc(1.4em * 2 + 0.8rem); /* Approx 2 rows based on line-height + padding */
+  min-height: calc(1.4em * 2 + 0.8rem);
 }
 
 .settings-slider {
@@ -430,7 +436,6 @@ const handleResetImageDefaults = () => {
   vertical-align: middle;
   min-width: 120px;
   max-width: 150px;
-  /* Appearance handled globally if needed, or keep specific here */
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
@@ -473,12 +478,11 @@ const handleResetImageDefaults = () => {
 }
 
 .input-container {
-  /* Simple wrapper if needed */
   display: flex;
+  align-items: center; /* Added for alignment */
 }
-
 .settings-input.number-input {
-  max-width: 100px; /* Smaller width for number input */
+  max-width: 100px;
   text-align: right;
 }
 .settings-input[type='number'] {
@@ -503,7 +507,7 @@ const handleResetImageDefaults = () => {
   text-align: right;
 }
 
-/* Reset Button (using quick-setting styles) */
+/* Reset Button */
 .quick-setting-button {
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -518,7 +522,7 @@ const handleResetImageDefaults = () => {
   cursor: pointer;
   transition: background-color 0.2s ease;
   min-width: 100px;
-  max-width: 200px; /* Adjust if needed */
+  max-width: 200px;
 }
 .quick-setting-button:not(:disabled):hover {
   background-color: var(--bg-button-secondary-hover);
@@ -528,7 +532,31 @@ const handleResetImageDefaults = () => {
   cursor: not-allowed;
 }
 
-/* --- Advanced Section --- */
+/* Help Button */
+.help-button {
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
+  border: 1px solid var(--border-color-medium);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 0.8em;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-button:hover {
+  background-color: var(--bg-button-secondary-hover);
+  color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary);
+  transform: scale(1.1);
+}
+
+/* Advanced Section */
 .advanced-toggle-header {
   display: flex;
   justify-content: space-between;
@@ -556,7 +584,26 @@ const handleResetImageDefaults = () => {
   font-size: 0.95em;
   user-select: none;
 }
-/* Arrow styles are global */
+.advanced-arrow {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+  color: var(--text-button-secondary);
+}
+.advanced-arrow:hover {
+  color: var(--accent-color-primary);
+}
+.advanced-arrow svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+.advanced-arrow.expanded {
+  transform: rotate(180deg);
+}
 
 .advanced-settings-section {
   padding: 1rem 1rem 0 1rem;
@@ -572,11 +619,11 @@ const handleResetImageDefaults = () => {
   padding-right: 0;
 }
 
-/* --- Transition for Collapse --- */
+/* Transition for Collapse */
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
-  max-height: 600px; /* Increased max-height */
+  max-height: 600px;
   overflow: hidden;
 }
 .collapse-enter-from,
@@ -592,8 +639,6 @@ const handleResetImageDefaults = () => {
 .collapse-enter-to,
 .collapse-leave-from {
   opacity: 1;
-  max-height: 600px; /* Increased max-height */
+  max-height: 600px;
 }
-
-/* Scoped CSS is now minimal, only component-specific layout adjustments remain */
 </style>

@@ -17,7 +17,7 @@
       <button
         class="help-button neon-glow-effect-primary"
         @click="
-          showHelp(
+          props.showHelp(
             'Default Instructions (New Assistants)',
             'Enter the default system prompt or instructions you want every new custom assistant to start with. You can always edit it later when creating or modifying a specific assistant.',
           )
@@ -31,16 +31,16 @@
 
     <div
       class="advanced-toggle-header"
-      @click="toggleAdvanced"
+      @click="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
       tabindex="0"
-      @keydown.enter.prevent="toggleAdvanced"
-      @keydown.space.prevent="toggleAdvanced"
+      @keydown.enter.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
+      @keydown.space.prevent="settingsStore.toggleSettingsTabAdvancedVisible(tabId)"
     >
       <h3>Advanced Assistants Management</h3>
       <button
         class="advanced-arrow solid-glow-effect-primary"
         :class="{ expanded: isAdvancedVisible }"
-        aria-label="Toggle Advanced Settings"
+        aria-label="Toggle Advanced Assistants Management Settings"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -99,7 +99,7 @@
           <button
             class="help-button neon-glow-effect-primary"
             @click="
-              showHelp(
+              props.showHelp(
                 'Assistant API Keys',
                 'Optionally enter your personal API keys here if you want your custom assistants to use specific external paid models (like GPT-4 via OpenAI, Claude via Anthropic, or Gemini Pro via Google AI Studio). Ensure keys are kept secure. These keys would be stored locally in your browser. (Feature not yet fully implemented)',
               )
@@ -116,12 +116,12 @@
 </template>
 
 <script setup>
-import { defineProps, ref } from 'vue'
+import { defineProps, computed } from 'vue' // Removed ref import
 import { useSettingsStore } from '@/stores/settingsStore'
 import { storeToRefs } from 'pinia'
 
 // --- Props ---
-defineProps({
+const props = defineProps({
   showHelp: {
     type: Function,
     required: true,
@@ -130,14 +130,20 @@ defineProps({
 
 // --- Store Access ---
 const settingsStore = useSettingsStore()
-// Get needed state ref for v-model
+// Get needed persistent state ref for v-model
 const { assistantsDefaultInstructions } = storeToRefs(settingsStore)
+// Get non-persistent UI state object for advanced sections
+const { settingsTabsAdvancedVisible } = storeToRefs(settingsStore) // <<< Get shared state object
 
-// --- Advanced Section State & Toggle ---
-const isAdvancedVisible = ref(false) // Default collapsed
-const toggleAdvanced = () => {
-  isAdvancedVisible.value = !isAdvancedVisible.value
-}
+// --- Local State ---
+const tabId = 'assistants' // Define ID for this tab <<< ADDED tabId
+// Removed local isAdvancedVisible ref
+
+// --- Computed ---
+// Get visibility for *this* tab from the shared state object <<< ADDED computed prop
+const isAdvancedVisible = computed(() => !!settingsTabsAdvancedVisible.value[tabId])
+
+// Removed local toggleAdvanced method
 </script>
 
 <style scoped>
@@ -171,6 +177,7 @@ const toggleAdvanced = () => {
   grid-area: description;
   margin-top: 0; /* Remove default top margin */
   padding-left: 0;
+  grid-column: 2 / 3; /* Ensure description is in the second column */
 }
 .setting-item.wide-item .settings-textarea {
   grid-area: control;
@@ -194,28 +201,32 @@ const toggleAdvanced = () => {
 .setting-item.api-key-item .setting-label {
   grid-area: label;
   align-self: start;
+  padding-top: 0.4rem;
 }
 .setting-item.api-key-item .setting-description {
   grid-area: description;
   margin-top: 0;
   padding-left: 0;
+  grid-column: 1 / 2; /* Keep desc under label */
 }
 .setting-item.api-key-item .api-key-inputs {
   grid-area: inputs;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem; /* Space between key inputs */
-  justify-self: stretch; /* Take available space */
-  padding: 0.4rem 0; /* Align vertically */
+  gap: 0.75rem;
+  justify-self: stretch;
+  padding: 0.4rem 0;
 }
 .setting-item.api-key-item .help-button {
   grid-area: help;
   justify-self: end;
   align-self: start;
+  margin-top: 0.4rem;
 }
+
 .api-key-entry {
   display: grid;
-  grid-template-columns: auto 1fr; /* Label | Input */
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 0.5rem;
 }
@@ -223,10 +234,10 @@ const toggleAdvanced = () => {
   font-size: 0.9em;
   color: var(--text-secondary);
   text-align: right;
-  min-width: 90px; /* Align labels */
+  min-width: 90px;
 }
 .api-key-input {
-  max-width: none; /* Allow input to fill grid space */
+  max-width: none;
 }
 
 .setting-label {
@@ -248,16 +259,14 @@ const toggleAdvanced = () => {
 
 /* Align controls and help button to the end */
 .settings-textarea,
-.help-button, /* Help button is global now, but keep alignment */
+.help-button,
 .api-key-inputs {
-  /* Align the container */
   justify-self: end;
 }
 
 /* Control base styles */
 .settings-textarea,
 .settings-input {
-  /* Added settings-input for API keys */
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   border: 1px solid var(--border-color-medium);
@@ -282,9 +291,33 @@ const toggleAdvanced = () => {
 }
 
 .settings-textarea {
-  width: 100%; /* Ensure textarea takes full width in its grid area */
+  width: 100%;
   resize: vertical;
-  min-height: calc(1.4em * 4 + 0.8rem); /* Approx 4 rows */
+  min-height: calc(1.4em * 4 + 0.8rem);
+}
+
+/* Help Button */
+.help-button {
+  background-color: var(--bg-button-secondary);
+  color: var(--text-button-secondary);
+  border: 1px solid var(--border-color-medium);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 0.8em;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-button:hover {
+  background-color: var(--bg-button-secondary-hover);
+  color: var(--accent-color-primary);
+  border-color: var(--accent-color-primary);
+  transform: scale(1.1);
 }
 
 /* Advanced Section */
@@ -315,7 +348,26 @@ const toggleAdvanced = () => {
   font-size: 0.95em;
   user-select: none;
 }
-/* Arrow styles are global */
+.advanced-arrow {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+  color: var(--text-button-secondary);
+}
+.advanced-arrow:hover {
+  color: var(--accent-color-primary);
+}
+.advanced-arrow svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+.advanced-arrow.expanded {
+  transform: rotate(180deg);
+}
 
 .advanced-settings-section {
   padding: 1rem 1rem 0 1rem;
@@ -335,7 +387,7 @@ const toggleAdvanced = () => {
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
-  max-height: 600px; /* Adjust if API key section needs more space */
+  max-height: 600px;
   overflow: hidden;
 }
 .collapse-enter-from,
@@ -352,6 +404,4 @@ const toggleAdvanced = () => {
   opacity: 1;
   max-height: 600px;
 }
-
-/* Scoped CSS is now minimal, mostly layout */
 </style>
