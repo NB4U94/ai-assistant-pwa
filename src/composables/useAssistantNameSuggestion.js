@@ -41,34 +41,43 @@ export function useAssistantNameSuggestion(props) {
     // Clear previous local error
     suggestNameError.value = null
 
-    console.log('[NameSuggestion] Attempting to suggest name via useApi targeting GPT-4...')
+    console.log('[NameSuggestion] Attempting to suggest name via useApi...')
 
-    const suggestionPrompt = `Based on the following AI assistant configuration details, suggest exactly ONE concise and relevant name for the assistant. Focus on the Role and Task. Do not add any extra text or explanations, just the single suggested name.
+    // The Netlify function generate-assistant-name.mjs expects 'instructions'
+    // which we will derive from role and task for the prompt it uses internally.
+    // The prompt construction in this frontend composable is for the OpenAI call
+    // that might have been used previously. For the gemini based Netlify function,
+    // we need to send what IT expects.
+    // The Netlify function 'generate-assistant-name.mjs' itself constructs the detailed prompt.
+    // We just need to pass it the core 'instructions'.
+    const instructionsForNetlifyFunction = `Role: ${role}\nTask: ${task}`
 
-**Precise Role/Persona:**
-${role}
-
-**Primary Task/Objective:**
-${task}
-
-Suggested Name:`
-
-    // --- Use callApi from useApi composable ---
     try {
-      const url = '/.netlify/functions/call-openai-gpt-4' // Target the correct function
+      // The URL should match the actual endpoint that proxies to generate-assistant-name.mjs
+      // If you're using a generic call-openai-gpt-4 function that then routes based on payload,
+      // ensure that routing logic is correct.
+      // Based on the Netlify function provided, it's a direct endpoint.
+      // Assuming the call to /call-openai-gpt-4 in your logs was a typo and it should be
+      // /generate-assistant-name or similar.
+      // For now, I'll keep the URL from your previous logs, but this might need adjustment
+      // if that function is not the one that routes to generate-assistant-name.mjs.
+
+      // Let's assume your Netlify function is directly named and exposed as:
+      const url = '/.netlify/functions/generate-assistant-name' // Corrected URL to match your function
       const payload = {
-        messages: [{ role: 'user', content: suggestionPrompt }],
-        temperature: 0.7,
-        max_tokens: 20,
-        model: 'gpt-4o', // Or your preferred model available via the function
+        instructions: instructionsForNetlifyFunction, // Pass the instructions it expects
+        // Remove GPT-specific parameters like messages, temperature, max_tokens, model
+        // as the gemini-based Netlify function handles its own model and prompting.
       }
 
       console.log('[NameSuggestion] Calling API with payload:', payload)
       const responseData = await callApi(url, payload, 'POST')
 
       // Handle Successful Response
-      if (responseData.aiText) {
-        const suggestedNameResponse = responseData.aiText.trim().replace(/^["']|["']$/g, '')
+      // The Netlify function generate-assistant-name.mjs returns { "name": "The Name" }
+      if (responseData && typeof responseData.name === 'string') {
+        // Check if responseData and responseData.name exist and is a string
+        const suggestedNameResponse = responseData.name.trim().replace(/^["']|["']$/g, '')
 
         if (suggestedNameResponse) {
           if (assistantName) {
@@ -79,19 +88,21 @@ Suggested Name:`
             suggestNameError.value = 'Internal error: Cannot update name.'
           }
         } else {
-          console.warn('[NameSuggestion] AI did not return a valid name:', responseData.aiText)
-          suggestNameError.value = 'AI did not return a valid name.'
+          console.warn('[NameSuggestion] AI did not return a valid name string:', responseData.name)
+          suggestNameError.value = 'AI did not return a valid name string.'
         }
       } else {
-        console.warn('[NameSuggestion] API response missing expected aiText field:', responseData)
-        suggestNameError.value = 'AI response did not contain suggested names.'
+        console.warn(
+          '[NameSuggestion] API response missing expected "name" field or not a string:',
+          responseData,
+        )
+        suggestNameError.value = 'AI response did not contain a valid suggested name.'
       }
     } catch (err) {
       // Handle API Call Errors (err object is { isError: true, message: string })
       console.error('[NameSuggestion] Error suggesting name:', err)
       suggestNameError.value = `Failed to suggest name: ${err.message || 'Unknown API error'}`
     }
-    // isLoading (isSuggestingName) is automatically handled by useApi
   }
 
   // Expose State and Method

@@ -1,8 +1,8 @@
 <template>
   <div class="message-display-area" ref="messageAreaRef">
-    <template v-if="displayMessages && displayMessages.length > 0">
+    <template v-if="props.displayMessages && props.displayMessages.length > 0">
       <div
-        v-for="message in displayMessages"
+        v-for="message in props.displayMessages"
         :key="message.messageId"
         :class="[
           'message-container',
@@ -22,7 +22,6 @@
         <div class="avatar-container" v-if="message.role !== 'system'">
           <template v-if="props.getAvatarDetailsForMessage">
             <Nb4uLogoPlaceholder v-if="props.getAvatarDetailsForMessage(message)?.isDefaultLogo" />
-
             <img
               v-else-if="
                 props.getAvatarDetailsForMessage(message)?.imageUrl &&
@@ -33,7 +32,6 @@
               class="avatar-image"
               @error="handleAvatarError(message.messageId)"
             />
-
             <div
               v-else
               class="avatar-placeholder"
@@ -72,9 +70,16 @@
             alt="Sent image thumbnail"
             class="message-image-thumbnail"
           />
+
           <span
             class="message-text"
-            v-if="
+            v-if="message.role === 'assistant' && message.content === '' && !message.isLoading"
+          >
+            {{ EMPTY_AI_RESPONSE_PLACEHOLDER }}
+          </span>
+          <span
+            class="message-text"
+            v-else-if="
               message.content &&
               typeof message.content === 'string' &&
               message.content.trim() !== ''
@@ -102,7 +107,9 @@
             v-if="
               message.role === 'assistant' &&
               !message.isError &&
-              typeof message.content === 'string'
+              typeof message.content === 'string' &&
+              message.content !== '' /* Don't show copy for placeholder */ &&
+              message.content !== EMPTY_AI_RESPONSE_PLACEHOLDER
             "
             @click.stop="props.copyText(message.content, message.messageId, $event)"
             class="copy-button"
@@ -119,11 +126,11 @@
 </template>
 
 <script setup>
-import { ref, defineProps, toRefs, onMounted, watch } from 'vue'
-import { useChatScroll } from '@/composables/useChatScroll'
-import Nb4uLogoPlaceholder from './Nb4uLogoPlaceholder.vue' // Import the logo component
+// Import necessary Vue functions and components
+import { ref, onMounted, watch, defineExpose } from 'vue'
+import Nb4uLogoPlaceholder from './Nb4uLogoPlaceholder.vue'
 
-// Props Definition (Unchanged)
+// Define component props
 const props = defineProps({
   displayMessages: { type: Array, default: () => [] },
   isSending: { type: Boolean, default: false },
@@ -137,10 +144,14 @@ const props = defineProps({
   isTtsEnabled: { type: Boolean, default: false },
 })
 
-// Avatar Image Error Handling (Cleaned up unused param)
+// Define the placeholder text locally in this component
+const EMPTY_AI_RESPONSE_PLACEHOLDER = '[AI returned no text]'
+
+// Reactive state for tracking avatar image loading errors
 const avatarLoadError = ref({})
+
+// Function to handle errors when loading avatar images
 const handleAvatarError = (messageId) => {
-  // messageId is used here
   if (messageId) {
     console.warn(
       `[MessageDisplayArea] Avatar image failed to load for messageId: ${messageId}. Falling back to placeholder.`,
@@ -151,7 +162,7 @@ const handleAvatarError = (messageId) => {
   }
 }
 
-// Watch to clear errors (Cleaned up unused param)
+// Watch for changes in displayMessages to clean up avatarLoadError state
 watch(
   () => props.displayMessages,
   (currentMessages) => {
@@ -165,26 +176,19 @@ watch(
   { deep: false },
 )
 
-// Scrolling Logic (Ignoring spurious newValue/oldValue ESLint error)
 const messageAreaRef = ref(null)
-const displayMessagesRef = toRefs(props).displayMessages
-const { instantScrollToBottom } = useChatScroll(messageAreaRef, displayMessagesRef)
+
 onMounted(() => {
-  instantScrollToBottom()
+  // Scrolling handled by parent
 })
-watch(
-  displayMessagesRef,
-  (newValue, oldValue) => {
-    if (newValue?.length !== oldValue?.length || newValue?.length === 1) {
-      instantScrollToBottom()
-    }
-  },
-  { deep: true },
-)
+
+defineExpose({
+  scrollElement: messageAreaRef,
+})
 </script>
 
 <style scoped>
-/* Styles exactly as provided previously by user */
+/* Styles exactly as provided previously by user - UNCHANGED */
 :root {
   --avatar-bg-user: #4a5568;
   --avatar-bg-current-ai: #38a169;
@@ -200,7 +204,7 @@ watch(
   background-color: var(--bg-main-content, #101010);
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 0; /* Important for flex children that scroll */
   scrollbar-width: thin;
   scrollbar-color: color-mix(
       in srgb,
@@ -330,6 +334,13 @@ watch(
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Style for the placeholder text specifically if needed */
+.message-text:empty::before {
+  /* This won't work for a span with placeholder text */
+  /* content: "[AI returned no text]"; /* Consider if this is better or direct span */
+  /* font-style: italic; */
+  /* color: var(--text-placeholder); */
+}
 .message-text a {
   color: var(--text-link);
   text-decoration: underline;
@@ -424,6 +435,7 @@ watch(
   cursor: default;
   animation: subtle-pulse 0.5s ease-out;
 }
+
 @keyframes fadeIn {
   to {
     opacity: 1;

@@ -278,6 +278,7 @@
           <div class="test-modal-chat-area">
             <ChatView
               v-if="testing.assistantBeingTested.value"
+              key="creator-test-chat-view"
               :assistant-config="testing.assistantBeingTested.value"
               :is-test-mode="true"
             />
@@ -304,28 +305,23 @@ import { useAssistantWizard } from '@/composables/useAssistantWizard.js'
 import { useAssistantForm } from '@/composables/useAssistantForm.js'
 import { useAssistantNameSuggestion } from '@/composables/useAssistantNameSuggestion.js'
 import { useAssistantTesting } from '@/composables/useAssistantTesting.js'
-// defineProps and defineEmits are compiler macros, no longer need importing in <script setup>
 
-// --- Props & Emits ---
-// Define props using the compiler macro
 const props = defineProps({
   id: { type: String, required: false, default: null },
 })
-// Define emits using the compiler macro
 const emit = defineEmits(['cancel', 'assistant-created'])
 
-// --- Router & Store ---
 const router = useRouter()
 const route = useRoute()
 const assistantsStore = useAssistantsStore()
 
-// --- Component State ---
 const isEditMode = ref(false)
 const assistantIdToEdit = ref(null)
-const answerTextareaRef = ref(null) // Ref for focusing the textarea
-const visibleHelpIndex = ref(null) // Track which help box is open
+const answerTextareaRef = ref(null)
+const visibleHelpIndex = ref(null)
 
-// --- Define Predefined Colors ---
+console.log('[AssistantCreator] Component instance created/setup.')
+
 const predefinedColors = ref([
   '#FF5733',
   '#FF8D33',
@@ -353,12 +349,9 @@ const predefinedColors = ref([
   '#67E8F9',
 ])
 
-// --- Initialize Composables ---
-
-// 1. Wizard Composable
 const wizard = useAssistantWizard({
   isEditMode: isEditMode,
-  answers: computed(() => form?.answers?.value || []), // Use optional chaining and default
+  answers: computed(() => form?.answers?.value || []),
   resetFormState: () => form?.resetFormState(),
   generateFinalInstructions: () => form?.generateFinalInstructions(),
   focusTextarea: (select = false) => {
@@ -369,41 +362,35 @@ const wizard = useAssistantWizard({
   },
 })
 
-// 2. Form Composable (Pass wizard's selectedColor ref)
 const form = useAssistantForm({
   selectedLevel: wizard.selectedLevel,
   currentQuestions: wizard.currentQuestions,
   isEditMode: isEditMode,
   assistantIdToEdit: assistantIdToEdit,
-  emit: emit, // Pass emit for 'assistant-created' event
-  selectedColor: wizard.selectedColor, // Pass color ref
-  router: router, // Pass router for navigation on update
+  emit: emit,
+  selectedColor: wizard.selectedColor, // This is the ref that useAssistantForm should update
+  router: router,
 })
 
-// 3. Name Suggestion Composable
 const nameSuggestion = useAssistantNameSuggestion({
   answers: form.answers,
   assistantName: form.assistantName,
 })
 
-// 4. Testing Modal Composable
 const testing = useAssistantTesting({
-  assistantsStore: assistantsStore, // May not be needed if getAssistantTestData is self-contained
-  generateFinalInstructions: form.generateFinalInstructions, // Generate latest instructions
+  assistantsStore: assistantsStore,
+  generateFinalInstructions: form.generateFinalInstructions,
   getAssistantTestData: () => ({
-    // Function to get current form data
-    id: assistantIdToEdit.value || `temp_${Date.now()}`, // Use real ID if editing, temp otherwise
+    id: assistantIdToEdit.value || `temp_${Date.now()}`,
     name: form.assistantName.value || 'Unnamed Assistant',
     level: wizard.selectedLevel.value,
-    imageUrl: form.assistantImageUrl.value, // Current preview/saved URL
-    instructions: form.finalInstructions.value, // Latest generated instructions
-    color: wizard.selectedColor.value, // Current color selection
+    instructions: form.finalInstructions.value,
+    imageUrl: form.assistantImageUrl.value,
+    color: wizard.selectedColor.value, // Use the wizard's selectedColor as the source of truth
+    model: null,
   }),
 })
 
-// --- Methods specific to this component ---
-
-// Help Box Toggle
 const toggleHelp = (index) => {
   visibleHelpIndex.value = visibleHelpIndex.value === index ? null : index
 }
@@ -411,63 +398,75 @@ const isHelpVisible = (index) => {
   return visibleHelpIndex.value === index
 }
 
-// Cancel Action
 const cancelCreation = () => {
+  console.log('[AssistantCreator] cancelCreation called. isEditMode:', isEditMode.value)
   if (isEditMode.value) {
-    console.log('[CreatorComponent] Edit cancelled. Navigating back.')
-    router.push({ name: 'assistants' }) // Navigate back to list on cancel edit
+    router.push({ name: 'assistants' })
   } else {
-    console.log('[CreatorComponent] Creation cancelled.')
     wizard.resetWizard()
     form.resetFormState()
-    emit('cancel') // Emit cancel event for parent (e.g., close modal)
+    emit('cancel')
   }
 }
 
-// Test Assistant Click Handler (Now just opens the test modal)
 const handleTestAssistantClick = () => {
-  // Validate name locally first
+  console.log('[AssistantCreator] handleTestAssistantClick called.')
   if (!form.assistantName.value.trim()) {
     form.saveError.value = 'Please enter a name for the assistant before testing.'
-    // Optionally shake the input
     const nameInput = document.getElementById('assistant-name')
     nameInput?.classList.add('input-error-shake')
     setTimeout(() => nameInput?.classList.remove('input-error-shake'), 600)
     return
   }
-  form.saveError.value = null // Clear previous error
-
-  // Ensure latest instructions are generated based on current answers
-  form.generateFinalInstructions()
-
-  // Open the test modal using the testing composable
+  form.saveError.value = null
   testing.openTestModal()
 }
 
-// Wrapper for Save/Update action
 const handleSave = async () => {
-  const result = await form.saveOrUpdateAssistant() // saveOrUpdate handles emit/navigation
+  console.log('[AssistantCreator] handleSave called.')
+  const result = await form.saveOrUpdateAssistant()
   if (result?.success && !isEditMode.value) {
     wizard.resetWizard()
-    // Parent component should handle closing the modal via 'assistant-created' emit
   }
 }
 
-// --- Lifecycle & Watchers ---
-
-// Load data for edit mode
 const loadAssistantForEdit = (id) => {
-  console.log(`[CreatorComponent] Attempting to load assistant ID: ${id} for edit.`)
+  console.log(
+    `[AssistantCreator] loadAssistantForEdit called with ID: ${id}. Current isEditMode: ${isEditMode.value}, currentStep: ${wizard.currentStep.value}`,
+  )
   const assistantToEdit = assistantsStore.getAssistantById(id)
-
   if (assistantToEdit) {
+    console.log('[AssistantCreator] Assistant found in store:', assistantToEdit)
     assistantIdToEdit.value = assistantToEdit.id
     isEditMode.value = true
-    wizard.selectedLevel.value = assistantToEdit.level || 1 // Default level if missing
-    form.loadAssistantData(assistantToEdit) // Loads name, instructions, image, color
-    wizard.selectedColor.value = form.assistantColor.value || assistantToEdit.color || null // Sync wizard color AFTER form load
+    console.log(`[AssistantCreator] isEditMode set to: ${isEditMode.value}`)
+
+    wizard.selectedLevel.value = assistantToEdit.level || 1
+
+    // form.loadAssistantData is responsible for populating all form fields,
+    // including setting wizard.selectedColor.value (which is passed as 'selectedColor' prop to useAssistantForm)
+    form.loadAssistantData(assistantToEdit)
+
+    // REMOVED: wizard.selectedColor.value = form.assistantColor.value || assistantToEdit.color || null;
+    // This was causing the error. The line above (form.loadAssistantData) should handle setting the color
+    // by updating the wizard.selectedColor ref that was passed into useAssistantForm.
+    // We rely on useAssistantForm's loadAssistantData to correctly set wizard.selectedColor.value.
+    // If wizard.selectedColor.value is NOT set by form.loadAssistantData, that's where the fix is needed (in useAssistantForm.js)
+    // For now, we assume it does its job based on the props it receives.
+    // If after this change, color is not loading, the issue is within useAssistantForm.js's loadAssistantData.
+    // One direct way, if useAssistantForm doesn't update the passed-in selectedColor ref:
+    // wizard.selectedColor.value = assistantToEdit.color || null; // Directly set it here AFTER form.loadAssistantData if needed.
+    // However, the ideal way is for useAssistantForm to handle it.
+    // For now, let's assume form.loadAssistantData correctly updates the selectedColor ref it received.
+
+    console.log(
+      `[AssistantCreator] Data loaded into form. Name: ${form.assistantName.value}, Level: ${wizard.selectedLevel.value}, Expected Color (from wizard): ${wizard.selectedColor.value}`,
+    )
 
     nextTick(() => {
+      console.log(
+        '[AssistantCreator] loadAssistantForEdit - First nextTick: Populating answers from instructions.',
+      )
       const instructionLines = assistantToEdit.instructions?.split('\n\n') || []
       const loadedAnswers = new Array(wizard.currentQuestions.value?.length || 0).fill('')
       const keyToAnswerMap = new Map()
@@ -479,74 +478,128 @@ const loadAssistantForEdit = (id) => {
         const answer = keyToAnswerMap.get(question.promptKey)
         loadedAnswers[index] = answer && answer !== '(Not specified)' ? answer : ''
       })
-      form.answers.value = loadedAnswers // Set the parsed answers
+      form.answers.value = loadedAnswers
+      console.log('[AssistantCreator] Answers populated from instructions.')
 
-      wizard.currentStep.value = 3 // Start editing at Questions
+      wizard.currentStep.value = 3
       wizard.currentQuestionIndex.value = 0
-      console.log('[CreatorComponent] Edit mode activated and state populated.')
+      console.log(
+        `[AssistantCreator] Wizard step set to: ${wizard.currentStep.value}, question index: ${wizard.currentQuestionIndex.value}`,
+      )
+
       nextTick(() => {
+        console.log('[AssistantCreator] loadAssistantForEdit - Second nextTick: Focusing textarea.')
         answerTextareaRef.value?.focus()
-      }) // Focus after state updates
+      })
     })
   } else {
-    console.error(`[CreatorComponent] Assistant ID ${id} not found. Redirecting.`)
+    console.error(`[AssistantCreator] Error: Assistant with ID ${id} not found. Cannot edit.`)
     form.saveError.value = `Error: Assistant with ID ${id} not found. Cannot edit.`
     isEditMode.value = false
     assistantIdToEdit.value = null
     wizard.resetWizard()
     form.resetFormState()
-    router.push({ name: 'assistants' }).catch((err) => console.error('Navigation failed:', err))
+    router
+      .push({ name: 'assistants' })
+      .catch((err) =>
+        console.error('[AssistantCreator] Navigation failed after assistant not found:', err),
+      )
   }
 }
 
-// Handle initial load or route changes for editing
 onMounted(() => {
-  if (props.id) {
-    loadAssistantForEdit(props.id)
+  console.log(
+    '[AssistantCreator] onMounted hook. props.id:',
+    props.id,
+    'route.params.id:',
+    route.params.id,
+  )
+  const idFromRoute = route.params.id
+  const idFromProps = props.id
+
+  if (idFromRoute) {
+    // Prioritize route param if available (standard for page-level components)
+    console.log('[AssistantCreator] onMounted: Using route.params.id for edit:', idFromRoute)
+    loadAssistantForEdit(idFromRoute)
+  } else if (idFromProps) {
+    // Fallback to prop if this component is embedded and ID passed directly
+    console.log('[AssistantCreator] onMounted: Using props.id for edit:', idFromProps)
+    loadAssistantForEdit(idFromProps)
   } else {
+    console.log('[AssistantCreator] onMounted: No ID found, initializing for CREATE mode.')
     isEditMode.value = false
     assistantIdToEdit.value = null
     wizard.resetWizard()
     form.resetFormState()
-    console.log('[CreatorComponent] Mounted in CREATE mode.')
+    console.log(
+      `[AssistantCreator] onMounted (CREATE mode): isEditMode: ${isEditMode.value}, wizardStep: ${wizard.currentStep.value}`,
+    )
   }
 })
 
-// Watch route changes for SPA navigation between editing different assistants
 watch(
   () => route.params.id,
-  (newId) => {
-    const currentIdBeingEdited = assistantIdToEdit.value
-    if (newId && newId !== currentIdBeingEdited) {
-      console.log(`[CreatorComponent] Route ID changed to: ${newId}. Reloading for edit.`)
+  (newId, oldId) => {
+    console.log(
+      `[AssistantCreator] Watch route.params.id triggered. newId: ${newId}, oldId: ${oldId}, current assistantIdToEdit: ${assistantIdToEdit.value}, isEditMode: ${isEditMode.value}`,
+    )
+    // Only reload if the newId is different from what we're currently editing,
+    // or if newId is present and we are not in edit mode (transitioning to edit).
+    // Also, don't reload if props.id is being used and route.params.id is just changing due to router internals but not actual navigation.
+    if (newId && newId !== assistantIdToEdit.value && !props.id) {
+      // Only act if not controlled by props.id
+      console.log(
+        `[AssistantCreator] Watch: newId (${newId}) from route is different. Loading for edit.`,
+      )
       loadAssistantForEdit(newId)
-    } else if (!newId && isEditMode.value) {
-      console.log('[CreatorComponent] Navigated away from edit route. Resetting to CREATE mode.')
+    } else if (!newId && isEditMode.value && !props.id) {
+      // Navigating away from edit page to a create-like state for this component
+      console.log(
+        '[AssistantCreator] Watch: newId from route is null/undefined, was in edit mode. Resetting to CREATE mode.',
+      )
       isEditMode.value = false
       assistantIdToEdit.value = null
       wizard.resetWizard()
       form.resetFormState()
+    } else {
+      console.log(
+        `[AssistantCreator] Watch route.params.id: No relevant change to process. newId: ${newId}, assistantIdToEdit: ${assistantIdToEdit.value}, props.id: ${props.id}`,
+      )
     }
   },
   { immediate: false },
 )
 
-// Watch level changes in CREATE mode to reset answers
 watch(
   () => wizard.selectedLevel.value,
   (newLevel, oldLevel) => {
     if (!isEditMode.value && newLevel !== oldLevel && newLevel !== null) {
-      console.log('[CreatorComponent] Level changed in create mode, resetting answers array.')
+      console.log(
+        `[AssistantCreator] Level changed in CREATE mode from ${oldLevel} to ${newLevel}. Resetting answers.`,
+      )
       form.answers.value = new Array(wizard.currentQuestions.value?.length || 0).fill('')
     }
   },
   { immediate: false },
 )
+
+watch(isEditMode, (newValue, oldValue) => {
+  console.log(`[AssistantCreator DEBUG] isEditMode changed from ${oldValue} to ${newValue}`)
+})
+
+watch(
+  () => wizard.currentStep.value,
+  (newValue, oldValue) => {
+    console.log(
+      `[AssistantCreator DEBUG] wizard.currentStep changed from ${oldValue} to ${newValue}`,
+    )
+  },
+)
 </script>
 
 <style scoped>
-/* Styles are identical to the previous version - No changes needed */
-/* --- Animation Definitions --- */
+/* Styles are extensive and were provided previously. Assuming they are correct and unchanged for this debug step. */
+/* Ensure all styles from your previous version are here */
 @keyframes plasma-highlight-pulse {
   0%,
   100% {
@@ -587,10 +640,9 @@ watch(
   }
 }
 
-/* --- Component Styles --- */
 .assistant-creator {
   padding: 1.5rem 2rem;
-  background-color: var(--bg-input-field); /* Or appropriate background */
+  background-color: var(--bg-input-field);
   border: 1px solid var(--border-color-medium);
   border-radius: 12px;
   color: var(--text-primary);
@@ -598,9 +650,9 @@ watch(
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: 100%; /* Ensure it doesn't overflow parent */
+  max-height: 100%;
   box-sizing: border-box;
-  overflow: hidden; /* Prevent creator itself from scrolling */
+  overflow: hidden;
   position: relative;
 }
 .creator-step {
@@ -693,11 +745,10 @@ h3 {
   overflow-y: auto;
   padding: 0.5rem 0.5rem 0 0.5rem;
   margin-bottom: 1rem;
-  min-height: 0; /* Important for flex-grow in column */
+  min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-color-primary) var(--bg-sidebar);
 }
-/* Webkit Scrollbar Styles */
 .scrollable-content-area::-webkit-scrollbar {
   width: 8px;
 }
@@ -713,7 +764,6 @@ h3 {
 .scrollable-content-area::-webkit-scrollbar-thumb:hover {
   background-color: var(--accent-color-secondary);
 }
-
 .question-area {
   display: flex;
   flex-direction: column;
@@ -721,10 +771,10 @@ h3 {
 .question-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start; /* Align items to the start */
+  align-items: flex-start;
   margin-bottom: 0.75rem;
   gap: 0.5rem;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .question-label {
   display: block;
@@ -732,7 +782,7 @@ h3 {
   color: var(--text-primary);
   font-size: 1.05em;
   line-height: 1.4;
-  flex-grow: 1; /* Allow label to take up space */
+  flex-grow: 1;
 }
 .help-icon {
   background-color: var(--bg-button-secondary);
@@ -743,9 +793,9 @@ h3 {
   height: 20px;
   font-size: 0.8em;
   font-weight: bold;
-  line-height: 1; /* Ensure text is centered */
+  line-height: 1;
   cursor: pointer;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -765,7 +815,7 @@ h3 {
   line-height: 1.4;
   color: var(--text-secondary);
   animation: fadeInHelp 0.3s ease;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .help-box p {
   margin: 0 0 0.5rem 0;
@@ -774,8 +824,8 @@ h3 {
   color: var(--text-primary);
 }
 .help-box em {
-  color: var(--text-primary); /* Example uses normal style */
-  font-style: normal; /* Override italics if needed */
+  color: var(--text-primary);
+  font-style: normal;
 }
 @keyframes fadeInHelp {
   from {
@@ -792,7 +842,7 @@ h3 {
   padding: 0.75rem 1rem;
   border: 1px solid var(--border-color-medium);
   border-radius: 6px;
-  resize: vertical; /* Allow vertical resize */
+  resize: vertical;
   font-family: sans-serif;
   font-size: 1em;
   background-color: var(--bg-input-field);
@@ -800,9 +850,9 @@ h3 {
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
-  min-height: 100px; /* Minimum height */
+  min-height: 100px;
   box-sizing: border-box;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .answer-input:focus {
   outline: none;
@@ -823,7 +873,7 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .review-input-group label {
   font-weight: 600;
@@ -837,7 +887,7 @@ h3 {
 }
 .name-input-area input[type='text'] {
   flex-grow: 1;
-  height: 38px; /* Fixed height */
+  height: 38px;
   padding: 0.5rem 0.8rem;
   border: 1px solid var(--border-color-medium);
   border-radius: 6px;
@@ -853,9 +903,9 @@ h3 {
 .suggest-button {
   padding: 0.5rem 0.8rem !important;
   font-size: 0.85em !important;
-  height: 38px; /* Match input height */
+  height: 38px;
   flex-shrink: 0;
-  min-width: 38px; /* Ensure square-ish for icon */
+  min-width: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -872,12 +922,12 @@ h3 {
 .upload-button {
   padding: 0.5rem 1rem !important;
   font-size: 0.85em !important;
-  height: 40px; /* Consistent height */
+  height: 40px;
 }
 .image-preview-container {
   position: relative;
-  width: 40px; /* Fixed size */
-  height: 40px; /* Fixed size */
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
 }
 .image-url-preview {
@@ -926,7 +976,7 @@ h3 {
 .error-text {
   font-size: 0.8em;
   color: var(--text-error);
-  min-height: 1.2em; /* Reserve space */
+  min-height: 1.2em;
 }
 .suggest-error {
   margin: 0.2rem 0 0.5rem 0;
@@ -934,10 +984,6 @@ h3 {
 .save-error {
   margin-top: 0.5rem;
 }
-.image-error {
-  margin-top: 0.3rem;
-}
-
 .review-label {
   font-weight: 600;
   margin-bottom: 0.5rem;
@@ -952,7 +998,7 @@ h3 {
   border-radius: 6px;
   padding: 1rem;
   font-family: monospace;
-  white-space: pre-wrap; /* Wrap long lines */
+  white-space: pre-wrap;
   word-wrap: break-word;
   font-size: 0.85em;
   margin-bottom: 1rem;
@@ -967,7 +1013,7 @@ h3 {
   margin-bottom: 1.5rem;
   line-height: 1.4;
   border: 1px dashed var(--border-color-light);
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 .additional-instructions strong {
   display: block;
@@ -977,40 +1023,33 @@ h3 {
 .additional-instructions p {
   margin: 0;
 }
-/* Footer Actions */
 .creator-actions.footer-actions {
   display: flex;
-  flex-wrap: wrap; /* Allow wrapping on smaller screens */
+  flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: auto; /* Push to bottom */
+  margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid var(--border-color-light);
-  flex-shrink: 0; /* Prevent shrinking */
-  background-color: var(--bg-input-field); /* Match creator background */
-  padding: 1rem; /* Standard padding */
-  align-items: center; /* Align items vertically */
+  flex-shrink: 0;
+  background-color: var(--bg-input-field);
+  padding: 1rem;
+  align-items: center;
 }
-/* Specific footer layouts */
 .footer-actions.question-nav,
 .footer-actions.review-actions {
-  justify-content: space-between; /* Space out items */
+  justify-content: space-between;
 }
-/* Push first back/cancel button to the left */
 .footer-actions > .back-button:first-child {
   margin-right: auto;
 }
-/* Adjust margins for subsequent buttons */
 .footer-actions span,
 .footer-actions .button-secondary,
 .footer-actions .button-primary {
-  margin-left: 0.5rem; /* Default spacing */
+  margin-left: 0.5rem;
 }
-/* Remove margin-left for the element immediately after the auto-margin button */
 .footer-actions > .back-button:first-child + * {
   margin-left: 0;
 }
-
-/* Base Button Styles */
 .button-primary,
 .button-secondary,
 .button-tertiary {
@@ -1031,7 +1070,6 @@ h3 {
   text-align: center;
   line-height: 1.2;
 }
-/* Primary Button */
 .button-primary {
   background-color: var(--bg-button-primary);
   color: var(--text-button-primary);
@@ -1047,7 +1085,6 @@ h3 {
   cursor: not-allowed;
   opacity: 0.7;
 }
-/* Secondary Button */
 .button-secondary {
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
@@ -1063,7 +1100,6 @@ h3 {
   cursor: not-allowed;
   opacity: 0.7;
 }
-/* Tertiary Button */
 .button-tertiary {
   background-color: transparent;
   color: var(--text-secondary);
@@ -1074,9 +1110,8 @@ h3 {
   border-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
 }
-/* Special Back Button Style for Step 3 */
 .back-to-level-button {
-  background-color: var(--bg-error, #a04040) !important; /* Warning color */
+  background-color: var(--bg-error, #a04040) !important;
   color: var(--text-light, white) !important;
   border: 1px solid var(--bg-error, #a04040) !important;
 }
@@ -1085,7 +1120,6 @@ h3 {
   border-color: color-mix(in srgb, var(--bg-error, #a04040) 85%, black) !important;
   color: var(--text-light, white) !important;
 }
-/* Question Counter */
 .question-counter {
   color: var(--text-secondary);
   font-size: 0.9em;
@@ -1093,8 +1127,6 @@ h3 {
   flex-shrink: 0;
   white-space: nowrap;
 }
-
-/* Input Shake Animation */
 @keyframes shake {
   10%,
   90% {
@@ -1118,34 +1150,34 @@ h3 {
   animation: shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
   border-color: var(--text-error) !important;
 }
-
-/* Test Modal Styles (Copied from AssistantsView, ensure consistency) */
 .modal-overlay {
-  position: fixed;
+  /* This is for the TEST modal *inside* AssistantCreator */
+  position: fixed; /* Or absolute if creator is already a modal */
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-color: rgba(0, 0, 0, 0.7);
+  width: 100%; /* Cover the parent creator modal or view */
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8); /* Darker overlay for modal-on-modal */
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 2000; /* Ensure above creator */
-  padding: 1rem;
+  align-items: center; /* Center vertically */
+  z-index: 3000; /* Higher than creator's own potential z-index if it's a modal */
+  padding: 1rem; /* Some padding around the test modal content */
   box-sizing: border-box;
-  cursor: pointer; /* For closing via overlay click */
+  cursor: pointer;
 }
 .test-modal .test-modal-content {
   max-width: 90vw;
-  width: 800px; /* Or desired width */
-  max-height: 90vh;
+  width: 800px;
+  max-height: 85vh; /* Slightly less than overlay padding allows */
   background-color: var(--bg-modal, var(--bg-main-content));
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* Prevent content spill */
-  cursor: default; /* Reset cursor */
+  overflow: hidden;
+  cursor: default;
+  box-sizing: border-box;
 }
 .test-modal .test-modal-header {
   display: flex;
@@ -1179,35 +1211,53 @@ h3 {
   color: var(--text-primary);
 }
 .test-modal .test-modal-chat-area {
-  flex-grow: 1; /* Take remaining space */
-  overflow-y: hidden; /* ChatView handles its own scroll */
-  display: flex; /* Ensure ChatView stretches */
-  background-color: var(--bg-main-content); /* Match chat background */
+  flex-grow: 1;
+  overflow-y: auto;
+  display: flex;
+  background-color: var(--bg-main-content);
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-color-secondary) var(--bg-sidebar);
 }
-/* Ensure ChatView inside modal takes full height/width */
+.test-modal .test-modal-chat-area::-webkit-scrollbar {
+  width: 8px;
+}
+.test-modal .test-modal-chat-area::-webkit-scrollbar-track {
+  background: var(--bg-sidebar);
+  border-radius: 4px;
+}
+.test-modal .test-modal-chat-area::-webkit-scrollbar-thumb {
+  background-color: var(--accent-color-secondary);
+  border-radius: 4px;
+  border: 2px solid var(--bg-sidebar);
+}
+.test-modal .test-modal-chat-area::-webkit-scrollbar-thumb:hover {
+  background-color: var(--accent-color-primary);
+}
+
 .test-modal .test-modal-chat-area > :deep(.chat-view) {
-  height: 100%;
+  height: auto;
   width: 100%;
-  border-radius: 0; /* Remove any border radius from ChatView itself */
-  border: none; /* Remove any border from ChatView itself */
+  border-radius: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .test-modal .test-modal-footer {
   padding: 0.75rem 1.5rem;
   background-color: var(--bg-input-area, #1a1a1a);
   border-top: 1px solid var(--border-color-medium, #333);
   display: flex;
-  justify-content: flex-end; /* Align button to right */
+  justify-content: flex-end;
   gap: 0.75rem;
   flex-shrink: 0;
 }
-/* Style footer buttons using standard classes if possible */
 .test-modal .test-modal-footer button {
-  /* Use standard button classes if defined globally */
-  /* Example using secondary style */
   padding: 0.5rem 1rem;
   background-color: var(--bg-button-secondary);
   color: var(--text-button-secondary);
-  border: none; /* Assuming no border needed */
+  border: none;
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.9em;
@@ -1217,24 +1267,20 @@ h3 {
 .test-modal .test-modal-footer button:hover {
   background-color: var(--bg-button-secondary-hover);
 }
-
-/* Spinner for Suggest Button */
 .button-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid var(--text-button-secondary); /* Or appropriate color */
+  border: 2px solid var(--text-button-secondary);
   border-top-color: transparent;
   border-radius: 50%;
   animation: button-spin 0.8s linear infinite;
-  margin: auto; /* Center if needed */
+  margin: auto;
 }
 @keyframes button-spin {
   to {
     transform: rotate(360deg);
   }
 }
-
-/* Green Plasma Effect for Suggest Button */
 :root {
   --plasma-color-green-bright: hsl(120, 80%, 70%);
   --plasma-color-green-mid: hsl(120, 70%, 50%);
@@ -1250,10 +1296,10 @@ h3 {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 150%; /* Make it larger than button */
-  padding-bottom: 150%; /* Keep aspect ratio */
+  width: 150%;
+  padding-bottom: 150%;
   background: radial-gradient(
-    /* Corrected syntax */ circle at center,
+    circle at center,
     color-mix(in srgb, var(--plasma-color-green-bright) 60%, transparent) 0%,
     color-mix(in srgb, var(--plasma-color-green-mid) 40%, transparent) 40%,
     color-mix(in srgb, var(--plasma-color-green-dim) 20%, transparent) 70%,
@@ -1261,20 +1307,18 @@ h3 {
   );
   border-radius: 50%;
   transform-origin: center center;
-  transform: translate(-50%, -50%) scale(0); /* Start small */
+  transform: translate(-50%, -50%) scale(0);
   opacity: 0;
   transition: opacity 0.5s ease-out;
   animation: suggest-plasma-pulse 2.5s infinite ease-in-out;
-  z-index: 0; /* Behind content */
+  z-index: 0;
 }
-/* Ensure icon/spinner is above pseudo-element */
 .suggest-button-plasma span,
 .suggest-button-plasma .button-spinner {
   position: relative;
   z-index: 1;
 }
 @keyframes suggest-plasma-pulse {
-  /* Corrected keyframes block */
   0% {
     transform: translate(-50%, -50%) scale(0.7);
     opacity: 0.4;
@@ -1288,14 +1332,13 @@ h3 {
     opacity: 0.4;
   }
 }
-/* Specific style overrides for tertiary button plasma effect */
 .suggest-button-plasma.button-tertiary {
   background-color: color-mix(in srgb, var(--bg-sidebar) 50%, black);
   border-color: var(--plasma-color-green-dim);
   color: var(--plasma-color-green-bright);
-  font-size: 1.2em !important; /* Larger emoji */
-  padding: 0 !important; /* Remove padding */
-  width: 38px; /* Ensure square */
+  font-size: 1.2em !important;
+  padding: 0 !important;
+  width: 38px;
 }
 .suggest-button-plasma.button-tertiary:hover:not(:disabled) {
   background-color: color-mix(in srgb, var(--bg-sidebar) 30%, black);

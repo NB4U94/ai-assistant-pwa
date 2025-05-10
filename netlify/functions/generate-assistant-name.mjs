@@ -1,18 +1,16 @@
 // netlify/functions/generate-assistant-name.mjs
+/* global process */ // Tells ESLint to expect 'process' as a global variable
+
 import { GoogleGenerativeAI } from '@google/generative-ai'
-// Ensure @netlify/functions is installed if needed by runtime, but don't import Netlify object
-// import { Context } from "@netlify/functions"; // Only needed if using context object
 
-const NAME_MODEL = 'gemini-1.5-flash-latest' // Use free tier model
+const NAME_MODEL = 'gemini-1.5-flash-latest'
 
-export const handler = async (event, context) => {
-  // context might be unused but good practice
-  // Allow only POST requests
+// eslint-disable-next-line no-unused-vars
+export const handler = async (event, _context) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) }
   }
 
-  // Access API key using process.env (standard for Netlify)
   const apiKey = process.env.GOOGLE_API_KEY
 
   if (!apiKey) {
@@ -35,10 +33,13 @@ export const handler = async (event, context) => {
       }),
     }
   }
-  const model = genAI.getGenerativeModel({ model: NAME_MODEL })
+
+  const model = genAI.getGenerativeModel({
+    model: NAME_MODEL,
+    generationConfig: { temperature: 0.8 }, // Temperature for varied suggestions
+  })
 
   try {
-    // Expect instructions text in the body
     const { instructions } = JSON.parse(event.body)
 
     if (!instructions || typeof instructions !== 'string' || instructions.trim().length === 0) {
@@ -48,32 +49,71 @@ export const handler = async (event, context) => {
       }
     }
 
-    // Limit instruction length sent to API if necessary
-    const instructionsForPrompt = instructions.substring(0, 1000) // Limit context sent
+    const instructionsForPrompt = instructions.substring(0, 1000) // Limit instruction length
 
-    // Prompt designed for name generation
-    const systemPrompt = `Generate a short, catchy, descriptive name (2-4 words maximum) for an AI assistant based on the following instructions/purpose. Output ONLY the suggested name text, nothing else (no quotes, no preamble).\n\nInstructions:\n${instructionsForPrompt}`
+    // Refined prompt for a single, short name
+    const systemPrompt = `Suggest exactly ONE concise and catchy assistant name. This name should ideally be 2 to 3 words long (maximum 4 words).
+Base this name on the provided assistant instructions.
+Output *only* the name itself as a plain string, with no extra text, quotes, bullet points, or numbering.
 
-    console.log(`[generate-assistant-name] Requesting name based on instructions...`)
+Assistant Instructions:
+"${instructionsForPrompt}"`
+
+    console.log(`[generate-assistant-name] Requesting name based on instructions. Temp: 0.8`)
 
     const result = await model.generateContent(systemPrompt)
     const response = await result.response
-    let generatedName = response.text()?.trim() || 'Unnamed Assistant'
+    let rawGeneratedText = response.text()?.trim()
+    let finalName = 'Unnamed Assistant' // Default fallback
 
-    // Clean up potential markdown/quotes
-    generatedName = generatedName.replace(/^["'*]+|["'*]+$/g, '')
-    // Capitalize words (optional nice touch)
-    generatedName = generatedName
-      .split(' ')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
+    if (rawGeneratedText && rawGeneratedText.trim() !== '') {
+      // Split by newline in case the AI gives a list. Take the first non-empty line.
+      const potentialNames = rawGeneratedText.split('\n')
+      let chosenName = ''
+      for (const name of potentialNames) {
+        const trimmedName = name.trim()
+        if (trimmedName) {
+          chosenName = trimmedName
+          break // Found the first non-empty line
+        }
+      }
 
-    console.log(`[generate-assistant-name] Generated name: "${generatedName}"`)
+      if (chosenName) {
+        // Remove any leading/trailing quotes or asterisks
+        chosenName = chosenName.replace(/^["'*]+|["'*]+$/g, '')
+        // Remove common list markers like "1. ", "- ", "* "
+        chosenName = chosenName.replace(/^[\d]+\.\s*/, '') // "1. "
+        chosenName = chosenName.replace(/^[-*]\s*/, '') // "- " or "* "
+        chosenName = chosenName.trim() // Trim again after removing markers
+
+        // Title case the chosen name
+        if (chosenName) {
+          // Ensure it's still not empty
+          finalName = chosenName
+            .split(' ')
+            .filter((word) => word.length > 0) // Filter out empty strings if multiple spaces existed
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()) // Ensure rest is lowercase then title case
+            .join(' ')
+        }
+      }
+    }
+
+    // Optional: Enforce a word limit if strictly necessary, though prompt should guide this
+    const wordsInFinalName = finalName.split(' ')
+    if (wordsInFinalName.length > 4 && wordsInFinalName.length > 1) {
+      // if more than 4 words, and not a single long word
+      console.warn(
+        `[generate-assistant-name] Generated name "${finalName}" was too long, truncating to 4 words.`,
+      )
+      finalName = wordsInFinalName.slice(0, 4).join(' ')
+    }
+
+    console.log(`[generate-assistant-name] Processed name: "${finalName}"`)
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: generatedName }), // Return just the name
+      body: JSON.stringify({ name: finalName }), // Ensure 'name' property matches what frontend expects
     }
   } catch (error) {
     console.error('[generate-assistant-name] Error generating name via Google AI:', error)

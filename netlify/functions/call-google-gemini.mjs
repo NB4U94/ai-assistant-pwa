@@ -1,11 +1,9 @@
 /* global process */ // Tell ESLint about process
 // netlify/functions/call-google-gemini.mjs
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'
-// import { ReadableStream } from 'node:stream/web'; // <<< REMOVED this unused import
-import { PassThrough } from 'node:stream' // <<< KEEP this one for the Node.js stream
+import { PassThrough } from 'node:stream'
 
-// Basic safety settings (Unchanged)
-const safetySettings = [
+const defaultSafetySettings = [
   {
     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
     threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -24,7 +22,8 @@ const safetySettings = [
   },
 ]
 
-// Helper to create NON-STREAMING JSON error/options responses (Unchanged)
+const AI_FALLBACK_MESSAGE = "I'm not sure how to respond to that. Can you try rephrasing?"
+
 const createJsonResponse = (statusCode, body) => {
   return {
     statusCode: statusCode,
@@ -38,175 +37,252 @@ const createJsonResponse = (statusCode, body) => {
   }
 }
 
-// processGeminiChunk function (Unchanged)
-/**
- * Processes stream chunks from Gemini API.
- * Extracts the text content.
- * @param {object} chunk - The chunk object from the Gemini stream.
- * @returns {string | null} - The text content string or null.
- */
-function processGeminiChunk(chunk) {
-  try {
-    const text = chunk?.text?.()
-    if (typeof text === 'string') {
-      return text
-    }
-    const blockReason = chunk?.promptFeedback?.blockReason
-    if (blockReason) {
-      console.warn(`[call-google-gemini] Stream chunk blocked: ${blockReason}`)
-      return `\n(Content blocked: ${blockReason})\n`
-    }
-  } catch (error) {
-    console.error('[call-google-gemini] Error processing Gemini stream chunk:', chunk, error)
-  }
-  return null
-}
-
-// Main handler function (Unchanged)
 export const handler = async (event) => {
-  // --- CORS Preflight Check ---
+  console.log('[Gemini Function] Received event:', event.httpMethod, event.path)
   if (event.httpMethod === 'OPTIONS') {
     return createJsonResponse(200, {})
   }
-
-  // --- Method Check ---
   if (event.httpMethod !== 'POST') {
-    console.warn(`[call-google-gemini] Received non-POST request: ${event.httpMethod}`)
+    console.warn(`[Gemini Function] Received non-POST request: ${event.httpMethod}`)
     return createJsonResponse(405, { error: 'Method Not Allowed' })
   }
 
-  // --- API Key Check ---
   const apiKey = process.env.GOOGLE_API_KEY
   if (!apiKey) {
-    console.error('[call-google-gemini] GOOGLE_API_KEY environment variable not set.')
+    console.error('[Gemini Function] GOOGLE_API_KEY environment variable not set.')
     return createJsonResponse(500, { error: 'Server configuration error: Missing API Key.' })
   }
 
-  // --- Initialize Google AI Client ---
   let genAI
   try {
     genAI = new GoogleGenerativeAI(apiKey)
   } catch (initError) {
-    console.error('[call-google-gemini] Failed to initialize GoogleGenerativeAI:', initError)
+    console.error('[Gemini Function] Failed to initialize GoogleGenerativeAI:', initError)
     return createJsonResponse(500, {
       error: 'Server configuration error: Failed to initialize AI Client.',
     })
   }
 
-  // --- Parse Request Body ---
   let requestPayload
   try {
     if (!event.body) throw new Error('Request body is missing.')
     requestPayload = JSON.parse(event.body)
   } catch (error) {
-    console.error('[call-google-gemini] Error parsing request body:', error)
+    console.error('[Gemini Function] Error parsing request body:', error.message)
     return createJsonResponse(400, {
       error: `Invalid request body: ${error.message}. Expecting JSON.`,
     })
   }
 
-  // --- Validate and Prepare Data ---
   const {
     model: modelId = 'gemini-1.5-flash-latest',
     messages,
     temperature,
     max_tokens,
     top_p,
+    safetySettings: requestSafetySettings,
   } = requestPayload
 
   if (!Array.isArray(messages) || messages.length === 0) {
-    return createJsonResponse(400, { error: 'Bad Request: Missing messages.' })
+    console.warn('[Gemini Function] Bad Request: Missing or empty messages array.')
+    return createJsonResponse(400, { error: 'Bad Request: Missing or empty messages array.' })
   }
 
-  // Separate System Prompt and History (Unchanged)
   let systemInstructionContent = null
   const historyContents = messages
-    .filter(
-      /* ... filter logic unchanged ... */ (msg) => {
-        if (msg.role === 'system') {
-          if (typeof msg.content === 'string') systemInstructionContent = msg.content
-          return false
+    .filter((msg) => {
+      if (!msg || !msg.role || typeof msg.content === 'undefined') return false
+      if (msg.role === 'system') {
+        if (typeof msg.content === 'string' && msg.content.trim() !== '') {
+          systemInstructionContent = msg.content.trim()
         }
-        return msg.role === 'user' || msg.role === 'assistant'
-      },
-    )
-    .map(
-      /* ... mapping logic unchanged ... */ (msg) => ({
+        return false
+      }
+      const hasContent =
+        typeof msg.content === 'string'
+          ? msg.content.trim() !== ''
+          : Array.isArray(msg.content) &&
+            msg.content.some(
+              (part) => part && typeof part.text === 'string' && part.text.trim() !== '',
+            )
+      return (msg.role === 'user' || msg.role === 'assistant') && hasContent
+    })
+    .map((msg) => {
+      let parts = []
+      if (typeof msg.content === 'string') {
+        const trimmedContent = msg.content.trim()
+        if (trimmedContent) parts.push({ text: trimmedContent })
+      } else if (Array.isArray(msg.content)) {
+        msg.content.forEach((part) => {
+          if (
+            part &&
+            part.type === 'text' &&
+            typeof part.text === 'string' &&
+            part.text.trim() !== ''
+          ) {
+            parts.push({ text: part.text.trim() })
+          }
+        })
+      }
+      return {
         role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: Array.isArray(msg.content)
-          ? msg.content.map((part) => ({ text: part.text }))
-          : [{ text: String(msg.content || '') }],
-      }),
-    )
+        parts: parts,
+      }
+    })
+    .filter((item) => item.parts && item.parts.length > 0)
 
-  // Prepare generation config (Unchanged)
-  const generationConfig = {
-    temperature: temperature ?? undefined,
-    topP: top_p ?? undefined,
-  }
+  const generationConfig = {}
+  if (typeof temperature === 'number') generationConfig.temperature = temperature
+  if (typeof top_p === 'number') generationConfig.topP = top_p
   if (max_tokens && Number.isInteger(Number(max_tokens)) && Number(max_tokens) > 0) {
     generationConfig.maxOutputTokens = Number(max_tokens)
   }
 
-  // --- Initialize Model (Unchanged) ---
-  console.log(`[call-google-gemini] Initializing model: ${modelId}`)
-  if (systemInstructionContent) {
-    console.log('[call-google-gemini] Using system instruction.')
-  }
-  let model
-  try {
-    model = genAI.getGenerativeModel({
-      model: modelId,
-      safetySettings,
-      systemInstruction: systemInstructionContent || undefined,
-      generationConfig,
+  if (historyContents.length === 0 && !systemInstructionContent) {
+    console.warn(
+      '[Gemini Function] No valid user/assistant message content to send to AI after filtering.',
+    )
+    return createJsonResponse(400, {
+      error: 'Bad Request: No valid user/assistant message content to send to AI after filtering.',
     })
+  }
+
+  let modelInstance
+  try {
+    const modelParams = {
+      model: modelId,
+      safetySettings: requestSafetySettings || defaultSafetySettings,
+      generationConfig,
+    }
+    if (systemInstructionContent) {
+      modelParams.systemInstruction = {
+        role: 'system',
+        parts: [{ text: systemInstructionContent }],
+      }
+    }
+    modelInstance = genAI.getGenerativeModel(modelParams)
   } catch (modelError) {
-    console.error(`[call-google-gemini] Error initializing model ${modelId}:`, modelError)
+    console.error('[Gemini Function] Server error: Could not initialize AI model.', modelError)
     return createJsonResponse(500, {
       error: `Server error: Could not initialize AI model. ${modelError.message}`,
     })
   }
 
-  // --- Call Google AI and Stream Response (Unchanged from previous version) ---
   try {
-    console.log(`[call-google-gemini] Calling generateContentStream for model: ${modelId}`)
-
-    const streamResult = await model.generateContentStream({
-      contents: historyContents,
-    })
-
-    // Create a PassThrough Stream for Netlify
-    // const { PassThrough } = await import('node:stream'); // Keep import at top
+    const streamResult = await modelInstance.generateContentStream({ contents: historyContents })
     const nodeStream = new PassThrough()
+    const encoder = new TextEncoder()
+    let streamProperlyFinished = false
+    let anyTextSentFromGoogle = false // Flag to track if Google sent any text at all
 
-    // Function to pipe the web stream to the Node stream (Unchanged)
     const pipeStream = async () => {
-      const encoder = new TextEncoder()
+      console.log('[Gemini Function] pipeStream: Started for Google SDK stream.')
+      let streamChunkCounter = 0
       try {
-        for await (const chunk of streamResult.stream) {
-          const text = processGeminiChunk(chunk)
-          if (text) {
-            nodeStream.write(encoder.encode(text))
+        for await (const sdkChunk of streamResult.stream) {
+          streamChunkCounter++
+          let textFromCurrentSdkChunk = ''
+          let blockReason = sdkChunk?.promptFeedback?.blockReason
+          let processedPartsInChunk = false
+
+          if (blockReason) {
+            console.warn(
+              `[Gemini Function] pipeStream: Content blocked by API in sdkChunk ${streamChunkCounter}. Reason: ${blockReason}`,
+            )
+            textFromCurrentSdkChunk = `\n(Content generation blocked by API: ${blockReason})\n`
+            processedPartsInChunk = true
+            anyTextSentFromGoogle = true // A block reason counts as "something"
+          } else if (sdkChunk && sdkChunk.candidates && sdkChunk.candidates.length > 0) {
+            const candidate = sdkChunk.candidates[0]
+            if (
+              candidate.content &&
+              candidate.content.parts &&
+              candidate.content.parts.length > 0
+            ) {
+              processedPartsInChunk = true
+              for (const part of candidate.content.parts) {
+                if (part.text !== undefined && typeof part.text === 'string') {
+                  textFromCurrentSdkChunk += part.text
+                  if (part.text.trim() !== '') {
+                    anyTextSentFromGoogle = true // Mark if any non-whitespace text was found
+                  }
+                }
+              }
+            }
+          }
+
+          if (blockReason || processedPartsInChunk) {
+            const ssePayload = { text: textFromCurrentSdkChunk }
+            const sseFormattedChunk = `data: ${JSON.stringify(ssePayload)}\n\n`
+            if (!nodeStream.writableEnded) {
+              nodeStream.write(encoder.encode(sseFormattedChunk))
+            } else {
+              console.warn(
+                `[Gemini Function] pipeStream: Node stream to client ended prematurely before writing sdkChunk ${streamChunkCounter}.`,
+              )
+              streamProperlyFinished = false
+              break
+            }
           }
         }
-        console.log('[call-google-gemini] Google SDK stream finished.')
+
+        if (!nodeStream.writableEnded) {
+          console.log(
+            `[Gemini Function] pipeStream: Google SDK stream finished successfully after ${streamChunkCounter} sdkChunks.`,
+          )
+          streamProperlyFinished = true
+        } else {
+          console.warn(
+            `[Gemini Function] pipeStream: Google SDK stream loop may have exited because client stream was already closed.`,
+          )
+          streamProperlyFinished = false
+        }
       } catch (error) {
-        console.error('[call-google-gemini] Error piping Gemini stream:', error)
-        nodeStream.write(encoder.encode(`\n\n--- Stream Error: ${error.message} ---\n`))
+        console.error(
+          '[Gemini Function] pipeStream: Error during Google SDK stream iteration:',
+          error,
+        )
+        const sseError = `data: ${JSON.stringify({ error: `Stream Error: ${error.message}` })}\n\n`
+        if (!nodeStream.writableEnded) {
+          nodeStream.write(encoder.encode(sseError))
+        }
+        streamProperlyFinished = false
       } finally {
-        console.log('[call-google-gemini] Closing Node stream.')
-        nodeStream.end()
+        if (streamProperlyFinished && !anyTextSentFromGoogle && !nodeStream.writableEnded) {
+          // If Google's stream finished, we processed parts, but no actual text was ever sent (all parts were empty)
+          // AND no block reason occurred, send the fallback message.
+          console.log(
+            '[Gemini Function] pipeStream: Google stream was empty. Sending fallback message.',
+          )
+          const fallbackPayload = { text: AI_FALLBACK_MESSAGE }
+          const fallbackSseChunk = `data: ${JSON.stringify(fallbackPayload)}\n\n`
+          nodeStream.write(encoder.encode(fallbackSseChunk))
+        }
+
+        if (streamProperlyFinished && !nodeStream.writableEnded) {
+          const doneEvent = `data: ${JSON.stringify({ done: true, message: 'Stream complete from server' })}\n\n`
+          console.log('[Gemini Function] pipeStream: Sending stream completion event to client.')
+          nodeStream.write(encoder.encode(doneEvent))
+        } else if (!streamProperlyFinished && !nodeStream.writableEnded) {
+          const errorDoneEvent = `data: ${JSON.stringify({ done: true, error: 'Stream from AI ended unexpectedly or with error.' })}\n\n`
+          console.log(
+            '[Gemini Function] pipeStream: Sending error/unexpected completion event to client.',
+          )
+          nodeStream.write(encoder.encode(errorDoneEvent))
+        }
+        console.log('[Gemini Function] pipeStream: Closing (ending) Node stream to client.')
+        if (!nodeStream.writableEnded) {
+          nodeStream.end()
+        }
       }
     }
 
-    pipeStream() // Start piping
+    pipeStream()
 
-    // Return the Node.js Stream for Netlify (Unchanged)
     return {
       statusCode: 200,
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Type': 'text/event-stream; charset=utf-8',
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
@@ -215,8 +291,10 @@ export const handler = async (event) => {
       isBase64Encoded: false,
     }
   } catch (error) {
-    // Handle setup errors (Unchanged)
-    console.error('[call-google-gemini] Error calling Google AI API or setting up stream:', error)
+    console.error(
+      '[Gemini Function] Outer try/catch: Error calling Google AI API or setting up stream:',
+      error,
+    )
     return createJsonResponse(500, { error: `Server error calling AI: ${error.message}` })
   }
 }

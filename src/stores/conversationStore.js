@@ -1,5 +1,3 @@
-// src/stores/conversationStore.js
-// Removed '/* global process */' comment as 'process' is not used.
 import { defineStore } from 'pinia'
 import { ref, computed, toRaw } from 'vue'
 import { useAssistantsStore } from './assistantsStore'
@@ -25,14 +23,14 @@ export const useConversationStore = defineStore('conversation', () => {
 
   // State Refs
   const activeSessionId = ref(MAIN_CHAT_ID)
-  const activeMessages = ref([]) // Holds message objects { messageId, role, content, timestamp, imagePreviewUrl, isLoading }
+  const activeMessages = ref([]) // Holds messages for NORMAL (non-test) sessions
   const loadedMemoryId = ref(null)
   const currentSessionMemoryId = ref(null)
   const memories = ref([])
   const isStoreInitialized = ref(false)
   const isCurrentSessionTestMode = ref(false)
+  const testModeAssistantConfig = ref(null)
 
-  // --- Internal Helper Functions ---
   function createNewMemoryObject(rawMessages, timestamp) {
     const currentSessionId = activeSessionId.value
     const placeholderName = `Processing Title... (${new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})`
@@ -83,10 +81,6 @@ export const useConversationStore = defineStore('conversation', () => {
         )
         const plainMemory = toRaw(memoryToUpdate)
         try {
-          console.log(
-            `%c[Store] DB save (updateMemoryName): memoryId=${plainMemory?.memoryId}, sessionId=${plainMemory?.sessionId}`,
-            'color: orange',
-          )
           await saveMemory(plainMemory)
         } catch (error) {
           console.error(`[Store] ERROR saving updated name for memory ${memoryId}:`, error)
@@ -97,39 +91,59 @@ export const useConversationStore = defineStore('conversation', () => {
     }
   }
 
-  // --- Core Actions ---
+  const setTestModeAssistantConfig = (config) => {
+    console.log('[Store] Setting Test Mode with Assistant Config:', config ? { ...config } : null)
+    if (config) {
+      testModeAssistantConfig.value = { ...config }
+      isCurrentSessionTestMode.value = true
+      activeMessages.value = [] // Clear main messages; test messages are local to ChatViewLogic
+      loadedMemoryId.value = null
+      currentSessionMemoryId.value = null
+      if (config.id && !config.id.startsWith('temp_')) {
+        activeSessionId.value = config.id
+      } else if (config.id) {
+        activeSessionId.value = config.id
+      }
+      console.log(
+        `[Store] Test mode set. Config ID: ${testModeAssistantConfig.value?.id}, Active Session ID for context: ${activeSessionId.value}`,
+      )
+    } else {
+      clearTestModeAssistantConfig()
+    }
+  }
+
+  const clearTestModeAssistantConfig = () => {
+    if (testModeAssistantConfig.value !== null || isCurrentSessionTestMode.value !== false) {
+      console.log('[Store] Clearing Test Mode Assistant Config.')
+      testModeAssistantConfig.value = null
+      isCurrentSessionTestMode.value = false
+    }
+  }
+
   async function saveActiveConversationToMemories() {
-    // Initial checks - skip if test mode, not initialized, or no messages
     if (isCurrentSessionTestMode.value) {
-      console.log('[Store - saveActive] Test mode active. Skipping save.')
+      console.log('[Store - saveActive] Test mode active. Skipping save of activeMessages.')
       return null
     }
     if (!isStoreInitialized.value || !activeMessages.value || activeMessages.value.length === 0) {
       console.log('[Store - saveActive] Store not ready or no messages. Skipping save.')
       return null
     }
-
-    // --- Settings Checks Added ---
     if (!settingsStore.saveConversationsGlobally) {
       console.log('[Store - saveActive] Global conversation saving is disabled. Skipping save.')
       return null
     }
-    // --- FIX: Use .has() for Set instead of .includes() ---
     if (settingsStore.excludedAssistantIds.has(activeSessionId.value)) {
       console.log(
-        `[Store - saveActive] Assistant (${activeSessionId.value}) is excluded from saving (using .has()). Skipping save.`,
+        `[Store - saveActive] Assistant (${activeSessionId.value}) is excluded. Skipping save.`,
       )
       return null
     }
-    // --- End Settings Checks ---
-
     const now = Date.now()
     const messagesToSaveRaw = toRaw(activeMessages.value)
     let memoryToSave = null
     let existingMemoryIndex = -1
     let isNewMemory = false
-
-    // Update loaded memory?
     if (loadedMemoryId.value) {
       existingMemoryIndex = memories.value.findIndex((mem) => mem.memoryId === loadedMemoryId.value)
       if (existingMemoryIndex !== -1) {
@@ -137,13 +151,10 @@ export const useConversationStore = defineStore('conversation', () => {
         memories.value[existingMemoryIndex].timestamp = now
         memoryToSave = toRaw(memories.value[existingMemoryIndex])
       } else {
-        // If loaded memory ID is somehow invalid, clear it
         loadedMemoryId.value = null
-        currentSessionMemoryId.value = null // Also clear this to force new memory creation
+        currentSessionMemoryId.value = null
       }
     }
-
-    // Update current session memory? (Only if not already handled by loadedMemoryId)
     if (!memoryToSave && currentSessionMemoryId.value) {
       existingMemoryIndex = memories.value.findIndex(
         (mem) => mem.memoryId === currentSessionMemoryId.value,
@@ -153,22 +164,17 @@ export const useConversationStore = defineStore('conversation', () => {
         memories.value[existingMemoryIndex].timestamp = now
         memoryToSave = toRaw(memories.value[existingMemoryIndex])
       } else {
-        // If current session memory ID is somehow invalid, clear it
         currentSessionMemoryId.value = null
       }
     }
-
-    // Create new memory? (Only if no existing memory was found/updated)
     if (!memoryToSave) {
       const newMemoryObject = createNewMemoryObject(messagesToSaveRaw, now)
       memories.value.push(newMemoryObject)
       currentSessionMemoryId.value = newMemoryObject.memoryId
-      loadedMemoryId.value = null // Ensure loaded ID is cleared when starting new memory
+      loadedMemoryId.value = null
       isNewMemory = true
       memoryToSave = toRaw(newMemoryObject)
     }
-
-    // Perform Save
     if (memoryToSave) {
       console.log(
         `%c[Store] Preparing to save to DB: Memory ID: ${memoryToSave.memoryId}, Session ID: ${memoryToSave.sessionId}`,
@@ -180,16 +186,15 @@ export const useConversationStore = defineStore('conversation', () => {
         if (isNewMemory && messagesToSaveRaw.length > 0) {
           triggerAiTitleGeneration(memoryToSave.memoryId, messagesToSaveRaw.slice(0, 6))
         }
-        return memoryToSave.memoryId // Return the ID of the saved/updated memory
+        return memoryToSave.memoryId
       } catch (error) {
         console.error(
           `[Store - saveActive] ERROR saving memory ID: ${memoryToSave?.memoryId}. Error:`,
           error,
         )
-        return null // Indicate save failure
+        return null
       }
     } else {
-      // This case should ideally not be reached if the logic above is correct
       console.error('[Store - saveActive] Logic error: memoryToSave is null after checks.')
       return null
     }
@@ -198,22 +203,18 @@ export const useConversationStore = defineStore('conversation', () => {
   async function loadMemory(memoryId) {
     if (!memoryId) return
     if (!isStoreInitialized.value) await initializeStore()
-    if (!isStoreInitialized.value) return // Check again after potential async init
+    if (!isStoreInitialized.value) return
 
-    // Save current state *before* loading new one
-    await saveActiveConversationToMemories() // Respects settings
-
+    await saveActiveConversationToMemories()
     const memoryToLoad = memories.value.find((mem) => mem.memoryId === memoryId)
     if (memoryToLoad) {
+      clearTestModeAssistantConfig()
       activeSessionId.value = memoryToLoad.sessionId
-      // Ensure messages is an array before spreading
       activeMessages.value = Array.isArray(memoryToLoad.messages)
         ? [...toRaw(memoryToLoad.messages)]
         : []
       loadedMemoryId.value = memoryId
-      currentSessionMemoryId.value = null // Loading a memory means it's not the 'current unsaved' one
-      isCurrentSessionTestMode.value = false // Loading always exits test mode
-
+      currentSessionMemoryId.value = null
       console.log(`[Store] Loaded memory ${memoryId}.`)
       try {
         assistantsStore.selectAssistant(
@@ -225,8 +226,76 @@ export const useConversationStore = defineStore('conversation', () => {
     } else {
       console.error(`[Store] Memory ID ${memoryId} not found. Cannot load.`)
       alert(`Error: Could not find Memory ID ${memoryId}. Returning to main chat.`)
-      // Fallback to a clean main chat session if load fails
       await setActiveSession(MAIN_CHAT_ID)
+    }
+  }
+
+  async function setActiveSession(sessionId) {
+    const trimmedId = sessionId ? sessionId.trim() : MAIN_CHAT_ID
+    if (!trimmedId) {
+      console.error('[Store] setActiveSession: Invalid sessionId provided.')
+      return
+    }
+
+    if (
+      activeSessionId.value === trimmedId &&
+      loadedMemoryId.value === null &&
+      !isCurrentSessionTestMode.value
+    ) {
+      console.log(`[Store] Session ${trimmedId} is already active (normal mode). No change needed.`)
+      try {
+        assistantsStore.selectAssistant(trimmedId === MAIN_CHAT_ID ? null : trimmedId)
+      } catch (e) {
+        console.error(`Error syncing assistant store on no-op setActiveSession:`, e)
+      }
+      return
+    }
+
+    if (activeMessages.value.length > 0 && !isCurrentSessionTestMode.value) {
+      console.log(
+        `[Store] Saving non-test session ${activeSessionId.value} before switching to ${trimmedId}...`,
+      )
+      try {
+        await saveActiveConversationToMemories()
+      } catch (saveError) {
+        console.error(
+          `[Store] FAILED to save session ${activeSessionId.value} before switching. Error:`,
+          saveError,
+        )
+      }
+    }
+
+    clearTestModeAssistantConfig()
+    console.log(`[Store] Setting active NORMAL session to ${trimmedId}.`)
+    activeSessionId.value = trimmedId
+    loadedMemoryId.value = null
+    currentSessionMemoryId.value = null
+    await loadConversationForSession(trimmedId)
+
+    try {
+      assistantsStore.selectAssistant(trimmedId === MAIN_CHAT_ID ? null : trimmedId)
+    } catch (e) {
+      console.error(`Error calling assistantsStore.selectAssistant for ID ${trimmedId}:`, e)
+    }
+  }
+
+  async function loadConversationForSession(sessionId) {
+    const mostRecentMemory = memories.value
+      .filter((mem) => mem.sessionId === sessionId)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0]
+
+    if (mostRecentMemory) {
+      activeMessages.value = Array.isArray(mostRecentMemory.messages)
+        ? [...toRaw(mostRecentMemory.messages)]
+        : []
+      currentSessionMemoryId.value = mostRecentMemory.memoryId
+      console.log(
+        `[Store] Loaded most recent history for session ${sessionId} (Memory ID: ${mostRecentMemory.memoryId}).`,
+      )
+    } else {
+      activeMessages.value = []
+      currentSessionMemoryId.value = null
+      console.log(`[Store] No history for session ${sessionId}. Starting fresh.`)
     }
   }
 
@@ -234,22 +303,18 @@ export const useConversationStore = defineStore('conversation', () => {
     const index = memories.value.findIndex((mem) => mem.memoryId === memoryId)
     if (index !== -1) {
       const name = memories.value[index].name || `ID: ${memoryId}`
-      memories.value.splice(index, 1) // Remove from reactive list first
+      memories.value.splice(index, 1)
       console.log(`[Store] Removed memory "${name}" (${memoryId}) from reactive list.`)
-
       try {
-        await deleteMemoryDB(memoryId) // Delete from IndexedDB
+        await deleteMemoryDB(memoryId)
         console.log(`[Store] Deleted memory ${memoryId} from DB.`)
       } catch (error) {
         console.error(`[Store] ERROR deleting memory ${memoryId} from DB:`, error)
-        // Consider re-adding to list or providing feedback if critical
         alert(`Failed to delete memory "${name}" from storage. It may reappear on refresh.`)
       }
-
-      // Reset view if the deleted memory was active
       if (currentSessionMemoryId.value === memoryId) currentSessionMemoryId.value = null
       if (loadedMemoryId.value === memoryId) {
-        await setActiveSession(MAIN_CHAT_ID) // Switch to main chat safely
+        await setActiveSession(MAIN_CHAT_ID)
       }
     } else {
       console.warn(`[Store] Memory ID ${memoryId} not found for deletion.`)
@@ -264,47 +329,33 @@ export const useConversationStore = defineStore('conversation', () => {
     console.log(`[Store] Deleting memories for session: ${sessionId}`)
     const memoryIdsToDelete = []
     let resetActiveViewRequired = false
-    let clearCurrentSessionMemoryId = false
-
-    // Filter out memories belonging to the session ID
+    let clearCurrentSessionMemoryIdLocal = false
     memories.value = memories.value.filter((mem) => {
       if (mem.sessionId === sessionId) {
         memoryIdsToDelete.push(mem.memoryId)
-        // Check if the memory being deleted is currently active
         if (loadedMemoryId.value === mem.memoryId) resetActiveViewRequired = true
-        if (currentSessionMemoryId.value === mem.memoryId) clearCurrentSessionMemoryId = true
-        return false // Exclude this memory
+        if (currentSessionMemoryId.value === mem.memoryId) clearCurrentSessionMemoryIdLocal = true
+        return false
       }
-      return true // Keep this memory
+      return true
     })
-
-    // Reset state if needed
-    if (clearCurrentSessionMemoryId) {
+    if (clearCurrentSessionMemoryIdLocal) {
       currentSessionMemoryId.value = null
     }
     if (resetActiveViewRequired) {
-      await setActiveSession(MAIN_CHAT_ID) // Safely reset to main chat
+      await setActiveSession(MAIN_CHAT_ID)
     }
-
     console.log(
       `[Store] Found ${memoryIdsToDelete.length} memories to delete for session ${sessionId}.`,
     )
-
-    // Perform DB deletions
     if (memoryIdsToDelete.length > 0) {
       const deletePromises = memoryIdsToDelete.map((id) =>
         deleteMemoryDB(id).catch((e) => {
           console.error(`[Store] DB delete failed for memory ID ${id}:`, e)
-          // Optionally track failures
         }),
       )
       try {
-        const results = await Promise.allSettled(deletePromises)
-        console.log(
-          `[Store] DB deletion attempted for ${memoryIdsToDelete.length} memories. Results:`,
-          results.map((r) => ({ id: r.status === 'fulfilled' ? 'Success' : 'Failed', ...r })), // Basic summary
-        )
-        // Handle potential failures if needed (e.g., notify user)
+        await Promise.allSettled(deletePromises)
       } catch (error) {
         console.error(`[Store] Error during Promise.allSettled for memory deletion:`, error)
       }
@@ -313,29 +364,22 @@ export const useConversationStore = defineStore('conversation', () => {
 
   async function deleteMultipleMemories(memoryIdsToDelete) {
     if (!Array.isArray(memoryIdsToDelete) || memoryIdsToDelete.length === 0) return
-
     console.log(`[Store] Attempting to delete ${memoryIdsToDelete.length} memories.`)
     let memoryIdsActuallyDeleted = []
     let resetActiveView = false
-    let clearCurrentSessionId = false
-
-    // Filter reactive list and identify state changes needed
+    let clearCurrentSessionIdLocal = false
     memories.value = memories.value.filter((mem) => {
       const shouldDelete = memoryIdsToDelete.includes(mem.memoryId)
       if (shouldDelete) {
         memoryIdsActuallyDeleted.push(mem.memoryId)
         if (loadedMemoryId.value === mem.memoryId) resetActiveView = true
-        if (currentSessionMemoryId.value === mem.memoryId) clearCurrentSessionId = true
+        if (currentSessionMemoryId.value === mem.memoryId) clearCurrentSessionIdLocal = true
       }
       return !shouldDelete
     })
-
-    // Update state if active memory was deleted
-    if (clearCurrentSessionId) {
+    if (clearCurrentSessionIdLocal) {
       currentSessionMemoryId.value = null
     }
-
-    // Perform DB Deletions
     if (memoryIdsActuallyDeleted.length > 0) {
       const deletePromises = memoryIdsActuallyDeleted.map((id) =>
         deleteMemoryDB(id).catch((e) => {
@@ -343,14 +387,7 @@ export const useConversationStore = defineStore('conversation', () => {
         }),
       )
       await Promise.allSettled(deletePromises)
-      console.log(
-        `[Store] Attempted IndexedDB deletion for ${memoryIdsActuallyDeleted.length} memories.`,
-      )
-    } else {
-      console.log('[Store] No matching memories found in reactive list for deletion.')
     }
-
-    // Reset view if necessary (after potential async deletions)
     if (resetActiveView) {
       await setActiveSession(MAIN_CHAT_ID)
     }
@@ -358,188 +395,106 @@ export const useConversationStore = defineStore('conversation', () => {
 
   async function deleteAllMemories() {
     const count = memories.value.length
-    if (count === 0) {
-      console.log('[Store] No memories to delete.')
-      return
-    }
-
-    memories.value = [] // Clear reactive list
-    currentSessionMemoryId.value = null // Clear current session tracking
-    await setActiveSession(MAIN_CHAT_ID) // Reset view to main chat
-
+    if (count === 0) return
+    memories.value = []
+    currentSessionMemoryId.value = null
+    await setActiveSession(MAIN_CHAT_ID)
     console.log(`[Store] Cleared ${count} memories from reactive list. Now clearing DB...`)
     try {
-      await clearMemoryStore() // Clear IndexedDB store
-      console.log('[Store] Cleared IndexedDB memory store.')
+      await clearMemoryStore()
     } catch (error) {
       console.error('[Store] ERROR clearing memory store:', error)
       alert('Failed to clear all memories from storage. Please try again.')
-      // Consider attempting to reload memories here if critical
     }
   }
 
-  async function setActiveSession(sessionId, isTest = false) {
-    const trimmedId = sessionId ? sessionId.trim() : MAIN_CHAT_ID
-    if (!trimmedId) {
-      console.error('[Store] setActiveSession: Invalid sessionId provided.')
-      return // Prevent setting invalid session
-    }
-
-    // Check if the target session is the same as the current one (and not loading a memory)
-    // And test mode status is unchanged.
-    if (
-      activeSessionId.value === trimmedId &&
-      loadedMemoryId.value === null && // Ensure we are not in a 'loaded memory' state
-      isCurrentSessionTestMode.value === isTest
-    ) {
-      console.log(`[Store] Session ${trimmedId} is already active. No change needed.`)
-      // Ensure assistant store is synced even if no state change happens here
-      try {
-        assistantsStore.selectAssistant(trimmedId === MAIN_CHAT_ID ? null : trimmedId)
-      } catch (e) {
-        console.error(`Error syncing assistant store on no-op setActiveSession:`, e)
-      }
-      return // No state change needed
-    }
-
-    // Save current session before switching, respecting settings
-    if (!isCurrentSessionTestMode.value && activeMessages.value.length > 0) {
-      console.log(
-        `[Store] Saving session ${activeSessionId.value} before switching to ${trimmedId}...`,
-      )
-      // Use try-catch here as this save operation might fail
-      try {
-        await saveActiveConversationToMemories()
-      } catch (saveError) {
-        console.error(
-          `[Store] FAILED to save session ${activeSessionId.value} before switching. Error:`,
-          saveError,
-        )
-        // Decide if you want to proceed despite the save failure.
-        // For now, we'll log the error and continue switching.
-        // Alternatively, you could alert the user or return here.
-      }
-    }
-
-    // Reset state for the new session
-    activeSessionId.value = trimmedId
-    activeMessages.value = []
-    loadedMemoryId.value = null // New session always starts fresh, not loaded
-    currentSessionMemoryId.value = null // Clear any previous unsaved session ID
-    isCurrentSessionTestMode.value = isTest
-
-    console.log(`[Store] Set active session to ${trimmedId}. Test mode: ${isTest}`)
-
-    // Sync with assistant store
-    try {
-      assistantsStore.selectAssistant(trimmedId === MAIN_CHAT_ID ? null : trimmedId)
-    } catch (e) {
-      console.error(`Error calling assistantsStore.selectAssistant for ID ${trimmedId}:`, e)
-    }
-  }
-
-  // --- MODIFIED: addMessageToActiveSession to handle isLoading ---
   async function addMessageToActiveSession(
     role,
     content,
     timestamp,
     imagePreviewUrl,
     messageId = null,
-    isLoading = false, // Default is false
+    isLoading = false,
   ) {
+    if (isCurrentSessionTestMode.value) {
+      // Prevent adding to store's activeMessages during test mode
+      console.log(
+        '[Store] Test mode active. Skipping addMessageToActiveSession for store. Message handled by ChatViewLogic.',
+      )
+      return
+    }
     const hasTextContent = typeof content === 'string' && content.trim() !== ''
     const hasImage = !!imagePreviewUrl
-
-    // Validate role
     if (!['user', 'assistant', 'system'].includes(role)) {
       console.warn(`[Store] Invalid role "${role}" for addMessageToActiveSession.`)
       return
     }
-    // Allow adding an empty assistant message shell (for streaming), but not others
     if (!hasTextContent && !hasImage && role !== 'assistant') {
       console.warn(`[Store] Skipping empty non-assistant message (Role: ${role}).`)
       return
     }
-
     const newMessage = {
       messageId: messageId || generateUniqueId(role === 'user' ? 'msg' : 'asst'),
       role: role,
-      content: content, // Keep original content structure
+      content: content,
       timestamp: timestamp || Date.now(),
       imagePreviewUrl: imagePreviewUrl || null,
-      isLoading: isLoading, // Store the loading state
+      isLoading: isLoading,
     }
-
     activeMessages.value.push(newMessage)
-
     console.log(
       `[Store] Added ${role} message (ID: ${newMessage.messageId}, Loading: ${isLoading}) to session ${activeSessionId.value}. Total: ${activeMessages.value.length}`,
     )
-
-    // Autosave logic - Triggered when a *complete* assistant message is added.
-    // Saving after user message happens implicitly when assistant responds or session changes.
-    // Saving for streaming messages happens in updateMessageLoadingState when isLoading becomes false.
     if (role === 'assistant' && !isLoading && !isCurrentSessionTestMode.value) {
-      console.log('[Store] Complete assistant message added, triggering background save...')
-      // Intentionally *not* awaiting this - it runs in background
+      // Double check test mode
       saveActiveConversationToMemories().catch((error) => {
         console.error('[Store] Background save failed after complete assistant message:', error)
       })
-    } else if (isLoading) {
-      // console.log('[Store] Assistant message shell added (isLoading=true), skipping immediate autosave.');
-    } else if (isCurrentSessionTestMode.value) {
-      // console.log('[Store] Message added in test mode, skipping autosave.');
     }
   }
 
-  // --- NEW ACTION: appendContentToMessage ---
   function appendContentToMessage(messageId, textChunk) {
+    if (isCurrentSessionTestMode.value) {
+      // Prevent modification during test mode
+      console.log(
+        '[Store] Test mode active. Skipping appendContentToMessage for store. Message handled by ChatViewLogic.',
+      )
+      return
+    }
     if (!messageId || typeof textChunk !== 'string') {
-      // Also check if textChunk is actually a string
       console.warn('[Store] appendContentToMessage called with invalid parameters.')
       return
     }
     const messageIndex = activeMessages.value.findIndex((m) => m.messageId === messageId)
-
     if (messageIndex !== -1) {
       const message = activeMessages.value[messageIndex]
-      // Ensure content is treated as a string for appending
       if (typeof message.content !== 'string') {
-        console.warn(
-          `[Store] Trying to append chunk to non-string content for message ${messageId}. Coercing to string.`,
-        )
-        // Coerce potential null/undefined/other types, preserving existing if possible
         message.content = String(message.content || '') + textChunk
       } else {
-        message.content += textChunk // Append normally
+        message.content += textChunk
       }
     } else {
       console.warn(`[Store] Message ID ${messageId} not found for content append.`)
     }
   }
 
-  // --- NEW ACTION: updateMessageLoadingState ---
   function updateMessageLoadingState(messageId, isLoading) {
+    if (isCurrentSessionTestMode.value) {
+      // Prevent modification during test mode
+      console.log(
+        '[Store] Test mode active. Skipping updateMessageLoadingState for store. Message handled by ChatViewLogic.',
+      )
+      return
+    }
     if (!messageId) return
     const messageIndex = activeMessages.value.findIndex((m) => m.messageId === messageId)
-
     if (messageIndex !== -1) {
       const message = activeMessages.value[messageIndex]
-      const newState = !!isLoading // Ensure boolean
-      // Only update and trigger save if the state actually changes
+      const newState = !!isLoading
       if (message.isLoading !== newState) {
         message.isLoading = newState
-
-        // Trigger autosave when loading finishes for an assistant message
-        if (
-          message.role === 'assistant' &&
-          !newState && // i.e., isLoading is now false
-          !isCurrentSessionTestMode.value
-        ) {
-          console.log(
-            `[Store] Assistant message ${messageId} finished loading (isLoading=false), triggering background save...`,
-          )
-          // Intentionally *not* awaiting this
+        if (message.role === 'assistant' && !newState && !isCurrentSessionTestMode.value) {
+          // Double check test mode
           saveActiveConversationToMemories().catch((error) => {
             console.error(
               `[Store] Background save failed after message ${messageId} finished loading:`,
@@ -554,17 +509,14 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   function clearActiveChatView() {
-    console.log(
-      '[Store - clearActiveChatView] Preparing to clear view. Saving current state first...',
-    )
-    // Save current state respecting settings, then clear
     saveActiveConversationToMemories().finally(() => {
       activeMessages.value = []
       loadedMemoryId.value = null
       currentSessionMemoryId.value = null
-      // Keep the activeSessionId and isCurrentSessionTestMode as they are,
-      // clearing only the messages and memory links.
       console.log('[Store] Cleared active chat view messages and memory links.')
+      // If clearing means going back to main chat after a test, ensure test mode is also cleared.
+      // setActiveSession(MAIN_CHAT_ID) would handle this.
+      // If this is called while ChatViewLogic for a test is unmounting, it will also clear test mode config.
     })
   }
 
@@ -573,25 +525,22 @@ export const useConversationStore = defineStore('conversation', () => {
     console.log('[Store] Initializing conversation store...')
     try {
       const loaded = await getAllMemories()
-      // Ensure loaded is an array and add default isPinned if missing
       memories.value = Array.isArray(loaded)
         ? loaded.map((mem) => ({ ...mem, isPinned: mem.isPinned || false }))
         : []
       console.log(`[Store] Loaded ${memories.value.length} memories from IndexedDB.`)
     } catch (error) {
       console.error('[Store] ERROR loading memories from IndexedDB:', error)
-      memories.value = [] // Start with empty memories on error
+      memories.value = []
       alert('Error loading previous conversations. Starting fresh.')
     } finally {
-      // Reset active state regardless of load success/failure
+      clearTestModeAssistantConfig()
       activeSessionId.value = MAIN_CHAT_ID
-      activeMessages.value = []
+      activeMessages.value = [] // Start with empty messages for the main chat
       loadedMemoryId.value = null
       currentSessionMemoryId.value = null
-      isCurrentSessionTestMode.value = false
-      isStoreInitialized.value = true // Mark as initialized
+      isStoreInitialized.value = true
       console.log('[Store] Conversation store initialization complete.')
-      // Ensure assistant store reflects the initial main chat state
       try {
         assistantsStore.selectAssistant(null)
       } catch (e) {
@@ -605,18 +554,11 @@ export const useConversationStore = defineStore('conversation', () => {
     if (index !== -1) {
       const memoryToUpdate = memories.value[index]
       const originalPinStatus = memoryToUpdate.isPinned
-      memoryToUpdate.isPinned = !memoryToUpdate.isPinned // Toggle the status
-
-      console.log(
-        `[Store] Toggled pin for memory ${memoryId} to ${memoryToUpdate.isPinned}. Saving...`,
-      )
-
-      const plainMemory = toRaw(memoryToUpdate) // Get plain object for saving
+      memoryToUpdate.isPinned = !memoryToUpdate.isPinned
+      const plainMemory = toRaw(memoryToUpdate)
       try {
-        await saveMemory(plainMemory) // Save the updated memory to DB
-        console.log(`[Store] Saved pin status for ${memoryId}.`)
+        await saveMemory(plainMemory)
       } catch (error) {
-        // Revert the change in UI if save fails
         memoryToUpdate.isPinned = originalPinStatus
         console.error(`[Store] ERROR saving pin status for ${memoryId}:`, error)
         alert('Failed to update pin status in storage.')
@@ -627,40 +569,28 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   async function manualRenameMemory(memoryId, newName) {
-    // Use the existing updateMemoryName function, marking it as manual
     await updateMemoryName(memoryId, newName, true)
   }
 
-  // --- Computed Properties & Getters ---
   const activeHistory = computed(() => activeMessages.value)
 
   const memoryListForDisplay = computed(() => {
-    // Ensure dependencies are properly tracked
     const currentMemories = memories.value
-    // Removed unused variable: const currentAssistants = assistantsStore.assistants
-
-    const sortedMemories = [...currentMemories] // Create a shallow copy for sorting
-
-    // Sort: Pinned first, then by timestamp descending
+    const sortedMemories = [...currentMemories]
     sortedMemories.sort((a, b) => {
       const pinDiff = (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0)
       if (pinDiff !== 0) return pinDiff
-      return (b.timestamp || 0) - (a.timestamp || 0) // Ensure timestamp exists
+      return (b.timestamp || 0) - (a.timestamp || 0)
     })
-
-    // Map to display format, fetching assistant details
     return sortedMemories.map((mem) => {
       let assistantName = 'Unknown / Deleted'
       let assistantImageUrl = null
       let assistantColor = null
       const isMain = isMainChatSession(mem.sessionId)
-
       try {
         if (isMain) {
-          assistantName = 'Nb4U-Ai' // Default name for main chat
-          // Optionally define default image/color for main chat if needed
+          assistantName = 'Nb4U-Ai'
         } else {
-          // Ensure assistants are loaded before trying to get one
           if (assistantsStore.isStoreInitialized) {
             const assistant = assistantsStore.getAssistantById(mem.sessionId)
             if (assistant) {
@@ -668,22 +598,19 @@ export const useConversationStore = defineStore('conversation', () => {
               assistantImageUrl = assistant.imageUrl || null
               assistantColor = assistant.color || null
             } else {
-              // Assistant ID exists but no matching assistant found (deleted?)
               assistantName = `Deleted (${mem.sessionId.substring(0, 4)}...)`
             }
           } else {
-            assistantName = 'Loading Assistants...' // Indicate assistants aren't ready yet
+            assistantName = 'Loading Assistants...'
           }
         }
       } catch (e) {
         console.error(`Error fetching assistant details for session ${mem.sessionId}:`, e)
-        if (isMain) assistantName = 'Nb4U-Ai' // Fallback for main chat on error
-        // Keep default 'Unknown / Deleted' for others on error
+        if (isMain) assistantName = 'Nb4U-Ai'
       }
-
       return {
         id: mem.memoryId,
-        name: mem.name || `Memory ${mem.memoryId.substring(0, 6)}...`, // Fallback name
+        name: mem.name || `Memory ${mem.memoryId.substring(0, 6)}...`,
         sessionId: mem.sessionId,
         timestamp: mem.timestamp,
         messageCount: Array.isArray(mem.messages) ? mem.messages.length : 0,
@@ -696,82 +623,104 @@ export const useConversationStore = defineStore('conversation', () => {
     })
   })
 
-  // getFormattedHistoryForAPI function - Formats messages for API calls
-  const getFormattedHistoryForAPI = ({ excludeLast = false } = {}) => {
-    // Ensure store is ready and messages exist
-    if (!isStoreInitialized.value || !Array.isArray(activeMessages.value)) {
-      console.warn('[Store - API History] Store not ready or messages not an array.')
-      return []
-    }
-
+  // Corrected getFormattedHistoryForAPI
+  const getFormattedHistoryForAPI = (options = {}) => {
+    const { excludeLast = false, messagesForContext = null } = options
     const formatted = []
-    const currentSessionId = activeSessionId.value
+    let systemInstructions = null
+    let messagesToProcess = []
 
-    // 1. Add System Prompt (if not main chat and assistant has instructions)
-    if (!isMainChatSession(currentSessionId)) {
-      try {
-        // Check if assistants store is initialized
+    console.log(
+      '[Store] getFormattedHistoryForAPI called. Options:',
+      options,
+      'TestMode:',
+      isCurrentSessionTestMode.value,
+    )
+
+    if (isCurrentSessionTestMode.value && testModeAssistantConfig.value) {
+      console.log(
+        '[Store] Formatting API history for TEST mode. Config:',
+        testModeAssistantConfig.value.name,
+      )
+      const testConfig = testModeAssistantConfig.value
+      if (testConfig.instructions && testConfig.instructions.trim()) {
+        systemInstructions = testConfig.instructions.trim()
+      }
+      // CRITICAL CHANGE HERE: Use messagesForContext if provided for test mode
+      if (messagesForContext && Array.isArray(messagesForContext)) {
+        console.log(
+          '[Store] Test mode: Using messagesForContext for history. Count:',
+          messagesForContext.length,
+        )
+        messagesToProcess = excludeLast ? messagesForContext.slice(0, -1) : [...messagesForContext]
+      } else {
+        // This path should ideally not be taken if useMessageSender passes currentTestMessages
+        console.warn(
+          '[Store] Test mode: messagesForContext not provided or invalid. History will be empty for test mode.',
+        )
+        messagesToProcess = []
+      }
+    } else {
+      // Normal mode (not test mode)
+      console.log(
+        '[Store] Formatting API history for NORMAL mode. ActiveSessionId:',
+        activeSessionId.value,
+      )
+      // Use activeMessages from the store for normal sessions
+      messagesToProcess = excludeLast
+        ? activeMessages.value.slice(0, -1)
+        : [...activeMessages.value]
+
+      if (!isMainChatSession(activeSessionId.value)) {
         if (assistantsStore.isStoreInitialized) {
-          const assistant = assistantsStore.getAssistantById(currentSessionId)
+          const assistant = assistantsStore.getAssistantById(activeSessionId.value)
           if (assistant?.instructions?.trim()) {
-            formatted.push({ role: 'system', content: assistant.instructions.trim() })
+            systemInstructions = assistant.instructions.trim()
           }
         } else {
-          console.warn('[Store - API History] Assistants store not ready for system prompt.')
+          console.warn(
+            '[Store - API History] Assistants store not ready for system prompt in normal mode.',
+          )
         }
-      } catch (e) {
-        console.error(
-          `[Store - API History] Error getting assistant instructions for ${currentSessionId}:`,
-          e,
-        )
       }
     }
 
-    // 2. Process Messages
-    const messagesToProcess = excludeLast ? activeMessages.value.slice(0, -1) : activeMessages.value
+    if (systemInstructions) {
+      formatted.push({ role: 'system', content: systemInstructions })
+    }
 
     if (Array.isArray(messagesToProcess)) {
       messagesToProcess.forEach((msg) => {
-        // Basic validation for message structure
         if (!msg || !msg.role || typeof msg.content === 'undefined' || msg.isLoading) {
-          // Skip invalid, undefined content, or messages still loading
+          // console.log('[Store] Skipping message in getFormattedHistoryForAPI:', msg);
           return
         }
-
-        let apiFormattedContent = null
-
-        // Handle different content types (currently focusing on string and image placeholder)
+        // For API, content should be string. Image data is handled by useMessageSender creating multipart.
+        let apiFormattedContent = ''
         if (typeof msg.content === 'string') {
           apiFormattedContent = msg.content.trim()
-        } else {
-          // Placeholder for other potential content types if needed in future
-          console.warn(
-            `[Store - API History] Skipping non-string content for message ID ${msg.messageId}`,
-          )
+        } else if (Array.isArray(msg.content)) {
+          // If content is an array (e.g. for multimodal later)
+          const textPart = msg.content.find((p) => p.type === 'text')
+          if (textPart && typeof textPart.text === 'string') {
+            apiFormattedContent = textPart.text.trim()
+          }
         }
-
-        // Add image placeholder for user messages with images
+        // Add placeholder for image if imagePreviewUrl exists (for context, actual image data sent differently)
         if (msg.imagePreviewUrl && msg.role === 'user') {
-          const imagePlaceholder = '[User sent an image]' // Simple placeholder
+          const imagePlaceholder = '[User sent an image]'
           apiFormattedContent = apiFormattedContent
-            ? `${imagePlaceholder}\n${apiFormattedContent}` // Prepend placeholder
-            : imagePlaceholder // Use placeholder only if no text
+            ? `${imagePlaceholder}\n${apiFormattedContent}`
+            : imagePlaceholder
         }
 
-        // Add to formatted list if role is valid and content is not empty
-        if (
-          ['user', 'assistant', 'system'].includes(msg.role) &&
-          apiFormattedContent !== null && // Ensure content was processed
-          apiFormattedContent !== '' // Ensure content is not just whitespace
-        ) {
+        if (['user', 'assistant'].includes(msg.role) && apiFormattedContent) {
+          // System role already added
           formatted.push({ role: msg.role, content: apiFormattedContent })
         }
       })
-    } else {
-      console.error('[Store - API History] messagesToProcess is not an array!')
     }
-
-    // console.log('[Store - API History] Formatted history:', formatted); // Optional: Log for debugging
+    console.log('[Store] Formatted history for API:', JSON.parse(JSON.stringify(formatted)))
     return formatted
   }
 
@@ -779,42 +728,39 @@ export const useConversationStore = defineStore('conversation', () => {
     return sessionId === MAIN_CHAT_ID
   }
 
-  // --- Initialize & Return ---
-  // Initialize store automatically when it's first used
   initializeStore()
 
   return {
-    // State refs
     activeSessionId,
-    memories, // The raw memories array
+    memories,
     isStoreInitialized,
-    loadedMemoryId, // ID of the memory currently loaded in the view
+    loadedMemoryId,
     isCurrentSessionTestMode,
-    currentSessionMemoryId, // ID of the *new* memory being built in the current session (if any)
+    currentSessionMemoryId,
+    testModeAssistantConfig,
 
-    // Computed refs (Getters)
-    activeHistory, // Reactive array of messages for the active view
-    memoryListForDisplay, // Formatted and sorted list for UI
+    activeHistory,
+    memoryListForDisplay,
 
-    // Actions
     initializeStore,
-    setActiveSession, // Switches the active chat (main or assistant), saves previous state
-    addMessageToActiveSession, // Adds a message to the active view
-    clearActiveChatView, // Clears messages/memory links from active view, saves state first
-    saveActiveConversationToMemories, // Saves the *current* activeMessages (respects settings)
-    loadMemory, // Loads a specific memory into the active view, saves previous state first
-    deleteMemory, // Deletes a single memory by ID
-    deleteMultipleMemories, // Deletes multiple memories by ID array
-    deleteAllMemories, // Deletes ALL memories
-    toggleMemoryPin, // Toggles the pinned status of a memory
-    renameMemory: manualRenameMemory, // Manually renames a memory
-    deleteMemoriesForSession, // Deletes all memories associated with an assistant ID
-    appendContentToMessage, // Appends text chunk to an existing message (for streaming)
-    updateMessageLoadingState, // Updates isLoading flag on a message (triggers save on completion)
+    setActiveSession,
+    addMessageToActiveSession,
+    clearActiveChatView,
+    saveActiveConversationToMemories,
+    loadMemory,
+    deleteMemory,
+    deleteMultipleMemories,
+    deleteAllMemories,
+    toggleMemoryPin,
+    renameMemory: manualRenameMemory,
+    deleteMemoriesForSession,
+    appendContentToMessage,
+    updateMessageLoadingState,
+    setTestModeAssistantConfig,
+    clearTestModeAssistantConfig,
 
-    // Helpers/Utilities exposed (if needed externally)
-    getFormattedHistoryForAPI, // Gets message history formatted for API calls
-    isMainChatSession, // Checks if a session ID is the main chat
-    MAIN_CHAT_ID, // Expose the main chat ID constant
+    getFormattedHistoryForAPI,
+    isMainChatSession,
+    MAIN_CHAT_ID,
   }
-}) // End defineStore
+})

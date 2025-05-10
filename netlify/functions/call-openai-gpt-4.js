@@ -1,19 +1,18 @@
 /* global process */ // Tell ESLint about 'process'
 // netlify/functions/call-openai-gpt-4.js
-// No longer importing ReadableStream from 'node:stream/web'
 import { PassThrough } from 'node:stream' // For creating Node.js stream for Netlify response
 
-// Access API Key (Unchanged)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions'
+const AI_FALLBACK_MESSAGE = "I'm not sure how to respond to that. Can you try rephrasing?"
 
-// Helper to create NON-STREAMING JSON error/options responses (Unchanged)
+// Helper to create NON-STREAMING JSON error/options responses
 const createJsonResponse = (statusCode, body) => {
   return {
     statusCode: statusCode,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': '*', // Adjust for production
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
     },
@@ -21,183 +20,241 @@ const createJsonResponse = (statusCode, body) => {
   }
 }
 
-// processOpenAIChunk function (Unchanged from previous OpenAI version)
 /**
  * Parses Server-Sent Events (SSE) chunks from OpenAI API stream.
- * Handles multiple events within a single chunk.
  * Extracts the text content from 'delta.content'.
- * @param {Uint8Array} chunk - The raw chunk from the stream.
- * @param {TextDecoder} decoder - TextDecoder instance to decode the chunk.
- * @returns {string[]} - An array of text content strings extracted from the chunk's events.
+ * @param {string} sseLine - A single SSE line (e.g., "data: {...}").
+ * @returns {string|null|'DONE'} - Text content, null if no content, or 'DONE' string.
  */
-function processOpenAIChunk(chunk, decoder) {
-  const textContents = []
-  const lines = decoder.decode(chunk, { stream: true }).split('\n\n')
-
-  for (const line of lines) {
-    if (line.trim().startsWith('data:')) {
-      const dataContent = line.substring(5).trim()
-      if (dataContent === '[DONE]') {
-        continue
+function parseOpenAISSEEvent(sseLine) {
+  if (sseLine.trim().startsWith('data:')) {
+    const dataContent = sseLine.substring(5).trim()
+    if (dataContent === '[DONE]') {
+      return 'DONE' // OpenAI's stream termination signal
+    }
+    try {
+      const parsedJson = JSON.parse(dataContent)
+      const deltaContent = parsedJson.choices?.[0]?.delta?.content
+      if (deltaContent !== undefined && deltaContent !== null) {
+        // Allow empty string from AI
+        return deltaContent
       }
-      try {
-        const parsedJson = JSON.parse(dataContent)
-        const deltaContent = parsedJson.choices?.[0]?.delta?.content
-        if (deltaContent) {
-          textContents.push(deltaContent)
-        }
-      } catch (error) {
-        console.error(
-          '[Netlify Function - OpenAI] Error parsing OpenAI stream chunk JSON:',
-          dataContent,
-          error,
-        )
-      }
+      // Check for finish reason if needed, though content is primary here
+      // const finishReason = parsedJson.choices?.[0]?.finish_reason;
+      // if (finishReason) {
+      //   console.log(`[OpenAI Function] Finish reason from API: ${finishReason}`);
+      // }
+    } catch (error) {
+      console.error('[OpenAI Function] Error parsing OpenAI stream data JSON:', dataContent, error)
     }
   }
-  return textContents
+  return null // No relevant content in this line
 }
 
-// mapFinishReason function (Unchanged - might not be used in stream)
-/* const mapFinishReason = (openaiFinishReason) => { ... } */
-
-// Main handler function (Modified for Streaming Return)
 export const handler = async (event) => {
-  // Removed unused _context
-  // --- CORS Preflight Check (Unchanged) ---
+  console.log('[OpenAI Function] Received event:', event.httpMethod, event.path)
   if (event.httpMethod === 'OPTIONS') {
     return createJsonResponse(200, {})
   }
-
-  // --- Method Check (Unchanged) ---
   if (event.httpMethod !== 'POST') {
-    console.warn(`[call-openai] Received non-POST request: ${event.httpMethod}`)
+    console.warn(`[OpenAI Function] Received non-POST request: ${event.httpMethod}`)
     return createJsonResponse(405, { error: 'Method Not Allowed' })
   }
 
-  // --- API Key Check (Unchanged) ---
   if (!OPENAI_API_KEY) {
-    console.error('[call-openai] FATAL: OpenAI API key is not configured.')
+    console.error('[OpenAI Function] FATAL: OpenAI API key is not configured.')
     return createJsonResponse(500, { error: 'Internal Server Error: API key not configured.' })
   }
 
-  // --- Parse Request Body (Unchanged) ---
   let requestPayload
   try {
     if (!event.body) throw new Error('Request body is missing.')
     requestPayload = JSON.parse(event.body)
+    // console.log('[OpenAI Function] Parsed request payload successfully.'); // Verbose
   } catch (error) {
-    console.error('[call-openai] Error parsing request body:', error)
+    console.error('[OpenAI Function] Error parsing request body:', error.message)
     return createJsonResponse(400, {
       error: `Invalid request body: ${error.message}. Expecting JSON.`,
     })
   }
 
-  // --- Validate Essential Payload Data (Unchanged) ---
   if (
     !requestPayload.messages ||
     !Array.isArray(requestPayload.messages) ||
     requestPayload.messages.length === 0
   ) {
-    console.error('[call-openai] Invalid payload: Missing or empty "messages" array.')
+    console.error('[OpenAI Function] Invalid payload: Missing or empty "messages" array.')
     return createJsonResponse(400, { error: 'Invalid payload: Missing or empty "messages" array.' })
   }
 
-  // --- Prepare OpenAI API Request Body (Ensure stream: true) ---
+  // Prepare OpenAI API Request Body
+  // Note: OpenAI doesn't have a separate 'systemInstruction' field like Gemini.
+  // System messages should be the first message in the 'messages' array.
   const openaiRequestBody = {
-    model: requestPayload.model || 'gpt-4o',
-    messages: requestPayload.messages,
+    model: requestPayload.model || 'gpt-4o', // Or your preferred OpenAI model
+    messages: requestPayload.messages, // Frontend should ensure system message is first if needed
     temperature: requestPayload.temperature ?? 0.7,
     max_tokens: requestPayload.max_tokens || 1024,
     top_p: requestPayload.top_p ?? 1.0,
-    stream: true, // Ensure streaming is requested
+    stream: true, // CRITICAL: Ensure streaming is requested
+    // OpenAI doesn't use safetySettings in the same way as Gemini in the request body.
+    // Content moderation is handled differently by OpenAI, often post-generation or via separate APIs.
   }
+  // console.log('[OpenAI Function] OpenAI Request Body:', JSON.stringify(openaiRequestBody, null, 2)); // Verbose
 
-  // --- Call OpenAI API & Stream Response ---
   try {
     console.log(
-      `[call-openai] Calling OpenAI API (Streaming) with model ${openaiRequestBody.model}`,
+      `[OpenAI Function] Calling OpenAI API (Streaming) with model ${openaiRequestBody.model}`,
     )
-
     const openaiResponse = await fetch(OPENAI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${OPENAI_API_KEY}`,
-        Accept: 'text/event-stream',
+        Accept: 'text/event-stream', // Important for OpenAI to know we want SSE
       },
       body: JSON.stringify(openaiRequestBody),
     })
 
-    // --- Handle Non-OK Initial Response from OpenAI ---
     if (!openaiResponse.ok) {
       let errorPayload = { message: `OpenAI API Error: Status ${openaiResponse.status}` }
       try {
-        const errorData = await openaiResponse.json() // Try parsing potential error JSON
+        const errorData = await openaiResponse.json()
         errorPayload = errorData?.error || errorPayload
       } catch (e) {
-        console.error('[call-openai] Could not parse error response body from OpenAI:', e)
-        const errorText = await openaiResponse.text().catch(() => openaiResponse.statusText) // Get text if possible
+        const errorText = await openaiResponse.text().catch(() => openaiResponse.statusText)
         errorPayload.message += `: ${errorText || ''}`.trim()
       }
       console.error(
-        '[call-openai] OpenAI API Error Response Status:',
+        '[OpenAI Function] OpenAI API Error Response:',
         openaiResponse.status,
-        'Payload:',
         errorPayload,
       )
-      return createJsonResponse(openaiResponse.status, { error: errorPayload.message })
+      return createJsonResponse(openaiResponse.status, {
+        error: errorPayload.message || 'Unknown OpenAI API error',
+      })
     }
 
-    // --- Create a PassThrough Stream for Netlify ---
     const nodeStream = new PassThrough()
+    const encoder = new TextEncoder() // For converting string to Uint8Array for nodeStream.write
+    const decoder = new TextDecoder() // For converting Uint8Array from OpenAI stream to string
 
-    // Function to pipe the web stream (openaiResponse.body) to the Node stream (nodeStream)
+    let streamProperlyFinished = false
+    let anyTextSentFromOpenAI = false // Track if OpenAI sent any actual text
+
     const pipeStream = async () => {
+      console.log('[OpenAI Function] pipeStream: Started for OpenAI API stream.')
       const reader = openaiResponse.body.getReader()
-      const decoder = new TextDecoder()
-      const encoder = new TextEncoder()
-      console.log('[call-openai] Started piping stream response back to client...')
+      let sseBuffer = '' // Buffer for incomplete SSE events
+
       try {
         while (true) {
           const { done, value } = await reader.read()
           if (done) {
-            console.log('[call-openai] OpenAI stream ended.')
-            break // Exit the loop when the stream is finished
+            console.log('[OpenAI Function] pipeStream: OpenAI SDK stream indicated it is done.')
+            // Process any remaining buffer content
+            if (sseBuffer.trim()) {
+              const textContent = parseOpenAISSEEvent(sseBuffer)
+              if (textContent === 'DONE') {
+                // This is the OpenAI specific done signal, do nothing here, let outer loop finish
+              } else if (textContent !== null && typeof textContent === 'string') {
+                if (textContent.trim() !== '') anyTextSentFromOpenAI = true
+                const ssePayload = { text: textContent }
+                const sseFormattedChunk = `data: ${JSON.stringify(ssePayload)}\n\n`
+                if (!nodeStream.writableEnded) nodeStream.write(encoder.encode(sseFormattedChunk))
+              }
+            }
+            streamProperlyFinished = true
+            break
           }
-          // Process the chunk from OpenAI (can contain multiple SSE events)
-          const textFragments = processOpenAIChunk(value, decoder)
-          // Write each extracted text fragment to the Node stream
-          for (const text of textFragments) {
-            nodeStream.write(encoder.encode(text)) // Encode text back to Uint8Array
+
+          sseBuffer += decoder.decode(value, { stream: true })
+          let eolIndex
+          // Process all complete SSE events in the buffer
+          while ((eolIndex = sseBuffer.indexOf('\n\n')) >= 0) {
+            const singleEventString = sseBuffer.substring(0, eolIndex)
+            sseBuffer = sseBuffer.substring(eolIndex + 2)
+
+            const textContent = parseOpenAISSEEvent(singleEventString)
+
+            if (textContent === 'DONE') {
+              // OpenAI stream is finished, but we let the main `done` flag from reader.read() handle loop exit
+              console.log('[OpenAI Function] pipeStream: OpenAI sent [DONE] signal.')
+              continue // Continue to check reader.read() for actual stream closure
+            } else if (textContent !== null && typeof textContent === 'string') {
+              // textContent can be an empty string if OpenAI sends delta.content: ""
+              if (textContent.trim() !== '') anyTextSentFromOpenAI = true
+
+              const ssePayload = { text: textContent }
+              const sseFormattedChunk = `data: ${JSON.stringify(ssePayload)}\n\n`
+              // console.log(`[OpenAI Function DEBUG] pipeStream: Streaming to client: "${textContent.substring(0,100)}"`); // Verbose
+              if (!nodeStream.writableEnded) {
+                nodeStream.write(encoder.encode(sseFormattedChunk))
+              } else {
+                console.warn(
+                  '[OpenAI Function] pipeStream: Node stream to client ended prematurely.',
+                )
+                streamProperlyFinished = false
+                return // Exit pipeStream if client stream is closed
+              }
+            }
           }
         }
+        // This point is reached if reader.read() returned done:true
+        console.log('[OpenAI Function] pipeStream: OpenAI stream processing loop finished.')
       } catch (error) {
-        console.error('[call-openai] Error reading or processing OpenAI stream:', error)
-        nodeStream.write(encoder.encode(`\n\n--- Stream Error: ${error.message} ---\n`)) // Write error to stream
+        console.error('[OpenAI Function] pipeStream: Error during OpenAI stream iteration:', error)
+        const sseError = `data: ${JSON.stringify({ error: `Stream Error: ${error.message}` })}\n\n`
+        if (!nodeStream.writableEnded) {
+          nodeStream.write(encoder.encode(sseError))
+        }
+        streamProperlyFinished = false
       } finally {
-        console.log('[call-openai] Closing Node stream.')
-        nodeStream.end() // End the Node stream once the OpenAI stream is done or errors
+        if (streamProperlyFinished && !anyTextSentFromOpenAI && !nodeStream.writableEnded) {
+          console.log(
+            '[OpenAI Function] pipeStream: OpenAI stream was empty. Sending fallback message.',
+          )
+          const fallbackPayload = { text: AI_FALLBACK_MESSAGE }
+          const fallbackSseChunk = `data: ${JSON.stringify(fallbackPayload)}\n\n`
+          nodeStream.write(encoder.encode(fallbackSseChunk))
+        }
+
+        if (streamProperlyFinished && !nodeStream.writableEnded) {
+          const doneEvent = `data: ${JSON.stringify({ done: true, message: 'Stream complete from server' })}\n\n`
+          console.log('[OpenAI Function] pipeStream: Sending stream completion event to client.')
+          nodeStream.write(encoder.encode(doneEvent))
+        } else if (!streamProperlyFinished && !nodeStream.writableEnded) {
+          const errorDoneEvent = `data: ${JSON.stringify({ done: true, error: 'Stream from AI ended unexpectedly or with error.' })}\n\n`
+          console.log(
+            '[OpenAI Function] pipeStream: Sending error/unexpected completion event to client.',
+          )
+          nodeStream.write(encoder.encode(errorDoneEvent))
+        }
+        console.log('[OpenAI Function] pipeStream: Closing (ending) Node stream to client.')
+        if (!nodeStream.writableEnded) {
+          nodeStream.end()
+        }
       }
     }
 
-    pipeStream() // Start piping asynchronously
+    pipeStream()
 
-    // --- Return the Node.js Stream for Netlify ---
     return {
       statusCode: 200,
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8', // Sending plain text chunks
-        'Access-Control-Allow-Origin': '*', // CORS
+        'Content-Type': 'text/event-stream; charset=utf-8', // Changed to text/event-stream
+        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       },
-      body: nodeStream, // Return the Node.js stream
-      isBase64Encoded: false, // Let Netlify know body is not base64
+      body: nodeStream,
+      isBase64Encoded: false,
     }
   } catch (error) {
-    // Handle errors during the initial fetch setup
-    console.error('[call-openai] Error setting up fetch to OpenAI API:', error)
-    return createJsonResponse(500, { error: `Server setup error: ${error.message}` })
+    console.error(
+      '[OpenAI Function] Outer try/catch: Error calling OpenAI API or setting up stream:',
+      error,
+    )
+    return createJsonResponse(500, { error: `Server error calling AI: ${error.message}` })
   }
 }

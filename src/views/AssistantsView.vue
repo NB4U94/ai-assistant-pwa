@@ -91,10 +91,12 @@
         </div>
         <div class="test-modal-chat-area">
           <ChatView
-            v-if="assistantBeingTested"
+            v-if="assistantBeingTested && conversationStore.isCurrentSessionTestMode"
+            key="test-chat-view"
             :initial-assistant-id="assistantBeingTested.id"
             :is-test-mode="true"
           />
+          <div v-else class="loading-indicator">Preparing test environment...</div>
         </div>
         <div class="test-modal-footer">
           <button
@@ -118,8 +120,7 @@
 </template>
 
 <script setup>
-// Removed unused 'computed' import
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, toRaw } from 'vue' // Added toRaw
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAssistantsStore } from '@/stores/assistantsStore'
@@ -130,17 +131,20 @@ import ChatView from '@/views/ChatView.vue'
 const router = useRouter()
 const assistantsStore = useAssistantsStore()
 const conversationStore = useConversationStore()
-const { assistants } = storeToRefs(assistantsStore)
+const { assistants } = storeToRefs(assistantsStore) // isLoading and error refs from assistantsStore
 
 const showCreatorModal = ref(false)
 const isTestModalVisible = ref(false)
 const assistantBeingTested = ref(null)
-const isLoading = ref(false)
-const error = ref(null)
-const avatarLoadError = ref({}) // State for tracking avatar image errors
+const isLoading = ref(false) // Local loading for this view, if needed, distinct from store's
+const error = ref(null) // Local error for this view
+const avatarLoadError = ref({})
 
 onMounted(() => {
-  avatarLoadError.value = {} // Reset errors on mount
+  avatarLoadError.value = {}
+  // If assistants are not loaded, you might want to trigger a load here,
+  // though typically the store handles its own initialization.
+  // Example: if (!assistantsStore.isStoreInitialized) assistantsStore.initializeStore();
 })
 
 // --- Avatar Helper Functions ---
@@ -164,59 +168,98 @@ const startCreateAssistant = () => {
 }
 const closeCreatorModal = () => {
   showCreatorModal.value = false
+  // Ensure test mode is cleared if a creation process was cancelled
+  // and it somehow entered test mode (though unlikely from here)
+  if (conversationStore.isCurrentSessionTestMode) {
+    conversationStore.clearTestModeAssistantConfig()
+  }
 }
+
+// MODIFIED: openTestModal to correctly set test mode in conversationStore
 const openTestModal = (assistant) => {
-  if (!assistant?.id) return
-  assistantBeingTested.value = assistant
+  if (!assistant || !assistant.id) {
+    console.error('[AssistantsView] Attempted to test an invalid assistant object:', assistant)
+    alert('Cannot test this assistant: Invalid data.')
+    return
+  }
+
+  // Fetch the full, reactive assistant configuration from the store
+  // This ensures we have the most up-to-date version, including instructions, model, etc.
+  const fullAssistantConfig = assistantsStore.getAssistantById(assistant.id)
+
+  if (!fullAssistantConfig) {
+    console.error(
+      `[AssistantsView] Could not find full assistant config for ID: ${assistant.id} in assistantsStore.`,
+    )
+    alert('Error: Could not load complete assistant configuration for testing.')
+    return
+  }
+
+  console.log(
+    '[AssistantsView] Opening test modal for assistant:',
+    fullAssistantConfig.name,
+    fullAssistantConfig.id,
+  )
+
+  // Set the test mode in the conversation store using the *full assistant configuration*
+  // Pass a raw (non-reactive) copy to avoid potential reactivity issues across stores/composables
+  // if the original object in assistantsStore is modified while testing.
+  conversationStore.setTestModeAssistantConfig(toRaw(fullAssistantConfig))
+
+  assistantBeingTested.value = fullAssistantConfig // Store the config for the modal header and ChatView props
   isTestModalVisible.value = true
 }
+
+// MODIFIED: closeTestModal to correctly clear test mode from conversationStore
 const closeTestModal = () => {
+  console.log('[AssistantsView] Closing test modal.')
   isTestModalVisible.value = false
   assistantBeingTested.value = null
+
+  // Crucially, clear the test mode configuration from the conversation store
+  // so that normal chat operations resume correctly.
+  conversationStore.clearTestModeAssistantConfig()
 }
+
 const formatTimestamp = (timestamp) => {
   if (!timestamp) return 'N/A'
   try {
     const d = new Date(timestamp)
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   } catch (_error) {
-    // Changed 'e' to '_error' as it's unused
-    console.error('Error formatting timestamp:', _error) // Added console log for the error
+    console.error('Error formatting timestamp:', _error)
     return 'Date Error'
   }
 }
 const editAssistant = (assistant) => {
   if (!assistant?.id) return
-  router.push({ name: 'assistant-edit', params: { id: assistant.id } })
-  // Close test modal if editing the assistant currently being tested
+  // Before navigating to edit, ensure any active test mode (especially for this assistant) is cleared.
   if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) {
-    closeTestModal()
+    closeTestModal() // This will also clearTestModeAssistantConfig
+  } else if (conversationStore.isCurrentSessionTestMode) {
+    // If some other test mode is active, or if the modal wasn't closed properly
+    conversationStore.clearTestModeAssistantConfig()
   }
+  router.push({ name: 'assistant-edit', params: { id: assistant.id } })
 }
+
 const editAssistantFromTest = () => {
   if (assistantBeingTested.value) {
+    // The editAssistant function already handles closing the modal and clearing test mode.
     editAssistant(assistantBeingTested.value)
-    // Optionally close the test modal after navigating to edit
-    // closeTestModal(); // Already handled in editAssistant
   }
 }
 
-// --- Delete Logic with Prompt ---
 const confirmDeleteAssistant = async (assistant) => {
   if (!assistant?.id) return
   const assistantName = assistant.name || 'this assistant'
-  // First confirmation for deleting the assistant definition
   if (window.confirm(`Are you sure you want to delete the assistant "${assistantName}"?`)) {
     let deleteMemoriesToo = false
-    // Only ask about memories if it's not the main chat (which shouldn't be deletable here anyway)
     if (assistant.id !== conversationStore.MAIN_CHAT_ID) {
-      // Safety check
-      // Second confirmation for deleting associated memories
       deleteMemoriesToo = window.confirm(
         `Also delete all conversation memories associated with "${assistantName}"? \n\n(Click OK to delete memories, Cancel to keep them)`,
       )
     } else {
-      // Should not happen, but prevent deletion of main chat assistant config
       console.warn('[AssistantsView] Attempted to delete MAIN_CHAT_ID assistant definition.')
       alert('Cannot delete the main Nb4U-Ai assistant definition.')
       return
@@ -226,22 +269,20 @@ const confirmDeleteAssistant = async (assistant) => {
       `User chose to delete assistant ${assistant.id}. Delete memories: ${deleteMemoriesToo}`,
     )
     try {
-      // Delete memories first if requested
       if (deleteMemoriesToo) {
         console.log(`Deleting memories for session ID: ${assistant.id}`)
         await conversationStore.deleteMemoriesForSession(assistant.id)
       }
-      // Then delete the assistant definition
       console.log(`Deleting assistant definition for ID: ${assistant.id}`)
-      const success = assistantsStore.deleteAssistant(assistant.id)
+      const success = assistantsStore.deleteAssistant(assistant.id) // This should be synchronous or return a promise
       if (!success) {
+        // Assuming deleteAssistant returns a boolean for success
         console.error(`assistantsStore.deleteAssistant failed for ID: ${assistant.id}`)
         alert(`Failed to delete assistant definition "${assistantName}".`)
       } else {
         console.log(`Assistant ${assistant.id} definition deleted.`)
-        // Optionally close test modal if deleting the tested assistant
         if (isTestModalVisible.value && assistantBeingTested.value?.id === assistant.id) {
-          closeTestModal()
+          closeTestModal() // This will also clear test mode config
         }
       }
     } catch (err) {
@@ -253,7 +294,6 @@ const confirmDeleteAssistant = async (assistant) => {
   }
 }
 
-// --- Chat Start Logic ---
 const startChatWithAssistant = (assistant) => {
   if (!assistant || !assistant.id) {
     alert('Could not start chat. Invalid assistant data.')
@@ -261,10 +301,12 @@ const startChatWithAssistant = (assistant) => {
   }
   console.log('[AssistantsView] Starting chat with assistant:', assistant.name, assistant.id)
   try {
-    // Let setActiveSession handle setting the assistant ID in both stores and clearing state
-    // It defaults to isTest=false
-    conversationStore.setActiveSession(assistant.id)
-    router.push({ name: 'chat' }) // Navigate to the main chat view
+    // Ensure any active test mode is cleared before starting a normal chat.
+    if (conversationStore.isCurrentSessionTestMode) {
+      conversationStore.clearTestModeAssistantConfig()
+    }
+    conversationStore.setActiveSession(assistant.id) // This sets up for normal chat
+    router.push({ name: 'chat' })
   } catch (error) {
     console.error('[AssistantsView] Error setting active session or navigating:', error)
     alert(
@@ -595,25 +637,25 @@ const startChatWithAssistant = (assistant) => {
   max-width: 700px;
   width: 100%;
   max-height: 90vh;
-  overflow-y: hidden;
+  overflow-y: hidden; /* Let AssistantCreator handle its own scroll */
   cursor: default;
   box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  background-color: var(--bg-main-content);
-  border-radius: 8px;
+  padding: 0; /* Remove padding if AssistantCreator has its own */
+  display: flex; /* Added */
+  flex-direction: column; /* Added */
+  background-color: var(--bg-main-content); /* Ensure this is set */
+  border-radius: 8px; /* Ensure this is set */
 }
 .test-modal .test-modal-content {
   max-width: 90vw;
-  width: 800px;
+  width: 800px; /* Or your preferred width */
   max-height: 90vh;
   background-color: var(--bg-modal, var(--bg-main-content));
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden; /* Important for internal scrolling of chat area */
   cursor: default;
 }
 .test-modal .test-modal-header {
@@ -624,7 +666,7 @@ const startChatWithAssistant = (assistant) => {
   background-color: var(--bg-header, #2a2a2a);
   color: var(--text-light, #fff);
   border-bottom: 1px solid var(--border-color-heavy, #444);
-  flex-shrink: 0;
+  flex-shrink: 0; /* Prevent header from shrinking */
 }
 .test-modal .test-modal-header h3 {
   margin: 0;
@@ -648,14 +690,14 @@ const startChatWithAssistant = (assistant) => {
   color: var(--text-primary);
 }
 .test-modal .test-modal-chat-area {
-  flex-grow: 1;
-  overflow-y: hidden;
-  display: flex;
+  flex-grow: 1; /* Allow chat area to take available space */
+  overflow-y: hidden; /* ChatView should handle its own scrolling */
+  display: flex; /* Make ChatView fill this area */
 }
 .test-modal .test-modal-chat-area > :deep(.chat-view) {
-  height: 100%;
-  width: 100%;
-  border-radius: 0;
+  height: 100%; /* Ensure ChatView takes full height of its container */
+  width: 100%; /* Ensure ChatView takes full width */
+  border-radius: 0; /* Remove any border radius from ChatView itself if modal has one */
 }
 .test-modal .test-modal-footer {
   padding: 0.75rem 1.5rem;
@@ -664,9 +706,8 @@ const startChatWithAssistant = (assistant) => {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-  flex-shrink: 0;
+  flex-shrink: 0; /* Prevent footer from shrinking */
 }
-/* Removed empty ruleset .test-modal .test-modal-footer button {} */
 
 /* Keyframes */
 @keyframes ripplePulse {

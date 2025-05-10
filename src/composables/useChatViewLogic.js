@@ -4,14 +4,14 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useAssistantsStore } from '@/stores/assistantsStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import { storeToRefs } from 'pinia'
-import { useSpeechRecognition } from '@/composables/useSpeechRecognition' // Keep this import
+import { useSpeechRecognition } from '@/composables/useSpeechRecognition'
 import { useFileInput } from '@/composables/useFileInput'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import { useUIUtils } from '@/composables/useUIUtils'
 import { useChatScroll } from '@/composables/useChatScroll'
 import { useMessageSender } from '@/composables/useMessageSender'
 
-// Helper Function for Initials (Unchanged)
+// Helper Function for Initials
 function getInitials(name, fallback = '?') {
   if (name === null || name === undefined || typeof name !== 'string') {
     return fallback
@@ -32,59 +32,85 @@ function getInitials(name, fallback = '?') {
   return initials
 }
 
-// props parameter IS used
 export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
-  // Initial ref check (Unchanged)
+  const chatInputAreaRef = refs.chatInputAreaRef || ref(null)
+  const messageDisplayAreaComponentRef = refs.messageDisplayAreaComponentRef || ref(null)
+
   if (!userInputRef || typeof userInputRef.value === 'undefined') {
     console.error('FATAL: useChatViewLogic requires a valid ref for userInputRef.')
-    // Return minimal state to prevent further errors down the line
     return {
       isSending: ref(false),
       isListening: ref(false),
+      isAssistantSelectorExpanded: ref(false),
+      selectedImagePreview: ref(null),
+      selectedFile: ref(null),
+      activeSessionId: ref(null),
+      currentPlaceholder: ref('Error'),
+      displayMessages: ref([]),
+      availableAssistants: ref([]),
+      selectedAssistant: ref(null),
       speechSupported: ref(false),
-      // Add other essential states/methods with default/dummy values if needed
-      // to prevent crashes in the template, or ensure ChatView handles this case.
+      ttsSupported: ref(false),
+      isTtsEnabled: ref(false),
+      copiedState: ref({}),
+      isAnimatingText: ref(false),
+      isTurboActive: ref(false),
+      toggleTurboMode: () => {},
+      handleSendMessage: () => {},
+      handleEnterKey: () => {},
+      selectAssistant: () => {},
+      toggleAssistantSelector: () => {},
+      toggleListening: () => {},
+      ttsToggle: () => {},
+      ttsHandleMessageClick: () => {},
+      triggerFileInput: () => {},
+      handleFileSelected: () => {},
+      removeSelectedImage: () => {},
+      copyText: () => {},
+      processMessageText: () => (input) => [{ type: 'text', text: input }],
+      formatTimestamp: () => '',
+      getAvatarDetailsForMessage: () => ({}),
+      autoGrowTextarea: () => {},
+      shouldShowAssistantSelectorBarEffective: ref(false),
     }
   }
 
-  // Store instances (Unchanged)
-  const chatInputAreaRef = refs.chatInputAreaRef || ref(null) // Ref to ChatInput component instance
   const assistantsStore = useAssistantsStore()
   const conversationStore = useConversationStore()
   const settingsStore = useSettingsStore()
 
-  // Store state refs (Unchanged)
   const { assistants: availableAssistants, selectedAssistant } = storeToRefs(assistantsStore)
-  const { activeHistory, activeSessionId, loadedMemoryId, isCurrentSessionTestMode } =
-    storeToRefs(conversationStore)
-  const { showAssistantSelectorBar, userDisplayName, userAvatarUrl, sendOnEnter } =
-    storeToRefs(settingsStore)
+  const {
+    activeHistory,
+    activeSessionId,
+    loadedMemoryId,
+    isCurrentSessionTestMode,
+    testModeAssistantConfig,
+  } = storeToRefs(conversationStore)
+  const {
+    showAssistantSelectorBar: showAssistantSelectorBarFromSettings,
+    userDisplayName,
+    userAvatarUrl,
+    sendOnEnter,
+  } = storeToRefs(settingsStore)
 
-  // Local state (Unchanged)
-  const messageAreaRef = ref(null)
+  const actualScrollElementRef = ref(null)
   const isAssistantSelectorExpanded = ref(true)
   const currentPlaceholder = ref('Enter message...')
   const testSessionMessages = ref([])
 
-  // --- Composables instantiation ---
-
-  // Define error handler first
   const handleComposableError = (errorMessage) => {
     const message = String(errorMessage || 'An unexpected error occurred.')
-    console.error('[Composable Error Handler]', message)
-    // Maybe push to a visible error list in UI later?
+    console.error('[useChatViewLogic Composable Error]', message)
   }
 
-  // UI Utils (Unchanged)
   const { copiedState, formatTimestamp, copyText, processMessageText, autoGrowTextarea } =
     useUIUtils({ addErrorMessage: handleComposableError })
 
-  // Function needed for useFileInput (Unchanged)
   const updatePlaceholderBasedOnState = () => {
     currentPlaceholder.value = calculatePlaceholder(userInputRef.value, selectedFile.value)
   }
 
-  // File Input (Unchanged)
   const {
     selectedImagePreview,
     selectedFile,
@@ -96,7 +122,6 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     updatePlaceholder: updatePlaceholderBasedOnState,
   })
 
-  // Text To Speech (Unchanged)
   const {
     ttsSupported,
     isTtsEnabled,
@@ -105,39 +130,53 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     speakText: ttsSpeakText,
   } = useTextToSpeech({ addErrorMessage: handleComposableError })
 
-  // --- Speech Recognition (MODIFIED CALL) ---
   const { isListening, speechSupported, toggleListening } = useSpeechRecognition({
-    userInputRef: userInputRef, // <<< Pass the correct ref
-    addErrorMessage: handleComposableError, // <<< Pass the correct error handler function
-    // No longer passing inputAreaRef or autoGrowTextarea here
+    userInputRef: userInputRef,
+    addErrorMessage: handleComposableError,
   })
-  // --- End Speech Recognition ---
 
-  // Chat Scroll (Unchanged)
   const messagesForScroll = computed(() =>
     isCurrentSessionTestMode.value ? testSessionMessages.value : activeHistory.value,
   )
-  useChatScroll(messageAreaRef, messagesForScroll)
 
-  // Message Sender (Unchanged)
+  const { scrollToBottom: capturedScrollToBottom, instantScrollToBottom } = useChatScroll(
+    actualScrollElementRef,
+    messagesForScroll,
+  )
+
+  watch(
+    messageDisplayAreaComponentRef,
+    (newCompInstance) => {
+      if (newCompInstance && newCompInstance.scrollElement) {
+        actualScrollElementRef.value = newCompInstance.scrollElement
+        if (isCurrentSessionTestMode.value || activeHistory.value.length > 0) {
+          instantScrollToBottom()
+        }
+      } else {
+        actualScrollElementRef.value = null
+      }
+    },
+    { immediate: true },
+  )
+
   const {
     sendMessage: sendChatMessage,
     isLoading: isSending,
     error: sendError,
+    isAnimatingText,
+    isTurboActive,
+    toggleTurboMode,
   } = useMessageSender()
 
-  // Calculate Placeholder Logic (Unchanged)
   const calculatePlaceholder = (currentInput, currentFile) => {
-    if (isCurrentSessionTestMode.value) {
-      const assistantName = selectedAssistant?.value?.name || props.assistantConfig?.name
-      return assistantName ? `Testing ${assistantName}...` : 'Testing assistant...'
+    const currentTestConf = testModeAssistantConfig.value
+    if (isCurrentSessionTestMode.value && currentTestConf) {
+      return `Testing ${currentTestConf.name || 'Assistant'}...`
     }
     if (currentFile) return 'Image selected. Add description or send.'
     if (currentInput) return 'Continue typing...'
-
     const currentSessId = activeSessionId.value
     const currentLoadedMemId = loadedMemoryId.value
-
     if (currentLoadedMemId) {
       const memory = conversationStore.memories.find((m) => m.memoryId === currentLoadedMemId)
       if (memory) {
@@ -156,23 +195,18 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
       if (!currentSessId || conversationStore.isMainChatSession(currentSessId)) {
         return 'Ask Nb4U-Ai...'
       } else {
-        try {
-          const assistant = assistantsStore.getAssistantById(currentSessId)
-          return assistant ? `Ask ${assistant.name}...` : 'Ask selected assistant...'
-        } catch (_e) {
-          console.warn('Error getting assistant for placeholder', _e)
-          return 'Ask selected assistant...'
-        }
+        const currentActiveAssistant = selectedAssistant.value
+        return currentActiveAssistant
+          ? `Ask ${currentActiveAssistant.name}...`
+          : 'Ask selected assistant...'
       }
     }
   }
 
-  // Display Messages Computed (Unchanged)
   const displayMessages = computed(() => {
     return isCurrentSessionTestMode.value ? testSessionMessages.value : activeHistory.value
   })
 
-  // getAvatarDetailsForMessage (Unchanged - logic seems okay)
   const getAvatarDetailsForMessage = (message) => {
     const details = {
       imageUrl: null,
@@ -182,95 +216,80 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
       isDefaultLogo: false,
     }
     if (!message || !message.role) return details
+
     const role = message.role
-    const userDisplayNameVal = userDisplayName?.value
-    const userAvatarUrlVal = userAvatarUrl?.value
-    const isChatFromLoadedMemory = !!loadedMemoryId?.value
-    const currentActiveSessionIdVal = activeSessionId?.value
-    let assistantForAvatar = null
-    let assistantNameForAvatar = 'AI'
-    let assistantColorForAvatar = 'var(--avatar-bg-historical-ai, #718096)'
-    let assistantImageUrlForAvatar = null
+    const currentTestConf = testModeAssistantConfig.value
+    let assistantForDisplay = null
+    let isMainChatContext = false
 
-    if (isChatFromLoadedMemory) {
+    if (isCurrentSessionTestMode.value && currentTestConf) {
+      isMainChatContext =
+        currentTestConf.id === conversationStore.MAIN_CHAT_ID || currentTestConf.name === 'Nb4U-Ai'
+      assistantForDisplay = {
+        name: currentTestConf.name,
+        color: currentTestConf.color,
+        imageUrl: currentTestConf.imageUrl,
+        isDefaultLogo: isMainChatContext,
+      }
+    } else if (loadedMemoryId.value) {
       const memory = conversationStore.memories.find((m) => m.memoryId === loadedMemoryId.value)
-      if (memory && !conversationStore.isMainChatSession(memory.sessionId)) {
-        assistantForAvatar = assistantsStore.getAssistantById(memory.sessionId)
-      }
-    } else if (props.isTestMode && props.assistantConfig) {
-      assistantNameForAvatar = props.assistantConfig.name || 'Test'
-      assistantColorForAvatar = props.assistantConfig.color || assistantColorForAvatar
-      assistantImageUrlForAvatar = props.assistantConfig.imageUrl || null
-    } else if (isCurrentSessionTestMode.value && !props.assistantConfig) {
-      // Test mode from AssistantsView (uses selectedAssistant from store)
-      assistantForAvatar = selectedAssistant?.value
-    } else if (!conversationStore.isMainChatSession(currentActiveSessionIdVal)) {
-      assistantForAvatar = selectedAssistant?.value
-    }
-
-    if (assistantForAvatar) {
-      assistantNameForAvatar = assistantForAvatar.name
-      assistantColorForAvatar = assistantForAvatar.color || assistantColorForAvatar
-      assistantImageUrlForAvatar = assistantForAvatar.imageUrl || null
-    }
-
-    try {
-      if (role === 'user') {
-        details.type = 'user'
-        details.bgColor = 'var(--avatar-bg-user, #4a5568)'
-        details.imageUrl = userAvatarUrlVal || null
-        details.initials = getInitials(userDisplayNameVal, '?')
-      } else if (role === 'assistant') {
-        details.type = 'assistant'
-        details.imageUrl = assistantImageUrlForAvatar
-        details.initials = getInitials(assistantNameForAvatar, 'AI')
-        details.bgColor = assistantColorForAvatar
-        const isLiveMain =
-          conversationStore.isMainChatSession(currentActiveSessionIdVal) &&
-          !isChatFromLoadedMemory &&
-          !isCurrentSessionTestMode.value // Live main chat
-        const isLoadedMain =
-          isChatFromLoadedMemory &&
-          conversationStore.isMainChatSession(
-            conversationStore.memories.find((m) => m.memoryId === loadedMemoryId.value)?.sessionId,
-          ) // Loaded main chat
-        details.isDefaultLogo = isLiveMain || isLoadedMain
-        if (details.isDefaultLogo) {
-          details.type = 'default-logo'
-          details.initials = null
-          details.bgColor = null
+      if (memory) {
+        isMainChatContext = conversationStore.isMainChatSession(memory.sessionId)
+        if (isMainChatContext) {
+          assistantForDisplay = { name: 'Nb4U-Ai', isDefaultLogo: true }
+        } else {
+          assistantForDisplay = assistantsStore.getAssistantById(memory.sessionId)
+          if (assistantForDisplay) assistantForDisplay.isDefaultLogo = false
         }
-      } else if (role === 'system') {
-        details.type = 'system'
-        details.initials = 'S'
-        details.imageUrl = null
-        details.bgColor = 'var(--avatar-bg-system, #a0aec0)'
       }
-    } catch (_error) {
-      console.error(`Error inside getAvatarDetailsForMessage logic:`, _error, { message })
-      details.imageUrl = null
-      details.initials = '!'
-      details.bgColor = 'var(--avatar-bg-default, #555)'
-      details.type = 'error'
+    } else {
+      isMainChatContext = conversationStore.isMainChatSession(activeSessionId.value)
+      if (isMainChatContext) {
+        assistantForDisplay = { name: 'Nb4U-Ai', isDefaultLogo: true }
+      } else {
+        assistantForDisplay = selectedAssistant.value
+        if (assistantForDisplay) assistantForDisplay.isDefaultLogo = false
+      }
+    }
+
+    details.type = role
+    if (role === 'user') {
+      details.bgColor = 'var(--avatar-bg-user, #4a5568)'
+      details.imageUrl = userAvatarUrl?.value || null
+      details.initials = getInitials(userDisplayName?.value, 'U')
+      details.isDefaultLogo = false
+    } else if (role === 'assistant') {
+      if (assistantForDisplay?.isDefaultLogo) {
+        details.type = 'default-logo'
+        details.initials = null
+        details.bgColor = null
+        details.isDefaultLogo = true
+      } else if (assistantForDisplay) {
+        details.imageUrl = assistantForDisplay.imageUrl || null
+        details.initials = getInitials(assistantForDisplay.name, 'AI')
+        details.bgColor = assistantForDisplay.color || 'var(--avatar-bg-default, #555)'
+        details.isDefaultLogo = false
+      } else {
+        details.initials = 'AI'
+        details.bgColor = 'var(--avatar-bg-default, #555)'
+        details.isDefaultLogo = false
+      }
+    } else if (role === 'system') {
+      details.type = 'system'
+      details.initials = 'S'
+      details.bgColor = 'var(--avatar-bg-system, #a0aec0)'
+      details.isDefaultLogo = false
     }
     return details
   }
 
-  // Other methods (toggleAssistantSelector, selectAssistant, handleEnterKey, handleSendMessage) remain unchanged
   const toggleAssistantSelector = () => {
     isAssistantSelectorExpanded.value = !isAssistantSelectorExpanded.value
   }
 
   const selectAssistant = async (id) => {
-    const conversationSessionId = id
-    if (!conversationSessionId) {
-      console.error('[useChatViewLogic] Attempted selectAssistant with invalid ID:', id)
-      return
-    }
-    console.log(
-      `[useChatViewLogic] Setting active session to: ${conversationSessionId} (Test Mode: false)`,
-    )
-    await conversationStore.setActiveSession(conversationSessionId, false)
+    if (!id) return
+    await conversationStore.setActiveSession(id)
     await nextTick()
     chatInputAreaRef.value?.focusNestedInput?.()
   }
@@ -289,54 +308,102 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     const currentSelectedFile = selectedFile.value
     const imagePreviewUrlForStore = selectedImagePreview.value
 
-    if (isSending.value || (!currentInputText?.trim() && !currentSelectedFile)) return
+    if (isSending.value || (!currentInputText?.trim() && !currentSelectedFile)) {
+      return
+    }
 
-    const chatInputInstance = chatInputAreaRef.value
-    chatInputInstance?.triggerNestedSendAnimation?.()
-
+    chatInputAreaRef.value?.triggerNestedSendAnimation?.()
     const textToSend = currentInputText?.trim() ?? ''
     const fileToSend = currentSelectedFile
 
     userInputRef.value = ''
     removeSelectedImage()
-    chatInputInstance?.resetTextareaHeight?.()
+    chatInputAreaRef.value?.resetTextareaHeight?.()
+
+    const messagesForTestContext = isCurrentSessionTestMode.value
+      ? [...testSessionMessages.value]
+      : null
+
+    // Handle user message display and scroll for test mode FIRST
+    if (isCurrentSessionTestMode.value) {
+      const tempUserMessageForTest = {
+        messageId: `user-temp-${Date.now()}`, // Temporary ID
+        role: 'user',
+        content: textToSend,
+        timestamp: Date.now(),
+        imagePreviewUrl: imagePreviewUrlForStore,
+      }
+      testSessionMessages.value.push(tempUserMessageForTest)
+      // messagesForTestContext is already prepared with this message if it's to be passed to sendChatMessage
+      await nextTick()
+      if (actualScrollElementRef.value && typeof capturedScrollToBottom === 'function') {
+        capturedScrollToBottom('auto')
+      }
+    }
 
     const result = await sendChatMessage(
       textToSend,
       fileToSend,
       imagePreviewUrlForStore,
-      isCurrentSessionTestMode.value,
+      messagesForTestContext,
     )
 
-    if (props.isTestMode || isCurrentSessionTestMode.value) {
-      if (result.success) {
-        if (result.userMessage) {
+    if (isCurrentSessionTestMode.value) {
+      // Replace temp user message with the one having the final ID from result
+      if (result.userMessage) {
+        const tempMsgIndex = testSessionMessages.value.findIndex((m) =>
+          m.messageId.startsWith('user-temp-'),
+        )
+        if (tempMsgIndex !== -1) {
+          testSessionMessages.value.splice(tempMsgIndex, 1, result.userMessage)
+        } else {
+          // Fallback if temp not found (should be rare if logic is correct)
           testSessionMessages.value.push(result.userMessage)
         }
-        if (result.assistantMessage) {
+      }
+      // CRITICAL FIX: Add AI's response to the test session messages array
+      if (result.assistantMessage) {
+        // Check if a message with this ID (potentially a shell) already exists from streaming
+        const existingAiMsgIndex = testSessionMessages.value.findIndex(
+          (m) => m.messageId === result.assistantMessage.messageId,
+        )
+        if (existingAiMsgIndex !== -1) {
+          // Update existing message shell with final content
+          testSessionMessages.value.splice(existingAiMsgIndex, 1, result.assistantMessage)
+        } else {
+          // Add as new if no shell existed (e.g., non-streaming response or error)
           testSessionMessages.value.push(result.assistantMessage)
-        }
-      } else {
-        if (result.userMessage) {
-          testSessionMessages.value.push(result.userMessage)
         }
       }
     }
 
+    // Unified scroll call after all message operations (user and AI) are reflected
+    // in the reactive arrays and DOM has had a chance to update.
+    await nextTick()
+    if (actualScrollElementRef.value && typeof capturedScrollToBottom === 'function') {
+      capturedScrollToBottom('auto')
+    }
+
     if (result.success && result.aiResponse) {
       ttsSpeakText(result.aiResponse)
+    } else if (!result.success && sendError.value) {
+      handleComposableError(sendError.value)
     } else if (!result.success) {
-      console.error(`[useChatViewLogic -> handleSendMessage] Message sending reported failure.`)
-      // Error message should be displayed by useMessageSender's error handling
+      handleComposableError('Failed to send message for an unknown reason.')
     }
 
     await nextTick()
-    chatInputInstance?.focusNestedInput?.()
+    chatInputAreaRef.value?.focusNestedInput?.()
   }
 
-  // --- Watchers (Unchanged) ---
+  const shouldShowAssistantSelectorBarEffective = computed(() => {
+    return showAssistantSelectorBarFromSettings.value && !isCurrentSessionTestMode.value
+  })
+
   watch(sendError, (newError) => {
-    if (newError) handleComposableError(newError.message || newError)
+    if (newError) {
+      handleComposableError(newError)
+    }
   })
 
   watch(
@@ -345,94 +412,114 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
       selectedFile.value,
       activeSessionId.value,
       loadedMemoryId.value,
-      selectedAssistant?.value?.name,
+      testModeAssistantConfig.value,
       isCurrentSessionTestMode.value,
-      props.isTestMode,
-      props.assistantConfig?.name,
     ],
-    ([currentInput, currentFile]) => {
-      currentPlaceholder.value = calculatePlaceholder(currentInput, currentFile)
+    () => {
+      currentPlaceholder.value = calculatePlaceholder(userInputRef.value, selectedFile.value)
     },
     { immediate: true, deep: true },
   )
 
-  watch(isCurrentSessionTestMode, (isTest) => {
-    if (!isTest) {
-      console.log('[useChatViewLogic] Exiting test mode, clearing temporary messages.')
+  watch(
+    () => [props.assistantConfig, props.initialAssistantId, props.isTestMode],
+    (newValues /*, oldValues - removed as unused */) => {
       testSessionMessages.value = []
-    }
-  })
+      const newIsTestMode = newValues[2]
+      const newAssistantConfig = newValues[0]
+      const newInitialAssistantId = newValues[1]
+      if (newIsTestMode) {
+        if (newAssistantConfig) {
+          conversationStore.setTestModeAssistantConfig(newAssistantConfig)
+        } else if (newInitialAssistantId) {
+          const assistantFromStore = assistantsStore.getAssistantById(newInitialAssistantId)
+          if (assistantFromStore) {
+            conversationStore.setTestModeAssistantConfig(assistantFromStore)
+          } else {
+            handleComposableError(
+              `Test Assistant ID ${newInitialAssistantId} not found on prop change.`,
+            )
+            conversationStore.setTestModeAssistantConfig({
+              name: 'Error: Not Found',
+              id: 'error-prop-watch',
+              instructions: '',
+              color: '#FF0000',
+            })
+          }
+        } else {
+          conversationStore.clearTestModeAssistantConfig()
+        }
+      } else {
+        conversationStore.clearTestModeAssistantConfig()
+      }
+      nextTick(() => {
+        chatInputAreaRef.value?.focusNestedInput?.()
+        if (actualScrollElementRef.value && typeof instantScrollToBottom === 'function') {
+          instantScrollToBottom()
+        }
+      })
+    },
+    { deep: true, immediate: false },
+  )
 
-  // --- Lifecycle Hooks (Unchanged) ---
-  onMounted(() => {
-    console.log('[useChatViewLogic] Mounted.')
-    const initialAssistantId = props.initialAssistantId
-    const isTestFromProps = props.isTestMode || false
-
+  onMounted(async () => {
     testSessionMessages.value = []
-
-    if (initialAssistantId) {
-      // Case 1: Test modal from AssistantsView
-      console.log(
-        `[useChatViewLogic] Initializing from props. Assistant ID: ${initialAssistantId}, Test Mode: ${isTestFromProps}`,
-      )
-      conversationStore
-        .setActiveSession(initialAssistantId, isTestFromProps)
-        .then(() => {
-          console.log(
-            `[useChatViewLogic] Session set for ${initialAssistantId}, Test Mode: ${isTestFromProps}. Focusing input.`,
+    if (props.isTestMode) {
+      if (props.assistantConfig) {
+        await conversationStore.setTestModeAssistantConfig(props.assistantConfig)
+      } else if (props.initialAssistantId) {
+        const assistantFromStore = assistantsStore.getAssistantById(props.initialAssistantId)
+        if (assistantFromStore) {
+          await conversationStore.setTestModeAssistantConfig(assistantFromStore)
+        } else {
+          handleComposableError(
+            `Could not find assistant with ID ${props.initialAssistantId} to test during mount.`,
           )
-          nextTick(() => {
-            chatInputAreaRef.value?.focusNestedInput?.()
+          await conversationStore.setTestModeAssistantConfig({
+            name: 'Error: Not Found',
+            id: 'error-mount',
+            instructions: '',
+            color: '#FF0000',
           })
-        })
-        .catch((error) => {
-          console.error(
-            `[useChatViewLogic] Error setting initial active session for ${initialAssistantId}:`,
-            error,
-          )
-          handleComposableError(`Failed to initialize chat session for the assistant.`)
-        })
-    } else if (isTestFromProps && props.assistantConfig) {
-      // Case 2: Test modal from AssistantCreator
-      console.log(
-        `[useChatViewLogic] Initializing for temporary test from AssistantCreator. Test Mode: ${isTestFromProps}`,
-      )
-      isCurrentSessionTestMode.value = true
-      updatePlaceholderBasedOnState()
-      nextTick(() => {
-        chatInputAreaRef.value?.focusNestedInput?.()
-      })
+        }
+      } else {
+        await conversationStore.clearTestModeAssistantConfig()
+      }
     } else {
-      // Case 3: Standard mount
-      console.log('[useChatViewLogic] Standard mount. Updating placeholder.')
-      isCurrentSessionTestMode.value = false // Ensure test mode is false on standard mount
-      updatePlaceholderBasedOnState()
-      nextTick(() => {
-        chatInputAreaRef.value?.focusNestedInput?.()
-      })
+      await conversationStore.clearTestModeAssistantConfig()
+      if (!activeSessionId.value && !loadedMemoryId.value) {
+        if (conversationStore.MAIN_CHAT_ID) {
+          await conversationStore.setActiveSession(conversationStore.MAIN_CHAT_ID)
+        } else {
+          console.warn('[useChatViewLogic] conversationStore.MAIN_CHAT_ID is not defined on mount.')
+        }
+      }
+    }
+    await nextTick()
+    chatInputAreaRef.value?.focusNestedInput?.()
+    if (actualScrollElementRef.value && typeof instantScrollToBottom === 'function') {
+      instantScrollToBottom()
     }
   })
 
   onUnmounted(() => {
-    console.log('[useChatViewLogic] Unmounted.')
-    // Stop listening if active when component unmounts
+    if (props.isTestMode && (props.assistantConfig || props.initialAssistantId)) {
+      conversationStore.clearTestModeAssistantConfig()
+    }
     if (isListening.value) {
-      toggleListening() // Calls stopListening internally
+      toggleListening()
     }
     testSessionMessages.value = []
   })
 
-  // --- Return statement (Unchanged structure) ---
   return {
-    // Reactive State
     isSending,
     isListening,
     isAssistantSelectorExpanded,
     selectedImagePreview,
     selectedFile,
     activeSessionId,
-    showAssistantSelectorBar,
+    shouldShowAssistantSelectorBarEffective,
     currentPlaceholder,
     displayMessages,
     availableAssistants,
@@ -441,8 +528,9 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     ttsSupported,
     isTtsEnabled,
     copiedState,
-
-    // Methods
+    isAnimatingText,
+    isTurboActive,
+    toggleTurboMode,
     handleSendMessage,
     handleEnterKey,
     selectAssistant,
@@ -457,6 +545,6 @@ export function useChatViewLogic(userInputRef, props = {}, refs = {}) {
     processMessageText,
     formatTimestamp,
     getAvatarDetailsForMessage,
-    autoGrowTextarea, // Keep exporting this for ChatInput binding
+    autoGrowTextarea,
   }
 }

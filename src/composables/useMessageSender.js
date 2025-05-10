@@ -1,19 +1,33 @@
 // src/composables/useMessageSender.js
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useConversationStore } from '@/stores/conversationStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAssistantsStore } from '@/stores/assistantsStore'
 import { useApi } from '@/composables/useApi'
 import { useFileInput } from '@/composables/useFileInput'
 
-// --- Configuration ---
-const TYPING_DELAY_MS = 20 // <<< UPDATED: Back to 2.0x speed (40 / 2.0)
-// --- End Configuration ---
-
-// Helper to generate message IDs consistently
+// Helper function to generate unique message IDs
 function generateMessageId(prefix = 'msg') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 }
+
+// Constants for "natural typing" animation delays
+const BASE_CHAR_DELAY_MS = 15
+const SPACE_DELAY_MS = 45
+const COMMA_DELAY_MS = 60
+const SENTENCE_END_DELAY_MS = 175
+const NEW_LINE_DELAY_MS = 125
+const TURBO_DIVISOR = 4
+const EMPTY_AI_RESPONSE_PLACEHOLDER = '[AI returned no text]'
+
+// Constants for safety settings (matching Google's HarmCategory and HarmBlockThreshold)
+// These are typically defined by the GoogleGenerativeAI SDK, but we define them here for clarity
+// if sending them in the payload to a backend that then uses the SDK.
+const HARM_CATEGORY_HARASSMENT = 'HARM_CATEGORY_HARASSMENT'
+const HARM_CATEGORY_HATE_SPEECH = 'HARM_CATEGORY_HATE_SPEECH'
+const HARM_CATEGORY_SEXUALLY_EXPLICIT = 'HARM_CATEGORY_SEXUALLY_EXPLICIT'
+const HARM_CATEGORY_DANGEROUS_CONTENT = 'HARM_CATEGORY_DANGEROUS_CONTENT'
+const BLOCK_NONE = 'BLOCK_NONE' // Most permissive threshold
 
 export function useMessageSender() {
   const conversationStore = useConversationStore()
@@ -22,28 +36,100 @@ export function useMessageSender() {
   const { callApi, isLoading, error: apiError } = useApi()
   const { readFileAsBase64 } = useFileInput({})
 
-  const error = ref(null) // Local error state
+  const error = ref(null)
+  const isAnimatingText = ref(false)
+  const animationCharacterQueue = ref([])
+  const isTurboActive = ref(false)
 
-  // --- Stream Reader Helper with Throttled and Varied Display ---
-  /**
-   * Reads a streaming text response, buffers it, and updates message content incrementally
-   * with variable delays to simulate natural typing.
-   * @param {Response} response - The raw Response object from fetch.
-   * @param {string} assistantMessageId - The ID of the message to update.
-   * @param {boolean} isTestMode - Whether currently in test mode.
-   * @param {object} resultRef - The ref to the result object to update on completion/error.
-   * @param {object} store - The conversationStore instance.
-   */
-  async function readStreamAndThrottleUpdate(
+  const toggleTurboMode = () => {
+    isTurboActive.value = !isTurboActive.value
+    console.log('[MessageSender] Turbo mode:', isTurboActive.value ? 'ON' : 'OFF')
+  }
+
+  async function processAnimationQueue(assistantMessageId, resultRef, streamReadingDoneRef) {
+    if (isAnimatingText.value && animationCharacterQueue.value.length > 0) {
+      return
+    }
+    isAnimatingText.value = true
+    const currentIsTestMode = conversationStore.isCurrentSessionTestMode
+
+    try {
+      while (animationCharacterQueue.value.length > 0) {
+        const char = animationCharacterQueue.value.shift()
+        if (!currentIsTestMode) {
+          const message = conversationStore.activeHistory.find(
+            (m) => m.messageId === assistantMessageId,
+          )
+          if (message) {
+            message.content += char
+          }
+        } else if (resultRef.value.assistantMessage) {
+          resultRef.value.assistantMessage.content += char
+        }
+
+        let delayMs = BASE_CHAR_DELAY_MS
+        if (char === ' ') delayMs = SPACE_DELAY_MS
+        else if (char === ',') delayMs = COMMA_DELAY_MS
+        else if (['.', '!', '?'].includes(char)) delayMs = SENTENCE_END_DELAY_MS
+        else if (char === '\n') delayMs = NEW_LINE_DELAY_MS
+
+        if (isTurboActive.value) {
+          delayMs = Math.max(1, Math.floor(delayMs / TURBO_DIVISOR))
+        }
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+    } catch (animError) {
+      console.error('[MessageSender] Error during text animation:', animError)
+    } finally {
+      isAnimatingText.value = false
+      if (animationCharacterQueue.value.length === 0 && streamReadingDoneRef.value) {
+        const rawAiResponse =
+          typeof resultRef.value.aiResponse === 'string' ? resultRef.value.aiResponse : ''
+        console.log(
+          `[MessageSender FINALIZE] Stream done. Raw AI response for ${assistantMessageId}: "${rawAiResponse}"`,
+        )
+
+        if (!currentIsTestMode) {
+          const storeMsg = conversationStore.activeHistory.find(
+            (m) => m.messageId === assistantMessageId,
+          )
+          if (storeMsg) {
+            storeMsg.content = rawAiResponse === '' ? EMPTY_AI_RESPONSE_PLACEHOLDER : rawAiResponse
+            if (rawAiResponse === '') {
+              console.log(
+                `[MessageSender Main Chat FINALIZE] AI response for ${assistantMessageId} was empty. Using placeholder for display.`,
+              )
+            }
+          }
+          conversationStore.updateMessageLoadingState(assistantMessageId, false)
+        } else {
+          // Test Mode
+          if (resultRef.value.assistantMessage) {
+            resultRef.value.assistantMessage.content = rawAiResponse
+            if (rawAiResponse === '') {
+              console.log(
+                `[MessageSender Test Mode FINALIZE] AI response for ${assistantMessageId} was empty. Storing "" for history. UI should show placeholder.`,
+              )
+            }
+            resultRef.value.assistantMessage.isLoading = false
+          }
+        }
+        await nextTick()
+      }
+    }
+  }
+
+  async function readStreamAndAnimateText(
     response,
     assistantMessageId,
-    isTestMode,
     resultRef,
-    store,
+    streamReadingDoneInScopeRef,
   ) {
     let fullText = ''
     const reader = response.body?.getReader()
     const decoder = new TextDecoder()
+    const currentIsTestMode = conversationStore.isCurrentSessionTestMode
+
     const assistantMessageShell = {
       messageId: assistantMessageId,
       role: 'assistant',
@@ -54,88 +140,41 @@ export function useMessageSender() {
     }
 
     if (!reader) {
-      throw new Error('Failed to get reader from stream body.')
-    }
+      console.error('[MessageSender] Failed to get reader from stream body.')
+      resultRef.value.success = false
+      const errorMessage = 'Error: Failed to get reader from stream body.'
+      resultRef.value.aiResponse = errorMessage
+      streamReadingDoneInScopeRef.value = true
 
-    // Throttling state
-    const charQueue = []
-    let isProcessingQueue = false
-    let streamEnded = false
-    let timeoutId = null
-
-    // Function to process the character queue with variable delay
-    const processQueue = () => {
-      if (charQueue.length <= 0) {
-        // Queue is empty
-        if (streamEnded) {
-          // AND stream is done
-          isProcessingQueue = false
-          resultRef.value.success = true
-          resultRef.value.aiResponse = fullText.trim()
-          if (!isTestMode) {
-            store.updateMessageLoadingState(assistantMessageId, false)
-          } else if (resultRef.value.assistantMessage) {
-            resultRef.value.assistantMessage.isLoading = false
-          }
-          return // Stop the loop
+      if (currentIsTestMode) {
+        resultRef.value.assistantMessage = {
+          ...assistantMessageShell,
+          isLoading: false,
+          content: errorMessage,
+        }
+      } else {
+        const storeMsg = conversationStore.activeHistory.find(
+          (m) => m.messageId === assistantMessageId,
+        )
+        if (storeMsg) {
+          storeMsg.content = errorMessage
+          storeMsg.isLoading = false
         } else {
-          // Stream not done, just wait
-          isProcessingQueue = false
-          return
+          conversationStore.addMessageToActiveSession(
+            assistantMessageShell.role,
+            errorMessage,
+            assistantMessageShell.timestamp,
+            null,
+            assistantMessageId,
+            false,
+          )
         }
       }
-
-      // Process one character
-      const char = charQueue.shift()
-      fullText += char
-
-      // Update store or result object
-      if (!isTestMode) {
-        store.appendContentToMessage(assistantMessageId, char)
-      } else if (resultRef.value && resultRef.value.assistantMessage) {
-        resultRef.value.assistantMessage.content += char
-      }
-
-      // --- Calculate Delay for NEXT character ---
-      let nextDelay = TYPING_DELAY_MS // Start with base delay (now 20ms)
-
-      // Pause after punctuation
-      if (['.', '!', '?'].includes(char)) {
-        nextDelay += Math.random() * 60 + 60 // Add 60-120ms extra
-      }
-      // Occasional pause after space
-      else if (char === ' ' && Math.random() < 0.07) {
-        // 7% chance
-        nextDelay += Math.random() * 120 + 60 // Add 60-180ms extra
-      }
-      // Pause for paragraph break (\n\n) - Peek ahead
-      else if (char === '\n' && charQueue.length > 0 && charQueue[0] === '\n') {
-        nextDelay += Math.random() * 150 + 200 // Add 200-350ms extra
-      }
-      // Random brief hesitation pause (very low chance)
-      else if (Math.random() < 0.01) {
-        // 1% chance
-        nextDelay += Math.random() * 200 + 100 // Add 100-300ms extra
-      }
-
-      // Ensure delay isn't excessively long
-      nextDelay = Math.min(nextDelay, 600) // Cap max delay
-
-      // Schedule next iteration
-      timeoutId = setTimeout(processQueue, Math.floor(nextDelay)) // Use calculated delay
+      throw new Error(errorMessage)
     }
 
-    // Function to start processing the queue if not already active
-    const startQueueProcessing = () => {
-      if (!isProcessingQueue) {
-        isProcessingQueue = true
-        timeoutId = setTimeout(processQueue, 0) // Start on next tick
-      }
-    }
-
-    // Add the initial shell message
-    if (!isTestMode) {
-      store.addMessageToActiveSession(
+    if (!currentIsTestMode) {
+      conversationStore.addMessageToActiveSession(
         assistantMessageShell.role,
         assistantMessageShell.content,
         assistantMessageShell.timestamp,
@@ -144,52 +183,207 @@ export function useMessageSender() {
         assistantMessageShell.isLoading,
       )
     } else {
-      resultRef.value.assistantMessage = assistantMessageShell
+      resultRef.value.assistantMessage = { ...assistantMessageShell }
     }
+    await nextTick()
 
-    // Main stream reading loop
+    let lineBuffer = ''
+    let chunkCount = 0
     try {
       while (true) {
         const { done, value } = await reader.read()
+        chunkCount++
+
         if (done) {
-          streamEnded = true
-          startQueueProcessing()
+          console.log(
+            `[MessageSender STREAM] Done reading stream for ${assistantMessageId} after ${chunkCount} chunks. Final lineBuffer: "${lineBuffer.trim()}"`,
+          )
+          streamReadingDoneInScopeRef.value = true
+          if (lineBuffer.trim()) {
+            const sseMessages = lineBuffer.split('\n\n')
+            for (const sseMessage of sseMessages) {
+              if (sseMessage.startsWith('data: ')) {
+                try {
+                  const jsonStr = sseMessage.substring(5).trim()
+                  if (jsonStr) {
+                    const parsed = JSON.parse(jsonStr)
+                    let textChunk = ''
+                    if (parsed.done && parsed.message === 'Stream complete') {
+                      // Check for our custom done event
+                      console.log(
+                        `[MessageSender STREAM] Received 'done' event for ${assistantMessageId}.`,
+                      )
+                      // Do not add this to fullText or animationCharacterQueue
+                    } else if (parsed.text !== undefined && typeof parsed.text === 'string') {
+                      textChunk = parsed.text
+                    } else if (parsed.error) {
+                      textChunk = `\n(Stream Error: ${parsed.error})\n`
+                    }
+
+                    if (textChunk) {
+                      // Only process if textChunk has content (not from done event)
+                      console.log(
+                        `[MessageSender STREAM] Final/Buffered chunk for ${assistantMessageId}: "${textChunk}"`,
+                      )
+                      fullText += textChunk
+                      for (const char of textChunk) animationCharacterQueue.value.push(char)
+                    }
+                  }
+                } catch (e) {
+                  console.warn(
+                    '[MessageSender STREAM] Failed to parse FINAL SSE JSON:',
+                    sseMessage.substring(5),
+                    e,
+                  )
+                }
+              }
+            }
+          }
           break
         }
-        const chunkText = decoder.decode(value, { stream: false })
-        if (chunkText) {
-          charQueue.push(...chunkText.split(''))
-          startQueueProcessing()
+
+        const decodedChunk = decoder.decode(value, { stream: true })
+        // console.log(`[MessageSender STREAM] Received raw chunk ${chunkCount} for ${assistantMessageId}: "${decodedChunk}"`); // Can be very verbose
+        lineBuffer += decodedChunk
+        let eolIndex
+        while ((eolIndex = lineBuffer.indexOf('\n\n')) >= 0) {
+          const messageToProcess = lineBuffer.substring(0, eolIndex).trim()
+          lineBuffer = lineBuffer.substring(eolIndex + 2)
+          if (messageToProcess.startsWith('data: ')) {
+            try {
+              const jsonStr = messageToProcess.substring(5).trim()
+              if (jsonStr) {
+                const parsed = JSON.parse(jsonStr)
+                let textChunk = ''
+                if (parsed.done && parsed.message === 'Stream complete') {
+                  console.log(
+                    `[MessageSender STREAM] Received 'done' event mid-stream for ${assistantMessageId}.`,
+                  )
+                  // This might mean the stream is ending. We'll let the main 'done' flag handle termination.
+                } else if (parsed.text !== undefined && typeof parsed.text === 'string') {
+                  textChunk = parsed.text
+                } else if (parsed.error) {
+                  textChunk = `\n(Stream Error: ${parsed.error})\n`
+                }
+
+                if (textChunk) {
+                  // Only process if textChunk has content
+                  // console.log(`[MessageSender STREAM] Parsed text chunk for ${assistantMessageId}: "${textChunk}"`);
+                  fullText += textChunk
+                  for (const char of textChunk) animationCharacterQueue.value.push(char)
+                  if (!isAnimatingText.value && animationCharacterQueue.value.length > 0) {
+                    processAnimationQueue(
+                      assistantMessageId,
+                      resultRef,
+                      streamReadingDoneInScopeRef,
+                    )
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn(
+                '[MessageSender STREAM] Failed to parse SSE JSON from chunk:',
+                messageToProcess.substring(5),
+                e,
+              )
+            }
+          }
         }
       }
-    } catch (streamError) {
-      const errorMessage = `Stream Error: ${streamError.message || 'Failed to read response'}`
-      error.value = errorMessage
+
+      resultRef.value.success = true
+      resultRef.value.aiResponse = fullText.trim()
+
+      console.log(
+        `[MessageSender STREAM] Completed processing stream for ${assistantMessageId}. Full raw text accumulated: "${resultRef.value.aiResponse}"`,
+      )
+      if (resultRef.value.aiResponse === '') {
+        console.log(
+          `[MessageSender STREAM] Stream for ${assistantMessageId} resulted in an empty string. This will be handled by final sync in processAnimationQueue.`,
+        )
+      }
+
+      if (!isAnimatingText.value && animationCharacterQueue.value.length > 0) {
+        processAnimationQueue(assistantMessageId, resultRef, streamReadingDoneInScopeRef)
+      } else if (animationCharacterQueue.value.length === 0 && streamReadingDoneInScopeRef.value) {
+        console.log(
+          `[MessageSender STREAM] Animation queue empty and stream done for ${assistantMessageId}. Triggering finalization.`,
+        )
+        if (
+          currentIsTestMode &&
+          resultRef.value.assistantMessage &&
+          resultRef.value.assistantMessage.isLoading
+        ) {
+          const rawAiResponseForFinalSync =
+            typeof resultRef.value.aiResponse === 'string' ? resultRef.value.aiResponse : ''
+          resultRef.value.assistantMessage.content = rawAiResponseForFinalSync
+          if (rawAiResponseForFinalSync === '') {
+            console.log(
+              `[MessageSender Test Mode STREAM EMPTY] Storing "" for history. UI should show placeholder.`,
+            )
+          }
+          resultRef.value.assistantMessage.isLoading = false
+        } else if (!currentIsTestMode) {
+          const storeMsg = conversationStore.activeHistory.find(
+            (m) => m.messageId === assistantMessageId,
+          )
+          if (storeMsg && storeMsg.isLoading) {
+            const rawAiResponseForFinalSync =
+              typeof resultRef.value.aiResponse === 'string' ? resultRef.value.aiResponse : ''
+            storeMsg.content =
+              rawAiResponseForFinalSync === ''
+                ? EMPTY_AI_RESPONSE_PLACEHOLDER
+                : rawAiResponseForFinalSync
+            if (rawAiResponseForFinalSync === '') {
+              console.log(`[MessageSender Main Chat STREAM EMPTY] Using placeholder for display.`)
+            }
+            conversationStore.updateMessageLoadingState(assistantMessageId, false)
+          }
+        }
+        await nextTick()
+        // Call processAnimationQueue one last time to ensure its `finally` block runs for content sync,
+        // especially if the above direct updates didn't cover all cases or if animation was expected.
+        processAnimationQueue(assistantMessageId, resultRef, streamReadingDoneInScopeRef)
+      }
+    } catch (streamReadError) {
+      console.error('[MessageSender STREAM] Stream reading/processing error:', streamReadError)
+      streamReadingDoneInScopeRef.value = true
+      error.value = streamReadError.message || 'Failed to read stream'
       resultRef.value.success = false
-      resultRef.value.aiResponse = fullText
-
-      if (timeoutId) clearTimeout(timeoutId)
-      isProcessingQueue = false
-      streamEnded = true
-
-      const errorSuffix = `\n\n--- (Error receiving full response: ${errorMessage}) ---`
-      if (!isTestMode) {
-        store.appendContentToMessage(assistantMessageId, errorSuffix)
-        store.updateMessageLoadingState(assistantMessageId, false)
-      } else if (resultRef.value && resultRef.value.assistantMessage) {
-        resultRef.value.assistantMessage.content += errorSuffix
+      resultRef.value.aiResponse = fullText.trim()
+      const errorSuffix = `\n\n--- (Error during stream: ${error.value}) ---`
+      const cleanAccumulatedTextOnError = fullText.trim()
+      isAnimatingText.value = false
+      animationCharacterQueue.value = []
+      if (!currentIsTestMode) {
+        const existingMsg = conversationStore.activeHistory.find(
+          (m) => m.messageId === assistantMessageId,
+        )
+        if (existingMsg) {
+          existingMsg.content = cleanAccumulatedTextOnError + errorSuffix
+          conversationStore.updateMessageLoadingState(assistantMessageId, false)
+        }
+      } else if (resultRef.value.assistantMessage) {
+        resultRef.value.assistantMessage.content = cleanAccumulatedTextOnError + errorSuffix
         resultRef.value.assistantMessage.isLoading = false
       }
-      throw new Error(errorMessage) // Re-throw
+      await nextTick()
     }
   }
 
-  // --- sendMessage Function ---
-  const sendMessage = async (textInput, imageFile, imagePreviewUrlForStore, isTestMode = false) => {
+  const sendMessage = async (
+    textInput,
+    imageFile,
+    imagePreviewUrlForStore,
+    currentTestMessages = null,
+  ) => {
     error.value = null
+    apiError.value = null
+    animationCharacterQueue.value = []
+    const streamReadingDoneInScope = ref(false)
+
     const trimmedInput = textInput?.trim() ?? ''
     const timestamp = Date.now()
-
     const result = ref({
       success: false,
       aiResponse: null,
@@ -197,24 +391,33 @@ export function useMessageSender() {
       assistantMessage: null,
     })
 
+    const isInTestMode = conversationStore.isCurrentSessionTestMode
+    const testConfigValue = conversationStore.testModeAssistantConfig
+
     if (isLoading.value) {
-      return result.value
-    }
-    if (trimmedInput === '' && !imageFile) {
+      console.warn('[MessageSender] API call already in progress (useApi). Aborting new send.')
+      error.value = 'Another API call is already in progress.'
       return result.value
     }
 
-    // Construct User Message Object
+    if (trimmedInput === '' && !imageFile) {
+      console.warn('[MessageSender] No text or image to send.')
+      error.value = 'Nothing to send. Please type a message or add an image.'
+      return result.value
+    }
+
     const userMessageObject = {
       messageId: generateMessageId('user'),
       role: 'user',
       content: trimmedInput,
       timestamp: timestamp,
       imagePreviewUrl: imagePreviewUrlForStore,
+      isLoading: false,
     }
 
-    // Add User Message to Store (Conditionally)
-    if (!isTestMode) {
+    if (isInTestMode) {
+      result.value.userMessage = userMessageObject
+    } else {
       conversationStore.addMessageToActiveSession(
         userMessageObject.role,
         userMessageObject.content,
@@ -222,130 +425,159 @@ export function useMessageSender() {
         userMessageObject.imagePreviewUrl,
         userMessageObject.messageId,
       )
-    } else {
-      result.value.userMessage = userMessageObject
     }
+    await nextTick()
 
-    // Process Image (if any)
     let imgDataForApi = null
     if (imageFile) {
       if (typeof readFileAsBase64 === 'function') {
         try {
           imgDataForApi = await readFileAsBase64(imageFile)
-          if (!imgDataForApi?.mimeType || !imgDataForApi?.base64Data)
-            throw new Error('Processed image data missing.')
+          if (!imgDataForApi?.mimeType || !imgDataForApi?.base64Data) {
+            throw new Error('Processed image data missing mimeType or base64Data.')
+          }
         } catch (e) {
           error.value = `Image processing error: ${e.message || 'Unknown error'}`
+          result.value.success = false
           return result.value
         }
       } else {
-        error.value = 'Internal error: Cannot process image file.'
+        error.value = 'Internal error: readFileAsBase64 is not available.'
+        result.value.success = false
         return result.value
       }
     }
 
-    // Determine Model, Target URL, System Prompt
     let modelIdToUse = settingsStore.chatModel
-    let targetUrl = '/.netlify/functions/call-openai-gpt-4'
-    let systemPromptContent = null
-    const currentActiveSessionId = conversationStore.activeSessionId
-    if (currentActiveSessionId && !conversationStore.isMainChatSession(currentActiveSessionId)) {
+    let targetUrl = ''
+    let currentContextAssistantId =
+      isInTestMode && testConfigValue ? testConfigValue.id : conversationStore.activeSessionId
+
+    if (isInTestMode && testConfigValue) {
+      if (testConfigValue.model) modelIdToUse = testConfigValue.model
+    } else if (
+      currentContextAssistantId &&
+      !conversationStore.isMainChatSession(currentContextAssistantId)
+    ) {
       try {
-        const assistant = assistantsStore.getAssistantById(currentActiveSessionId)
-        if (assistant) {
-          if (assistant.model) modelIdToUse = assistant.model
-          if (assistant.instructions?.trim()) systemPromptContent = assistant.instructions.trim()
-        }
+        const assistant = assistantsStore.getAssistantById(currentContextAssistantId)
+        if (assistant && assistant.model) modelIdToUse = assistant.model
       } catch (e) {
-        console.error(`Error getting assistant config: ${e}`)
+        console.error(
+          `[MessageSender] Error getting assistant config for ${currentContextAssistantId}: ${e}`,
+        )
       }
     }
-    if (modelIdToUse?.toLowerCase().includes('gemini')) {
-      targetUrl = '/.netlify/functions/call-google-gemini'
-    } else {
-      targetUrl = '/.netlify/functions/call-openai-gpt-4'
-    }
-    console.log(`Using Model: ${modelIdToUse}, Routing request to: ${targetUrl}`)
 
-    // Prepare Message History & Context
+    targetUrl = modelIdToUse?.toLowerCase().includes('gemini')
+      ? '/.netlify/functions/call-google-gemini'
+      : '/.netlify/functions/call-openai-gpt-4'
+
     let messagesToSend = []
     try {
-      let baseHistory = []
-      if (!isTestMode) {
-        baseHistory = conversationStore.getFormattedHistoryForAPI({ excludeLast: true })
-      }
-      let finalSystemPrompt = systemPromptContent
-      // Apply My AI Context if applicable
-      const segments = settingsStore.myAiContextSegments
-      const applyToAll = settingsStore.myAiContextApplyToAll
-      const allowedIds = settingsStore.myAiContextAllowedAssistantIds
-      let shouldApplyContext = false
-      if (segments?.length > 0 && currentActiveSessionId) {
+      if (isInTestMode) {
+        let historyForTestMode
         if (
-          applyToAll ||
-          (allowedIds instanceof Set && allowedIds.has(currentActiveSessionId)) ||
-          (Array.isArray(allowedIds) && allowedIds.includes(currentActiveSessionId))
+          currentTestMessages &&
+          Array.isArray(currentTestMessages) &&
+          currentTestMessages.length > 0
         ) {
-          shouldApplyContext = true
+          historyForTestMode = currentTestMessages
+          // console.log('[MessageSender] Test Mode: Using currentTestMessages. Count:', currentTestMessages.length) // Verbose
+        } else {
+          console.warn(
+            '[MessageSender] Test Mode: currentTestMessages was empty or invalid. Using only new user message for context.',
+          )
+          historyForTestMode = [userMessageObject]
+        }
+        messagesToSend = conversationStore.getFormattedHistoryForAPI({
+          messagesForContext: historyForTestMode,
+          excludeLast: false,
+        })
+      } else {
+        messagesToSend = conversationStore.getFormattedHistoryForAPI({ excludeLast: false })
+      }
+
+      const { myAiContextSegments, myAiContextApplyToAll, myAiContextAllowedAssistantIds } =
+        settingsStore
+      let shouldApplyMyAiContext = false
+
+      if (myAiContextSegments?.length > 0 && currentContextAssistantId) {
+        if (myAiContextApplyToAll) {
+          shouldApplyMyAiContext = true
+          // console.log(`[MessageSender] "My AI Context" applying due to "Apply to All" for context ID: ${currentContextAssistantId}`); // Verbose
+        } else if (
+          myAiContextAllowedAssistantIds instanceof Set &&
+          myAiContextAllowedAssistantIds.has(currentContextAssistantId)
+        ) {
+          shouldApplyMyAiContext = true
+          // console.log(`[MessageSender] "My AI Context" applying because context ID ${currentContextAssistantId} is in allowed list.`); // Verbose
+        } else {
+          // console.log(`[MessageSender] "My AI Context" NOT applying for context ID: ${currentContextAssistantId}. Not in allowed list and "Apply to All" is false.`); // Verbose
         }
       }
-      if (shouldApplyContext) {
+
+      if (shouldApplyMyAiContext) {
         const contextPreamble = 'Remember these facts/preferences about the user: '
-        const contextString = segments.join('; ')
-        finalSystemPrompt = finalSystemPrompt
-          ? `${contextPreamble}${contextString}\n\n---\n\n${finalSystemPrompt}`
-          : `${contextPreamble}${contextString}`
-      }
-      if (finalSystemPrompt) messagesToSend.push({ role: 'system', content: finalSystemPrompt })
-      // Prepare history
-      const nonSystemMessages = baseHistory.filter((msg) => msg.role !== 'system')
-      const contextLimit = settingsStore.chatContextLength
-      const limitedHistory = nonSystemMessages.slice(-(contextLimit > 0 ? contextLimit : Infinity))
-      messagesToSend.push(...limitedHistory)
-      // Construct final user message payload
-      let finalUserMessagePayload = null
-      if (trimmedInput && !imgDataForApi) {
-        finalUserMessagePayload = { role: 'user', content: trimmedInput }
-      } else if (trimmedInput && imgDataForApi) {
-        finalUserMessagePayload = {
-          role: 'user',
-          content: [
-            { type: 'text', text: trimmedInput },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${imgDataForApi.mimeType};base64,${imgDataForApi.base64Data}`,
-              },
-            },
-          ],
+        const contextString = myAiContextSegments.join('; ')
+        const myAiSystemMessage = {
+          role: 'system',
+          content: `${contextPreamble}${contextString}`,
         }
-      } else if (imgDataForApi) {
-        finalUserMessagePayload = {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${imgDataForApi.mimeType};base64,${imgDataForApi.base64Data}`,
-              },
-            },
-          ],
+        const existingSystemMessageIndex = messagesToSend.findIndex((msg) => msg.role === 'system')
+        if (existingSystemMessageIndex !== -1) {
+          messagesToSend[existingSystemMessageIndex].content =
+            `${myAiSystemMessage.content}\n\n${messagesToSend[existingSystemMessageIndex].content}`
+          // console.log('[MessageSender] Prepended "My AI Context" to existing system message.'); // Verbose
+        } else {
+          messagesToSend.unshift(myAiSystemMessage)
+          // console.log('[MessageSender] Added "My AI Context" as new system message.'); // Verbose
         }
       }
-      if (finalUserMessagePayload) {
-        messagesToSend.push(finalUserMessagePayload)
-      } else if (!trimmedInput && !imgDataForApi) {
-        throw new Error('No content found.')
-      }
-      if (messagesToSend.filter((msg) => msg.role !== 'system').length === 0) {
-        throw new Error('No messages to send.')
+
+      if (messagesToSend.length === 0) {
+        console.error(
+          '[MessageSender] messagesToSend is empty after formatting and My AI Context. This indicates an issue.',
+        )
+        let minimalUserContentForApi = []
+        if (trimmedInput) minimalUserContentForApi.push({ type: 'text', text: trimmedInput })
+        if (imgDataForApi && modelIdToUse?.toLowerCase().includes('gemini')) {
+          minimalUserContentForApi.push({
+            inline_data: { mime_type: imgDataForApi.mimeType, data: imgDataForApi.base64Data },
+          })
+        } else if (imgDataForApi) {
+          minimalUserContentForApi.push({
+            type: 'image_url',
+            image_url: { url: `data:${imgDataForApi.mimeType};base64,${imgDataForApi.base64Data}` },
+          })
+        }
+        if (minimalUserContentForApi.length > 0) {
+          messagesToSend.push({
+            role: 'user',
+            content:
+              minimalUserContentForApi.length === 1 &&
+              minimalUserContentForApi[0].type === 'text' &&
+              !imgDataForApi
+                ? trimmedInput
+                : minimalUserContentForApi,
+          })
+        }
+        if (messagesToSend.length === 0) {
+          throw new Error('Cannot send to API: No messages in the payload after all preparations.')
+        }
       }
     } catch (e) {
-      error.value = `Internal Error: ${e.message || 'Cannot prepare history.'}`
+      error.value = `Internal Error preparing messages: ${e.message || 'Cannot prepare message history.'}`
+      console.error(
+        '[MessageSender] Error during message preparation step:',
+        e,
+        'Current messagesToSend:',
+        JSON.stringify(messagesToSend),
+      )
+      result.value.success = false
       return result.value
     }
 
-    // Construct Final API Payload
     const payload = {
       model: modelIdToUse,
       temperature: settingsStore.chatTemperature ?? undefined,
@@ -354,104 +586,150 @@ export function useMessageSender() {
       messages: messagesToSend,
     }
 
-    // --- Call API and Handle Response ---
-    const assistantMessageId = generateMessageId('asst')
-    try {
-      const apiResult = await callApi(targetUrl, payload, 'POST')
+    // EXPERIMENT: Add permissive safety settings ONLY for test mode
+    if (isInTestMode) {
+      console.log(
+        '[MessageSender] TEST MODE: Applying experimental permissive safety settings for this request.',
+      )
+      payload.safetySettings = [
+        { category: HARM_CATEGORY_HARASSMENT, threshold: BLOCK_NONE },
+        { category: HARM_CATEGORY_HATE_SPEECH, threshold: BLOCK_NONE },
+        { category: HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: BLOCK_NONE },
+        { category: HARM_CATEGORY_DANGEROUS_CONTENT, threshold: BLOCK_NONE },
+      ]
+    }
 
-      // Check if the result is a streaming Response
-      if (apiResult instanceof Response) {
-        console.log('[useMessageSender] Received stream Response from useApi.')
-        await readStreamAndThrottleUpdate(
-          apiResult,
+    console.log('[MessageSender] FINAL PAYLOAD to API:', JSON.stringify(payload, null, 2))
+
+    const assistantMessageId = generateMessageId('asst')
+
+    try {
+      const apiResponse = await callApi(targetUrl, payload, 'POST')
+
+      if (apiResponse instanceof Response && apiResponse.body) {
+        await readStreamAndAnimateText(
+          apiResponse,
           assistantMessageId,
-          isTestMode,
           result,
-          conversationStore,
+          streamReadingDoneInScope,
         )
-      }
-      // Handle Non-Streaming JSON Response
-      else if (typeof apiResult === 'object' && apiResult !== null && apiResult.aiText) {
-        console.log('[useMessageSender] Received JSON response from useApi.')
-        const aiResponseText = apiResult.aiText
-        if (typeof aiResponseText === 'string' && aiResponseText.trim() !== '') {
-          const assistantMessageObject = {
-            messageId: assistantMessageId,
-            role: 'assistant',
-            content: aiResponseText.trim(),
-            timestamp: Date.now(),
-            imagePreviewUrl: null,
-            isLoading: false,
-          }
-          if (!isTestMode) {
-            conversationStore.addMessageToActiveSession(
-              assistantMessageObject.role,
-              assistantMessageObject.content,
-              assistantMessageObject.timestamp,
-              assistantMessageObject.imagePreviewUrl,
-              assistantMessageObject.messageId,
-              assistantMessageObject.isLoading,
-            )
-          } else {
-            result.value.assistantMessage = assistantMessageObject
-          }
-          result.value.success = true
-          result.value.aiResponse = aiResponseText.trim()
-        } else {
-          error.value = 'Received empty or invalid response from AI.'
-          result.value.success = false
+      } else if (
+        typeof apiResponse === 'object' &&
+        apiResponse !== null &&
+        apiResponse.aiText !== undefined
+      ) {
+        const aiRawText = apiResponse.aiText
+        const processedResponse = (typeof aiRawText === 'string' ? aiRawText : '').trim()
+
+        result.value.aiResponse = processedResponse
+        result.value.success = true
+        streamReadingDoneInScope.value = true
+
+        const contentForHistory = processedResponse
+        const contentForDisplayInStore =
+          processedResponse === '' ? EMPTY_AI_RESPONSE_PLACEHOLDER : processedResponse
+
+        console.log(
+          `[MessageSender] Non-streaming response. Raw/ForHistory: "${processedResponse}", For Main Chat Store Display: "${contentForDisplayInStore}"`,
+        )
+
+        const assistantMessageObject = {
+          messageId: assistantMessageId,
+          role: 'assistant',
+          content: isInTestMode ? contentForHistory : contentForDisplayInStore,
+          timestamp: Date.now(),
+          imagePreviewUrl: null,
+          isLoading: false,
         }
-      }
-      // Handle Unexpected Response Type
-      else {
-        console.error(
-          '[useMessageSender] Unexpected response type received from useApi:',
-          apiResult,
-        )
-        error.value = 'Received unexpected response format from API handler.'
+
+        if (!isInTestMode) {
+          conversationStore.addMessageToActiveSession(
+            assistantMessageObject.role,
+            assistantMessageObject.content,
+            assistantMessageObject.timestamp,
+            assistantMessageObject.imagePreviewUrl,
+            assistantMessageObject.messageId,
+            assistantMessageObject.isLoading,
+          )
+          if (processedResponse === '') {
+            console.warn(
+              '[MessageSender Main Chat] AI returned empty non-streaming response. Placeholder set for store.',
+            )
+          }
+        } else {
+          result.value.assistantMessage = { ...assistantMessageObject, content: contentForHistory }
+          if (processedResponse === '') {
+            console.warn(
+              '[MessageSender Test Mode] AI returned empty non-streaming response. Storing "" for history. UI will show placeholder.',
+            )
+          }
+        }
+        await nextTick()
+      } else {
+        error.value = apiError.value || `Received unexpected response format from API call.`
+        if (apiResponse && typeof apiResponse === 'object' && apiResponse.message) {
+          error.value = `API Error: ${apiResponse.message}`
+        }
+        console.error(`[MessageSender] Unexpected API response format. Response:`, apiResponse)
         result.value.success = false
+        streamReadingDoneInScope.value = true
       }
     } catch (err) {
-      // Catch errors from callApi or the stream reader helper
-      const message = apiError.value || (err instanceof Error ? err.message : 'Unknown API error')
-      console.error('[useMessageSender] API call or stream processing failed:', message, err)
-      error.value = `API Error: ${message}`
+      const caughtErrorMessage =
+        apiError.value || (err instanceof Error ? err.message : 'Unknown API error')
+      if (!error.value) error.value = `API Error: ${caughtErrorMessage}`
+      console.error(`[MessageSender] sendMessage error caught: ${error.value}`, err)
       result.value.success = false
+      streamReadingDoneInScope.value = true
 
-      // Error handling for stream failure
-      if (!isTestMode && assistantMessageId) {
-        if (conversationStore.activeHistory.find((m) => m.messageId === assistantMessageId)) {
-          const errorSuffix = `\n\n--- (Request failed: ${error.value}) ---`
-          conversationStore.appendContentToMessage(assistantMessageId, errorSuffix)
-          conversationStore.updateMessageLoadingState(assistantMessageId, false)
+      const errorSuffixFinal = `\n\n--- (Request Failed: ${error.value}) ---`
+      const cleanAccumulatedTextOnError = result.value.aiResponse || ''
+
+      if (!isInTestMode && assistantMessageId) {
+        const existingMsg = conversationStore.activeHistory.find(
+          (m) => m.messageId === assistantMessageId,
+        )
+        if (existingMsg) {
+          existingMsg.content = cleanAccumulatedTextOnError + errorSuffixFinal
+          existingMsg.isLoading = false
         } else {
-          console.warn(
-            '[useMessageSender] Stream errored before message shell could be added/found in store.',
-          )
           conversationStore.addMessageToActiveSession(
             'system',
-            `Error sending message: ${error.value}`,
+            `Error processing request: ${error.value}`,
             Date.now(),
             null,
             generateMessageId('err'),
+            false,
           )
         }
-      } else if (isTestMode && result.value.assistantMessage) {
-        const errorSuffix = `\n\n--- (Request failed: ${error.value}) ---`
-        result.value.assistantMessage.content += errorSuffix
+      } else if (isInTestMode) {
+        result.value.assistantMessage = {
+          messageId: assistantMessageId,
+          role: 'assistant',
+          content: cleanAccumulatedTextOnError + errorSuffixFinal,
+          timestamp: Date.now(),
+          imagePreviewUrl: null,
+          isLoading: false,
+        }
+      }
+      await nextTick()
+    }
+
+    if (streamReadingDoneInScope.value) {
+      const currentIsTestModeCheck = conversationStore.isCurrentSessionTestMode
+      if (!currentIsTestModeCheck) {
+        const storeMsg = conversationStore.activeHistory.find(
+          (m) => m.messageId === assistantMessageId,
+        )
+        if (storeMsg && storeMsg.isLoading) {
+          conversationStore.updateMessageLoadingState(assistantMessageId, false)
+        }
+      } else if (result.value.assistantMessage && result.value.assistantMessage.isLoading) {
         result.value.assistantMessage.isLoading = false
       }
     }
-
-    // Return the final result object's value
-    console.log('[useMessageSender] sendMessage finished, returning result:', result.value)
     return result.value
-  } // End sendMessage function
-
-  // Return the public interface
-  return {
-    sendMessage,
-    isLoading,
-    error,
   }
-} // End useMessageSender composable
+
+  return { sendMessage, isLoading, error, isAnimatingText, isTurboActive, toggleTurboMode }
+}
